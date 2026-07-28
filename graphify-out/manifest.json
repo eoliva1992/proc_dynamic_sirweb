@@ -1,0 +1,157 @@
+{
+  ".vscode/launch.json": {
+    "mtime": 1785187735.435362,
+    "ast_hash": "975d6f8aebc727f9f9a3cd47094d63d9",
+    "semantic_hash": "975d6f8aebc727f9f9a3cd47094d63d9"
+  },
+  ".vscode/settings.json": {
+    "mtime": 1785187801.8769083,
+    "ast_hash": "626d3eeb69c9ae4d02a8bcab0c98086a",
+    "semantic_hash": "626d3eeb69c9ae4d02a8bcab0c98086a"
+  },
+  "lib/main.dart": {
+    "mtime": 1785186079.6797037,
+    "ast_hash": "5cfbfaa556a43030a5c1a9f5340ec6e9",
+    "semantic_hash": "5cfbfaa556a43030a5c1a9f5340ec6e9"
+  },
+  "lib/models/configuracion_tipo.dart": {
+    "mtime": 1785185869.6837792,
+    "ast_hash": "25eb81d734b66d728a48852ffcce5808",
+    "semantic_hash": "25eb81d734b66d728a48852ffcce5808"
+  },
+  "lib/models/procedimiento.dart": {
+    "mtime": 1785181697.1788192,
+    "ast_hash": "0e62a00784009b4ff6176abea6375533",
+    "semantic_hash": "0e62a00784009b4ff6176abea6375533"
+  },
+  "lib/models/variable_dinamica.dart": {
+    "mtime": 1785214572.6344774,
+    "ast_hash": "64db44684de2764cd44452c2d56208ff",
+    "semantic_hash": "64db44684de2764cd44452c2d56208ff"
+  },
+  "lib/providers/procedimientos_provider.dart": {
+    "mtime": 1785211843.551551,
+    "ast_hash": "8ccdea7e9996fc96a60bc05d13d620f2",
+    "semantic_hash": "8ccdea7e9996fc96a60bc05d13d620f2"
+  },
+  "lib/providers/theme_provider.dart": {
+    "mtime": 1785185876.6867526,
+    "ast_hash": "3acb9e0f252f16a06e781e794c11a981",
+    "semantic_hash": "3acb9e0f252f16a06e781e794c11a981"
+  },
+  "lib/screens/main_screen.dart": {
+    "mtime": 1785209855.9859838,
+    "ast_hash": "546450fc39f28302e6651bf1c38906c8",
+    "semantic_hash": "546450fc39f28302e6651bf1c38906c8"
+  },
+  "lib/services/sirweb_service.dart": {
+    "mtime": 1785211804.1251562,
+    "ast_hash": "e0ca7e313f172819e5232cbb7fdd797c",
+    "semantic_hash": "e0ca7e313f172819e5232cbb7fdd797c"
+  },
+  "lib/widgets/ambiente_selector.dart": {
+    "mtime": 1785182114.1647916,
+    "ast_hash": "ed61d5fdcd8d87fbae04abaaed60e247",
+    "semantic_hash": "ed61d5fdcd8d87fbae04abaaed60e247"
+  },
+  "lib/widgets/code_editor_panel.dart": {
+    "mtime": 1785241340.1353717,
+    "ast_hash": "490479effb38a51b9bf6f977e5c63e73",
+    "semantic_hash": "490479effb38a51b9bf6f977e5c63e73"
+  },
+  "lib/widgets/config_badge.dart": {
+    "mtime": 1785209805.4259768,
+    "ast_hash": "fdcf889dd0cea9137d2f5fddcdd532a5",
+    "semantic_hash": "fdcf889dd0cea9137d2f5fddcdd532a5"
+  },
+  "lib/widgets/new_procedure_dialog.dart": {
+    "mtime": 1785213260.9545233,
+    "ast_hash": "b9560d8177d6200d1cf4d9a8cd2f957c",
+    "semantic_hash": "b9560d8177d6200d1cf4d9a8cd2f957c"
+  },
+  "lib/widgets/procedure_card.dart": {
+    "mtime": 1785187273.436847,
+    "ast_hash": "7e84d1f2c015bc7b5a0fc3c31774d2a5",
+    "semantic_hash": "7e84d1f2c015bc7b5a0fc3c31774d2a5"
+  },
+  "lib/widgets/procedure_list.dart": {
+    "mtime": 1785210050.2346141,
+    "ast_hash": "959fa09e4dd08d9d147ce19f7258374c",
+    "semantic_hash": "959fa09e4dd08d9d147ce19f7258374c"
+  },
+  "lib/widgets/search_bar_widget.dart": {
+    "mtime": 1785187273.4475281,
+    "ast_hash": "cf0e1d0b95be0987939f98ad11b018cf",
+    "semantic_hash": "cf0e1d0b95be0987939f98ad11b018cf"
+  },
+  "windows/flutter/generated_plugin_registrant.cc": {
+    "mtime": 1785212679.69608,
+    "ast_hash": "a8f91348d8d9090f22ec69d597c41e1f",
+    "semantic_hash": "a8f91348d8d9090f22ec69d597c41e1f"
+  },
+  "windows/flutter/generated_plugin_registrant.h": {
+    "mtime": 1785179784.7445977,
+    "ast_hash": "0ea33875f9f8e118f9c2ded03e2e2835",
+    "semantic_hash": "0ea33875f9f8e118f9c2ded03e2e2835"
+  },
+  "windows/runner/flutter_window.cpp": {
+    "mtime": 1780452476.3012104,
+    "ast_hash": "2f463f9b7da67a2d692a012f9ea85e0c",
+    "semantic_hash": "2f463f9b7da67a2d692a012f9ea85e0c"
+  },
+  "windows/runner/flutter_window.h": {
+    "mtime": 1780452476.3012104,
+    "ast_hash": "7defcc89d4a26d56e801241d624d48fb",
+    "semantic_hash": "7defcc89d4a26d56e801241d624d48fb"
+  },
+  "windows/runner/main.cpp": {
+    "mtime": 1785187745.9863486,
+    "ast_hash": "2be25a88f8f7eadd54a5de7a5843bd79",
+    "semantic_hash": "2be25a88f8f7eadd54a5de7a5843bd79"
+  },
+  "windows/runner/resource.h": {
+    "mtime": 1780452476.3012104,
+    "ast_hash": "1ade5dd15e613479a15e8832ed276f2b",
+    "semantic_hash": "1ade5dd15e613479a15e8832ed276f2b"
+  },
+  "windows/runner/utils.cpp": {
+    "mtime": 1780452476.3012104,
+    "ast_hash": "e18900a4c2c2962ad732d3b83f0396b9",
+    "semantic_hash": "e18900a4c2c2962ad732d3b83f0396b9"
+  },
+  "windows/runner/utils.h": {
+    "mtime": 1780452476.3012104,
+    "ast_hash": "fd81e143f5614eb6fd75efe539002853",
+    "semantic_hash": "fd81e143f5614eb6fd75efe539002853"
+  },
+  "windows/runner/win32_window.cpp": {
+    "mtime": 1785187788.2518125,
+    "ast_hash": "84a95b10d70b33b1fcd29c18bb8f1865",
+    "semantic_hash": "84a95b10d70b33b1fcd29c18bb8f1865"
+  },
+  "windows/runner/win32_window.h": {
+    "mtime": 1780452476.3012104,
+    "ast_hash": "7569387d58711ab975940f4df3b4bcda",
+    "semantic_hash": "7569387d58711ab975940f4df3b4bcda"
+  },
+  "README.md": {
+    "mtime": 1785179780.1122606,
+    "ast_hash": "c9ce1e8882301a6c707aa5eb91e455db",
+    "semantic_hash": "c9ce1e8882301a6c707aa5eb91e455db"
+  },
+  "analysis_options.yaml": {
+    "mtime": 1785179780.0856774,
+    "ast_hash": "29c685c23a06da68389960ce6ac6f303",
+    "semantic_hash": "29c685c23a06da68389960ce6ac6f303"
+  },
+  "pubspec.yaml": {
+    "mtime": 1785212660.795012,
+    "ast_hash": "a69ccdd829a31eea4e31163ee1c74e1d",
+    "semantic_hash": "a69ccdd829a31eea4e31163ee1c74e1d"
+  },
+  "windows/CMakeLists.txt": {
+    "mtime": 1785179780.1260436,
+    "ast_hash": "7d5dc25a410695b1eef170608cb1953c",
+    "semantic_hash": "7d5dc25a410695b1eef170608cb1953c"
+  }
+}
