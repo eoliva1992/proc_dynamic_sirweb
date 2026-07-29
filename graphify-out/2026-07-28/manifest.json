@@ -10,9 +10,9 @@
     "semantic_hash": "626d3eeb69c9ae4d02a8bcab0c98086a"
   },
   "lib/main.dart": {
-    "mtime": 1785242688.3379743,
-    "ast_hash": "c7a131fede132e3af0aa5cd497d61f23",
-    "semantic_hash": ""
+    "mtime": 1785186079.6797037,
+    "ast_hash": "5cfbfaa556a43030a5c1a9f5340ec6e9",
+    "semantic_hash": "5cfbfaa556a43030a5c1a9f5340ec6e9"
   },
   "lib/models/configuracion_tipo.dart": {
     "mtime": 1785185869.6837792,

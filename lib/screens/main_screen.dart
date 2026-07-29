@@ -8,6 +8,8 @@ import '../widgets/procedure_list.dart';
 import '../widgets/code_editor_panel.dart';
 import '../widgets/new_procedure_dialog.dart';
 
+part '_usuario_button.dart';
+
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
@@ -35,7 +37,8 @@ class _MainScreenState extends State<MainScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            context.read<ProcedimientosProvider>().mensaje ?? 'Creado correctamente',
+            context.read<ProcedimientosProvider>().mensaje ??
+                'Creado correctamente',
           ),
           backgroundColor: Colors.green.shade800,
           duration: const Duration(seconds: 3),
@@ -62,7 +65,7 @@ class _MainScreenState extends State<MainScreen> {
           child: FadeTransition(opacity: anim, child: child),
         );
       },
-      pageBuilder: (ctx, _, __) {
+      pageBuilder: (ctx, _, _) {
         return Center(
           child: Material(
             color: Colors.transparent,
@@ -145,7 +148,9 @@ class _MainScreenState extends State<MainScreen> {
                       controller: ctrl,
                       autofocus: true,
                       style: TextStyle(
-                        color: isDark ? const Color(0xFFD4D4D4) : Colors.black87,
+                        color: isDark
+                            ? const Color(0xFFD4D4D4)
+                            : Colors.black87,
                         fontSize: 15,
                         fontWeight: FontWeight.w500,
                         letterSpacing: 1.2,
@@ -154,17 +159,23 @@ class _MainScreenState extends State<MainScreen> {
                       decoration: InputDecoration(
                         hintText: 'Ej: EOLIVA',
                         hintStyle: TextStyle(
-                          color: isDark ? const Color(0xFF555555) : Colors.black38,
+                          color: isDark
+                              ? const Color(0xFF555555)
+                              : Colors.black38,
                           fontWeight: FontWeight.normal,
                           letterSpacing: 0,
                         ),
                         prefixIcon: Icon(
                           Icons.badge_outlined,
                           size: 18,
-                          color: isDark ? const Color(0xFF0078D4) : const Color(0xFF0078D4),
+                          color: isDark
+                              ? const Color(0xFF0078D4)
+                              : const Color(0xFF0078D4),
                         ),
                         filled: true,
-                        fillColor: isDark ? const Color(0xFF2D2D2D) : const Color(0xFFF5F7FA),
+                        fillColor: isDark
+                            ? const Color(0xFF2D2D2D)
+                            : const Color(0xFFF5F7FA),
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
                           vertical: 14,
@@ -314,11 +325,15 @@ class _MainScreenState extends State<MainScreen> {
         // Botón toggle de tema
         Consumer<ThemeProvider>(
           builder: (context, themeProvider, _) => Tooltip(
-            message: themeProvider.isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro',
+            message: themeProvider.isDark
+                ? 'Cambiar a modo claro'
+                : 'Cambiar a modo oscuro',
             child: IconButton(
               onPressed: themeProvider.toggle,
               icon: Icon(
-                themeProvider.isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+                themeProvider.isDark
+                    ? Icons.light_mode_outlined
+                    : Icons.dark_mode_outlined,
               ),
               color: Colors.white70,
             ),
@@ -347,43 +362,3 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 }
-
-class _UsuarioButton extends StatelessWidget {
-  final String cdUsuario;
-  final VoidCallback onTap;
-
-  const _UsuarioButton({required this.cdUsuario, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(4),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.person_outline, size: 14, color: Colors.white70),
-            const SizedBox(width: 5),
-            Text(
-              cdUsuario.isEmpty ? 'Usuario' : cdUsuario,
-              style: TextStyle(
-                color: cdUsuario.isEmpty ? Colors.white38 : Colors.white70,
-                fontSize: 12,
-              ),
-            ),
-            const SizedBox(width: 4),
-            const Icon(Icons.edit, size: 12, color: Colors.white38),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-

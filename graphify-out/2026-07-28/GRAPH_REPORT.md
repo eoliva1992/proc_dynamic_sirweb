@@ -1,16 +1,16 @@
 # Graph Report - proc_dynamic_sirweb  (2026-07-28)
 
 ## Corpus Check
-- 31 files · ~14,576 words
+- 31 files · ~14,571 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 463 nodes · 609 edges · 28 communities (19 shown, 9 thin omitted)
+- 461 nodes · 609 edges · 28 communities (19 shown, 9 thin omitted)
 - Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 14 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `c0afcc1d`
+- Built from commit: `a4184011`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -45,7 +45,7 @@
 
 ## God Nodes (most connected - your core abstractions)
 1. `ProcedimientosProvider` - 27 edges
-2. `StatelessWidget` - 19 edges
+2. `StatelessWidget` - 20 edges
 3. `Win32Window` - 19 edges
 4. `MessageHandler` - 12 edges
 5. `FlutterWindow` - 10 edges
@@ -60,12 +60,12 @@
   README.md → pubspec.yaml
 - `Flutter Application` --USES--> `flutter_lints rules`  [EXTRACTED]
   pubspec.yaml → analysis_options.yaml
+- `ProcDynamicApp` --inherits--> `StatelessWidget`  [EXTRACTED]
+  lib/main.dart → lib/widgets/code_editor_panel.dart
+- `_showNewProcedureDialog` --references--> `ProcedimientosProvider`  [EXTRACTED]
+  lib/screens/main_screen.dart → lib/providers/procedimientos_provider.dart
 - `build` --references--> `ProcedimientosProvider`  [EXTRACTED]
   lib/widgets/procedure_card.dart → lib/providers/procedimientos_provider.dart
-- `_onScroll` --references--> `ProcedimientosProvider`  [EXTRACTED]
-  lib/widgets/procedure_list.dart → lib/providers/procedimientos_provider.dart
-- `_buscar` --references--> `ProcedimientosProvider`  [EXTRACTED]
-  lib/widgets/search_bar_widget.dart → lib/providers/procedimientos_provider.dart
 
 ## Import Cycles
 - None detected.
@@ -85,32 +85,32 @@ Cohesion: 0.04
 Nodes (48): dart:async, int get, activar, _ambiente, buscar, _cargando, _cargandoEditor, _cargandoMas (+40 more)
 
 ### Community 3 - "App Entry & UI Shell"
-Cohesion: 0.15
-Nodes (12): build, _buildBuscarButton, _buildConfigFilter, _buildEstadoFilter, _buildSearchField, _buscar, createState, dispose (+4 more)
+Cohesion: 0.14
+Nodes (14): build, _buildBuscarButton, _buildConfigFilter, _buildEstadoFilter, _buildSearchField, _buscar, createState, dispose (+6 more)
 
 ### Community 4 - "Editor UI Components"
-Cohesion: 0.08
-Nodes (26): config_badge.dart, _UsuarioButton, _AutocompletePopup, _ConfigSelector, _EstadoChip, _FindActionBtn, _FindBar, _FindNavBtn (+18 more)
+Cohesion: 0.09
+Nodes (25): config_badge.dart, _UsuarioButton, _AutocompletePopup, _EstadoChip, _FindActionBtn, _FindBar, _FindNavBtn, _FindToggle (+17 more)
 
 ### Community 5 - "Theme & Environment Selector"
 Cohesion: 0.08
 Nodes (22): bool get, isDark, _themeMode, toggle, _ambientes, AmbienteSelector, build, _colorForAmbiente (+14 more)
 
 ### Community 6 - "New Procedure Dialog"
-Cohesion: 0.08
-Nodes (24): CodeLineEditingController, FormState, build, _buildBody, _buildCodigoField, _buildDialogHeader, _buildFooter, _buildUsuarioField (+16 more)
+Cohesion: 0.09
+Nodes (22): CodeLineEditingController, FormState, build, _buildBody, _buildCodigoField, _buildDialogHeader, _buildFooter, _buildUsuarioField (+14 more)
 
 ### Community 7 - "SirWeb API Service"
 Cohesion: 0.11
 Nodes (17): dart:convert, activarProcedimiento, actualizarProcedimiento, _baseUrl, _call, crearProcedimiento, desactivarProcedimiento, _extractSseData (+9 more)
 
 ### Community 8 - "Main Screen Layout"
-Cohesion: 0.17
-Nodes (11): build, _buildAppBar, _buildEditorView, cdUsuario, createState, onTap, ../widgets/ambiente_selector.dart, ../widgets/code_editor_panel.dart (+3 more)
+Cohesion: 0.15
+Nodes (12): build, _buildAppBar, _buildEditorView, cdUsuario, createState, onTap, _showNewProcedureDialog, ../widgets/ambiente_selector.dart (+4 more)
 
 ### Community 9 - "State & Widget Lifecycle"
-Cohesion: 0.17
-Nodes (12): ChangeNotifier, ProcedimientosProvider, ThemeProvider, initState, _showNewProcedureDialog, _showUsuarioDialog, build, _buildEditor (+4 more)
+Cohesion: 0.20
+Nodes (10): ProcedimientosProvider, initState, _showUsuarioDialog, build, _buildEditor, _ConfigSelector, _showVariablesModal, _buildConfigDropdown (+2 more)
 
 ### Community 10 - "Project Configuration"
 Cohesion: 0.17
@@ -126,7 +126,7 @@ Nodes (11): activo, cdProcedimiento, cdUsuario, copyWith, deTexto, feModificacio
 
 ### Community 13 - "Stateful Widget Classes"
 Cohesion: 0.27
-Nodes (10): MainScreen, _MainScreenState, CodeEditorPanel, _CodeEditorPanelState, _EditorStatusBar, _EditorStatusBarState, SearchBarWidget, _SearchBarWidgetState (+2 more)
+Nodes (10): MainScreen, _MainScreenState, CodeEditorPanel, _CodeEditorPanelState, _EditorStatusBar, _EditorStatusBarState, NewProcedureDialog, _NewProcedureDialogState (+2 more)
 
 ### Community 14 - "Config Type Model"
 Cohesion: 0.29
@@ -138,7 +138,7 @@ Nodes (5): cdVariable, deVariable, fromJson, inConfiguracion, VariableDinamica
 
 ### Community 24 - "main.dart"
 Cohesion: 0.17
-Nodes (11): build, _buildDarkTheme, _buildLightTheme, main, ProcDynamicApp, package:provider/provider.dart, providers/procedimientos_provider.dart, providers/theme_provider.dart (+3 more)
+Nodes (11): ChangeNotifier, build, _buildDarkTheme, _buildLightTheme, main, ProcDynamicApp, ThemeProvider, package:provider/provider.dart (+3 more)
 
 ### Community 25 - "procedure_list.dart"
 Cohesion: 0.20
@@ -152,12 +152,12 @@ Nodes (10): build, createState, dispose, initState, _onScroll, ProcedureList, _P
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `ProcedimientosProvider` connect `State & Widget Lifecycle` to `Code Editor Core`, `Procedures State Management`, `App Entry & UI Shell`, `Editor UI Components`, `New Procedure Dialog`, `Main Screen Layout`, `Stateful Widget Classes`, `procedure_list.dart`?**
+- **Why does `ProcedimientosProvider` connect `State & Widget Lifecycle` to `Code Editor Core`, `Procedures State Management`, `App Entry & UI Shell`, `Editor UI Components`, `New Procedure Dialog`, `Main Screen Layout`, `Stateful Widget Classes`, `main.dart`, `procedure_list.dart`?**
   _High betweenness centrality (0.129) - this node is a cross-community bridge._
 - **Why does `Procedimiento` connect `Procedure Data Model` to `Code Editor Core`, `Procedures State Management`, `Editor UI Components`?**
   _High betweenness centrality (0.052) - this node is a cross-community bridge._
-- **Why does `StatelessWidget` connect `Editor UI Components` to `Code Editor Core`, `Theme & Environment Selector`?**
-  _High betweenness centrality (0.012) - this node is a cross-community bridge._
+- **Why does `StatelessWidget` connect `Editor UI Components` to `main.dart`, `Code Editor Core`, `Theme & Environment Selector`, `State & Widget Lifecycle`?**
+  _High betweenness centrality (0.015) - this node is a cross-community bridge._
 - **Are the 4 inferred relationships involving `MessageHandler` (e.g. with `Destroy` and `GetClientArea`) actually correct?**
   _`MessageHandler` has 4 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `main`, `_buildDarkTheme`, `_buildLightTheme` to the rest of the system?**

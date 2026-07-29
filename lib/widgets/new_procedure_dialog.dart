@@ -126,7 +126,7 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
             icon: Icon(
               Icons.close,
               size: 18,
-              color: colorScheme.onSurface.withOpacity(0.5),
+              color: colorScheme.onSurface.withValues(alpha: 0.5),
             ),
             style: IconButton.styleFrom(
               minimumSize: const Size(28, 28),
@@ -245,7 +245,7 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: colorScheme.onSurface.withOpacity(0.08),
+        color: colorScheme.onSurface.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(4),
         border: Border.all(color: colorScheme.outline),
       ),
@@ -256,7 +256,7 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
           dropdownColor: colorScheme.surface,
           icon: Icon(
             Icons.arrow_drop_down,
-            color: colorScheme.onSurface.withOpacity(0.4),
+            color: colorScheme.onSurface.withValues(alpha: 0.4),
             size: 18,
           ),
           items: configs.isEmpty
@@ -300,16 +300,16 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
     return InputDecoration(
       labelText: label,
       labelStyle: TextStyle(
-        color: colorScheme.onSurface.withOpacity(0.5),
+        color: colorScheme.onSurface.withValues(alpha: 0.5),
         fontSize: 12,
       ),
       prefixIcon: Icon(
         icon,
         size: 16,
-        color: colorScheme.onSurface.withOpacity(0.4),
+        color: colorScheme.onSurface.withValues(alpha: 0.4),
       ),
       filled: true,
-      fillColor: colorScheme.onSurface.withOpacity(0.06),
+      fillColor: colorScheme.onSurface.withValues(alpha: 0.06),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(4),
         borderSide: BorderSide(color: colorScheme.outline),
@@ -360,7 +360,7 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
               TextButton(
                 onPressed: () => Navigator.of(context).pop(),
                 style: TextButton.styleFrom(
-                  foregroundColor: colorScheme.onSurface.withOpacity(0.6),
+                  foregroundColor: colorScheme.onSurface.withValues(alpha: 0.6),
                 ),
                 child: const Text('Cancelar'),
               ),
