@@ -1,0 +1,149 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "create-dirs",
+			"type": "shell",
+			"command": "New-Item -ItemType Directory -Force assets, tools\\plsql_parser\\src, tools\\plsql_parser\\grammar, tools\\plsql_parser\\generated; Write-Host 'Directorios creados'",
+			"group": "build"
+		},
+		{
+			"label": "fix-nuget",
+			"type": "shell",
+			"command": "Remove-Item -Force 'build\\windows\\x64\\nuget.exe' -ErrorAction SilentlyContinue; Remove-Item -Recurse -Force 'build\\windows\\x64\\packages' -ErrorAction SilentlyContinue; Write-Host 'Limpieza lista'; $url = 'https://dist.nuget.org/win-x86-commandline/latest/nuget.exe'; $dest = 'build\\windows\\x64\\nuget.exe'; New-Item -ItemType Directory -Force 'build\\windows\\x64' | Out-Null; Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing; $size = (Get-Item $dest).Length; Write-Host \"Descargado nuget.exe: $size bytes\"; if ($size -lt 100000) { Write-Host 'ERROR: archivo demasiado pequeño' } else { Write-Host 'OK: nuget.exe listo' }",
+			"group": "build"
+		},
+		{
+			"label": "clean-cmake",
+			"type": "shell",
+			"command": "Remove-Item -Recurse -Force 'build\\windows\\x64\\CMakeCache.txt' -ErrorAction SilentlyContinue; Remove-Item -Recurse -Force 'build\\windows\\x64\\CMakeFiles' -ErrorAction SilentlyContinue; Write-Host 'Cache CMake limpiada. Ahora ejecuta: flutter run -d windows'",
+			"group": "build"
+		},
+		{
+			"label": "fix-nuget-v5.10",
+			"type": "shell",
+			"command": "Remove-Item -Force 'build\\windows\\x64\\nuget.exe' -ErrorAction SilentlyContinue; $url = 'https://dist.nuget.org/win-x86-commandline/v5.10.0/nuget.exe'; $dest = 'build\\windows\\x64\\nuget.exe'; New-Item -ItemType Directory -Force 'build\\windows\\x64' | Out-Null; Write-Host 'Descargando nuget v5.10.0...'; Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing; $hash = (Get-FileHash $dest -Algorithm SHA256).Hash.ToLower(); $expected = '852b71cc8c8c2d40d09ea49d321ff56fd2397b9d6ea9f96e532530307bbbafd3'; Write-Host \"Hash descargado: $hash\"; Write-Host \"Hash esperado:   $expected\"; if ($hash -eq $expected) { Write-Host 'OK: hash coincide, build deberia funcionar' } else { Write-Host 'ERROR: hash no coincide' }",
+			"group": "build"
+		},
+		{
+			"label": "rewrite-monaco-widget",
+			"type": "shell",
+			"command": "@'\nimport 'dart:async';\n\nimport 'package:flutter/material.dart';\nimport 'package:flutter_monaco/flutter_monaco.dart';\n\nclass MonacoEditorController {\n  MonacoController? _ctrl;\n  bool _ready = false;\n  final List<Future<void> Function(MonacoController)> _pending = [];\n\n  void _attach(MonacoController ctrl) {\n    _ctrl = ctrl;\n    _ready = true;\n    for (final cmd in _pending) { cmd(ctrl); }\n    _pending.clear();\n  }\n\n  void _enqueue(Future<void> Function(MonacoController) cmd) {\n    if (_ready && _ctrl != null) { cmd(_ctrl!); } else { _pending.add(cmd); }\n  }\n\n  void setErrors(List<MonacoError> errors) {\n    _enqueue((ctrl) async {\n      final markers = errors.map((e) => MarkerData.error(\n        range: Range(startLine: e.line, startColumn: e.col, endLine: e.line, endColumn: e.col + 1),\n        message: e.message, source: 'PL/SQL Checker',\n      )).toList();\n      await ctrl.document.setMarkers(markers, owner: 'plsql-checker');\n    });\n  }\n\n  void clearErrors() {\n    _enqueue((ctrl) async { await ctrl.document.clearMarkers(owner: 'plsql-checker'); });\n  }\n\n  void setLanguage(String lang) {\n    final ml = lang == 'javascript' ? MonacoLanguage.javascript : MonacoLanguage.sql;\n    _enqueue((ctrl) async { await ctrl.document.setLanguage(ml); });\n  }\n\n  void dispose() { _ctrl?.dispose(); _ctrl = null; _ready = false; _pending.clear(); }\n}\n\ntypedef MonacoController = MonacoEditorController;\n\nclass MonacoError {\n  final int line;\n  final int col;\n  final String message;\n  const MonacoError({required this.line, required this.col, required this.message});\n}\n\nclass MonacoEditorWidget extends StatefulWidget {\n  final MonacoEditorController controller;\n  final String initialCode;\n  final String language;\n  final bool darkTheme;\n  final ValueChanged<String>? onChanged;\n  final void Function(int line, int col)? onCursorChanged;\n\n  const MonacoEditorWidget({\n    super.key,\n    required this.controller,\n    required this.initialCode,\n    this.language = 'plsql',\n    this.darkTheme = true,\n    this.onChanged,\n    this.onCursorChanged,\n  });\n\n  @override\n  State<MonacoEditorWidget> createState() => _MonacoEditorWidgetState();\n}\n\nclass _MonacoEditorWidgetState extends State<MonacoEditorWidget> {\n  StreamSubscription<Range?>? _selectionSub;\n\n  EditorOptions get _options => EditorOptions(\n    language: widget.language == 'javascript' ? MonacoLanguage.javascript : MonacoLanguage.sql,\n    theme: widget.darkTheme ? MonacoTheme.vsDark : MonacoTheme.vsLight,\n    fontSize: 14,\n    minimap: const MonacoMinimapOptions(enabled: true),\n    wordWrap: MonacoWordWrap.off,\n    lineNumbers: MonacoLineNumbers.on,\n    renderWhitespace: RenderWhitespace.none,\n    tabSize: 2,\n  );\n\n  void _onReady(MonacoController ctrl) {\n    widget.controller._attach(ctrl);\n    _selectionSub = ctrl.onSelectionChanged.listen((range) {\n      if (range != null) widget.onCursorChanged?.call(range.startLine, range.startColumn);\n    });\n  }\n\n  @override\n  void didUpdateWidget(MonacoEditorWidget old) {\n    super.didUpdateWidget(old);\n    if (old.language != widget.language) widget.controller.setLanguage(widget.language);\n  }\n\n  @override\n  void dispose() { _selectionSub?.cancel(); widget.controller.dispose(); super.dispose(); }\n\n  @override\n  Widget build(BuildContext context) {\n    return MonacoEditor(\n      initialText: widget.initialCode,\n      options: _options,\n      contentDebounce: const Duration(milliseconds: 400),\n      onReady: _onReady,\n      onContentChanged: widget.onChanged,\n    );\n  }\n}\n'@ | Set-Content -Path 'lib\\widgets\\monaco_editor_widget.dart' -Encoding UTF8; Write-Host 'Archivo reescrito'",
+			"group": "build"
+		},
+		{
+			"label": "del-monaco-widget",
+			"type": "shell",
+			"command": "Remove-Item 'lib\\widgets\\monaco_editor_widget.dart' -Force; Write-Host 'Borrado'",
+			"group": "build"
+		},
+		{
+			"label": "flutter-analyze",
+			"type": "shell",
+			"command": "flutter analyze lib 2>&1",
+			"group": "build"
+		},
+		{
+			"label": "del2",
+			"type": "shell",
+			"command": "Remove-Item 'lib\\widgets\\monaco_editor_widget.dart' -Force; Write-Host 'OK'",
+			"group": "build"
+		},
+		{
+			"label": "analyze2",
+			"type": "shell",
+			"command": "flutter analyze lib 2>&1",
+			"group": "build"
+		},
+		{
+			"label": "analyze3",
+			"type": "shell",
+			"command": "flutter analyze lib 2>&1",
+			"group": "build"
+		},
+		{
+			"label": "analyze4",
+			"type": "shell",
+			"command": "flutter analyze lib 2>&1",
+			"group": "build"
+		},
+		{
+			"label": "count-errors",
+			"type": "shell",
+			"command": "flutter analyze lib --no-fatal-warnings 2>&1 | Select-String -Pattern 'error' | Measure-Object | Select-Object -ExpandProperty Count",
+			"group": "build"
+		},
+		{
+			"label": "show-errors",
+			"type": "shell",
+			"command": "flutter analyze lib --no-fatal-warnings 2>&1 | Select-String -Pattern 'error'",
+			"group": "build"
+		},
+		{
+			"label": "analyze-final",
+			"type": "shell",
+			"command": "flutter analyze lib 2>&1",
+			"group": "build"
+		},
+		{
+			"label": "del-monaco",
+			"type": "shell",
+			"command": "Remove-Item 'lib\\widgets\\monaco_editor_widget.dart' -Force; Write-Host 'OK'",
+			"group": "build"
+		},
+		{
+			"label": "nuget-v7.6.0",
+			"type": "shell",
+			"command": "New-Item -ItemType Directory -Force 'build\\windows\\x64' | Out-Null; $url = 'https://dist.nuget.org/win-x86-commandline/v7.6.0/nuget.exe'; $dest = 'build\\windows\\x64\\nuget.exe'; Write-Host 'Descargando nuget v7.6.0...'; Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing; $hash = (Get-FileHash $dest -Algorithm SHA256).Hash.ToLower(); $expected = '751ee5e79481626a428c1241dc7f94bca2739b32588e669715bc5fb54d8fb8a2'; if ($hash -eq $expected) { Write-Host \"OK: hash correcto ($hash)\" } else { Write-Host \"ERROR: hash=$hash esperado=$expected\" }",
+			"group": "build"
+		},
+		{
+			"label": "clean-cmake",
+			"type": "shell",
+			"command": "Remove-Item -Force 'build\\windows\\x64\\CMakeCache.txt' -ErrorAction SilentlyContinue; Remove-Item -Recurse -Force 'build\\windows\\x64\\CMakeFiles' -ErrorAction SilentlyContinue; Write-Host 'Cache limpiada'",
+			"group": "build"
+		},
+		{
+			"label": "del-panel",
+			"type": "shell",
+			"command": "Remove-Item 'lib\\widgets\\code_editor_panel.dart' -Force; Write-Host 'OK'",
+			"group": "build"
+		},
+		{
+			"label": "analyze-clean",
+			"type": "shell",
+			"command": "flutter analyze lib 2>&1",
+			"group": "build"
+		},
+		{
+			"label": "errors-only",
+			"type": "shell",
+			"command": "flutter analyze lib 2>&1 | Select-String -Pattern 'error -'",
+			"group": "build"
+		},
+		{
+			"label": "del-parts",
+			"type": "shell",
+			"command": "Remove-Item 'lib\\widgets\\_editor_autocomplete.dart', 'lib\\widgets\\_editor_toolbar.dart', 'lib\\widgets\\_editor_find_bar.dart', 'lib\\widgets\\_editor_syntax_checker.dart', 'lib\\widgets\\_editor_status_bar.dart' -Force -ErrorAction SilentlyContinue; Write-Host 'Archivos part obsoletos eliminados'",
+			"group": "build"
+		},
+		{
+			"label": "final-analyze",
+			"type": "shell",
+			"command": "flutter analyze lib 2>&1 | Select-String -Pattern 'error -|warning -|issues found'",
+			"group": "build"
+		},
+		{
+			"label": "final-check",
+			"type": "shell",
+			"command": "flutter analyze lib 2>&1 | Select-String -Pattern 'error -|issues found'",
+			"group": "build"
+		},
+		{
+			"label": "errors-final",
+			"type": "shell",
+			"command": "flutter analyze lib 2>&1 | Select-String -Pattern '  error -'",
+			"group": "build"
+		}
+	]
+}

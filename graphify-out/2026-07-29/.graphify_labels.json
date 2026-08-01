@@ -11,6 +11,7 @@
   "9": "State & Widget Lifecycle",
   "10": "Project Configuration",
   "11": "Windows Entry Point",
+  "12": "Procedure Data Model",
   "13": "Stateful Widget Classes",
   "14": "Config Type Model",
   "15": "Dynamic Variable Model",
@@ -23,6 +24,7 @@
   "22": "Flutter Lints Config",
   "23": "Misc Utilities",
   "24": "main.dart",
+  "25": "procedure_list.dart",
   "26": "CLAUDE.md",
   "27": "graphify-watch.ps1"
 }

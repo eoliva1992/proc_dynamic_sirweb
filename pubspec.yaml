@@ -13,7 +13,8 @@ dependencies:
   re_editor: ^0.10.0
   re_highlight: ^0.0.3
   provider: ^6.1.2
-
+  flutter_js: 0.8.7
+  flutter_monaco: 3.4.2
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -21,3 +22,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    # Bundle ANTLR4 PL/SQL — generar con: cd tools/plsql_parser && ./build.ps1
+    - assets/plsql_checker.js

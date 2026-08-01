@@ -40,9 +40,9 @@
     "semantic_hash": "3acb9e0f252f16a06e781e794c11a981"
   },
   "lib/screens/main_screen.dart": {
-    "mtime": 1785296894.4263844,
-    "ast_hash": "44998f113c0fbd04e8f76121ab9d66d3",
-    "semantic_hash": ""
+    "mtime": 1785209855.9859838,
+    "ast_hash": "546450fc39f28302e6651bf1c38906c8",
+    "semantic_hash": "546450fc39f28302e6651bf1c38906c8"
   },
   "lib/services/sirweb_service.dart": {
     "mtime": 1785211804.1251562,
@@ -55,9 +55,9 @@
     "semantic_hash": "ed61d5fdcd8d87fbae04abaaed60e247"
   },
   "lib/widgets/code_editor_panel.dart": {
-    "mtime": 1785298502.4012637,
-    "ast_hash": "13ef831ba0c8f9e8a76d89c41bc8046e",
-    "semantic_hash": ""
+    "mtime": 1785241340.1353717,
+    "ast_hash": "490479effb38a51b9bf6f977e5c63e73",
+    "semantic_hash": "490479effb38a51b9bf6f977e5c63e73"
   },
   "lib/widgets/config_badge.dart": {
     "mtime": 1785209805.4259768,
@@ -65,9 +65,9 @@
     "semantic_hash": "fdcf889dd0cea9137d2f5fddcdd532a5"
   },
   "lib/widgets/new_procedure_dialog.dart": {
-    "mtime": 1785296900.962229,
-    "ast_hash": "7229fc28c7acdaa79d9fbf9d72af2848",
-    "semantic_hash": ""
+    "mtime": 1785213260.9545233,
+    "ast_hash": "b9560d8177d6200d1cf4d9a8cd2f957c",
+    "semantic_hash": "b9560d8177d6200d1cf4d9a8cd2f957c"
   },
   "lib/widgets/procedure_card.dart": {
     "mtime": 1785187273.436847,
@@ -182,41 +182,6 @@
   "windows/runner/CMakeLists.txt": {
     "mtime": 1780452476.3012104,
     "ast_hash": "028602ab9754bffe716659ada7590d29",
-    "semantic_hash": ""
-  },
-  "lib/screens/_usuario_button.dart": {
-    "mtime": 1785251338.2675426,
-    "ast_hash": "6719da65e4fc40962fb1424d0b37911c",
-    "semantic_hash": ""
-  },
-  "lib/widgets/_editor_autocomplete.dart": {
-    "mtime": 1785248201.1708193,
-    "ast_hash": "d75541a21aec5de7847b9d8c28bb3dbb",
-    "semantic_hash": ""
-  },
-  "lib/widgets/_editor_config_widgets.dart": {
-    "mtime": 1785248222.983764,
-    "ast_hash": "9fc125c9ae375967b224c1268e31907e",
-    "semantic_hash": ""
-  },
-  "lib/widgets/_editor_find_bar.dart": {
-    "mtime": 1785248372.6589668,
-    "ast_hash": "41113785fc4648328e0c28d443464b3e",
-    "semantic_hash": ""
-  },
-  "lib/widgets/_editor_status_bar.dart": {
-    "mtime": 1785248153.940791,
-    "ast_hash": "b18b3b4e3f7e9bf1a9a4683929dfb75e",
-    "semantic_hash": ""
-  },
-  "lib/widgets/_editor_syntax_checker.dart": {
-    "mtime": 1785297837.3634157,
-    "ast_hash": "b7a98271ca957860c496633ce55c20bc",
-    "semantic_hash": ""
-  },
-  "lib/widgets/_editor_toolbar.dart": {
-    "mtime": 1785248339.2950757,
-    "ast_hash": "341d026387262cc48a85886f7e1496b1",
     "semantic_hash": ""
   }
 }

@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Monaco Editor</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #1e1e1e; }
+    #container { width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="container"></div>
+
+  <script>
+    // ── Configuración de require para Monaco (CDN) ─────────────────────────
+    var require = {
+      paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+  <script>
+    // ── Estado global ─────────────────────────────────────────────────────────
+    var _editor = null;
+    var _language = 'sql';
+    var _theme = 'vs-dark';
+    var _pendingCode = null;
+    var _pendingLang = null;
+    var _pendingTheme = null;
+    var _ignoreNextChange = false;
+    var _markers = [];
+
+    // ── Inicialización de Monaco ──────────────────────────────────────────────
+    require(['vs/editor/editor.main'], function () {
+
+      // Registrar lenguaje 'plsql' basado en sql con keywords Oracle adicionales
+      monaco.languages.register({ id: 'plsql' });
+      monaco.languages.setMonarchTokensProvider('plsql', {
+        ignoreCase: true,
+        keywords: [
+          'SELECT','FROM','WHERE','INSERT','UPDATE','DELETE','CREATE','ALTER',
+          'DROP','TABLE','VIEW','INDEX','PROCEDURE','FUNCTION','PACKAGE','BODY',
+          'BEGIN','END','IF','THEN','ELSE','ELSIF','LOOP','FOR','WHILE','EXIT',
+          'WHEN','CASE','RETURN','DECLARE','EXCEPTION','RAISE','IS','AS','IN',
+          'OUT','NULL','TRUE','FALSE','AND','OR','NOT','LIKE','BETWEEN','IN',
+          'EXISTS','HAVING','GROUP','ORDER','BY','DISTINCT','ALL','UNION',
+          'INTERSECT','MINUS','JOIN','INNER','OUTER','LEFT','RIGHT','FULL',
+          'CROSS','ON','USING','COMMIT','ROLLBACK','SAVEPOINT','EXECUTE','INTO',
+          'VALUES','SET','TYPE','CURSOR','OPEN','FETCH','CLOSE','RECORD',
+          'VARCHAR2','NUMBER','DATE','BOOLEAN','INTEGER','PLS_INTEGER','CHAR',
+          'CLOB','BLOB','ROWTYPE','ROWID','DBMS_OUTPUT','PUT_LINE','FORALL',
+          'BULK','COLLECT','LIMIT','PIPE','ROW','PIPELINED','DETERMINISTIC',
+          'PRAGMA','AUTONOMOUS_TRANSACTION','EXCEPTION_INIT',
+        ],
+        tokenizer: {
+          root: [
+            [/--.*$/, 'comment'],
+            [/\/\*/, 'comment', '@comment'],
+            [/'[^']*'/, 'string'],
+            [/\d+(\.\d+)?/, 'number'],
+            [/[a-zA-Z_]\w*/, {
+              cases: { '@keywords': 'keyword', '@default': 'identifier' }
+            }],
+            [/[;,().]/, 'delimiter'],
+            [/[<>=!&|+\-*\/]/, 'operator'],
+          ],
+          comment: [
+            [/[^/*]+/, 'comment'],
+            [/\*\//, 'comment', '@pop'],
+            [/[/*]/, 'comment'],
+          ],
+        },
+      });
+
+      // Completions básicas PL/SQL
+      monaco.languages.registerCompletionItemProvider('plsql', {
+        provideCompletionItems: function(model, position) {
+          var word = model.getWordUntilPosition(position);
+          var range = {
+            startLineNumber: position.lineNumber,
+            endLineNumber: position.lineNumber,
+            startColumn: word.startColumn,
+            endColumn: word.endColumn
+          };
+          var snippets = [
+            { label: 'BEGIN...END', kind: monaco.languages.CompletionItemKind.Snippet,
+              insertText: 'BEGIN\n\t${1:NULL};\nEND;', insertTextRules: 4,
+              documentation: 'Bloque BEGIN/END', range: range },
+            { label: 'IF...THEN...END IF', kind: monaco.languages.CompletionItemKind.Snippet,
+              insertText: 'IF ${1:condicion} THEN\n\t${2:NULL};\nEND IF;', insertTextRules: 4,
+              documentation: 'Condicional IF', range: range },
+            { label: 'FOR...LOOP', kind: monaco.languages.CompletionItemKind.Snippet,
+              insertText: 'FOR ${1:i} IN ${2:1}..${3:10} LOOP\n\t${4:NULL};\nEND LOOP;', insertTextRules: 4,
+              documentation: 'Bucle FOR', range: range },
+            { label: 'WHILE...LOOP', kind: monaco.languages.CompletionItemKind.Snippet,
+              insertText: 'WHILE ${1:condicion} LOOP\n\t${2:NULL};\nEND LOOP;', insertTextRules: 4,
+              documentation: 'Bucle WHILE', range: range },
+            { label: 'EXCEPTION', kind: monaco.languages.CompletionItemKind.Snippet,
+              insertText: 'EXCEPTION\n\tWHEN ${1:OTHERS} THEN\n\t\t${2:NULL};', insertTextRules: 4,
+              documentation: 'Bloque EXCEPTION', range: range },
+            { label: 'DBMS_OUTPUT.PUT_LINE', kind: monaco.languages.CompletionItemKind.Function,
+              insertText: "DBMS_OUTPUT.PUT_LINE('${1:mensaje}');", insertTextRules: 4,
+              documentation: 'Print de debug', range: range },
+            { label: 'CURSOR', kind: monaco.languages.CompletionItemKind.Snippet,
+              insertText: 'CURSOR ${1:cur} IS\n\tSELECT ${2:*} FROM ${3:tabla};', insertTextRules: 4,
+              documentation: 'Declaración de cursor', range: range },
+          ];
+          return { suggestions: snippets };
+        }
+      });
+
+      // Crear el editor
+      _editor = monaco.editor.create(document.getElementById('container'), {
+        value: _pendingCode || '',
+        language: _pendingLang || _language,
+        theme: _pendingTheme || _theme,
+        automaticLayout: true,
+        fontSize: 14,
+        fontFamily: "'Cascadia Code', 'Fira Code', 'Consolas', 'Courier New', monospace",
+        fontLigatures: true,
+        minimap: { enabled: true },
+        scrollBeyondLastLine: false,
+        wordWrap: 'off',
+        lineNumbers: 'on',
+        renderWhitespace: 'none',
+        tabSize: 2,
+        insertSpaces: true,
+        rulers: [],
+        bracketPairColorization: { enabled: true },
+        formatOnPaste: false,
+        contextmenu: true,
+        quickSuggestions: { other: true, comments: false, strings: false },
+        suggestOnTriggerCharacters: true,
+        acceptSuggestionOnEnter: 'on',
+        snippetSuggestions: 'top',
+        scrollbar: {
+          vertical: 'auto',
+          horizontal: 'auto',
+          verticalScrollbarSize: 10,
+          horizontalScrollbarSize: 10,
+        },
+      });
+
+      // Notificar a Dart cuando el contenido cambia
+      _editor.onDidChangeModelContent(function () {
+        if (_ignoreNextChange) { _ignoreNextChange = false; return; }
+        var code = _editor.getValue();
+        // Llamada al canal de mensajes de webview_windows
+        window.chrome.webview.postMessage(JSON.stringify({
+          type: 'contentChanged',
+          value: code,
+        }));
+      });
+
+      // Notificar posición del cursor
+      _editor.onDidChangeCursorPosition(function (e) {
+        window.chrome.webview.postMessage(JSON.stringify({
+          type: 'cursorChanged',
+          line: e.position.lineNumber,
+          col: e.position.column,
+        }));
+      });
+
+      // Notificar que Monaco está listo
+      window.chrome.webview.postMessage(JSON.stringify({ type: 'ready' }));
+    });
+
+    // ── API para Dart → Monaco ────────────────────────────────────────────────
+    // Llamadas via webview.executeScript(...)
+
+    function monacoSetValue(code) {
+      if (!_editor) { _pendingCode = code; return; }
+      _ignoreNextChange = true;
+      _editor.setValue(code);
+    }
+
+    function monacoSetLanguage(lang) {
+      _language = lang;
+      if (!_editor) { _pendingLang = lang; return; }
+      monaco.editor.setModelLanguage(_editor.getModel(), lang);
+    }
+
+    function monacoSetTheme(theme) {
+      _theme = theme;
+      if (!_editor) { _pendingTheme = theme; return; }
+      monaco.editor.setTheme(theme);
+    }
+
+    function monacoSetFontSize(size) {
+      if (!_editor) return;
+      _editor.updateOptions({ fontSize: size });
+    }
+
+    function monacoSetReadOnly(readonly) {
+      if (!_editor) return;
+      _editor.updateOptions({ readOnly: readonly });
+    }
+
+    function monacoFocus() {
+      if (!_editor) return;
+      _editor.focus();
+    }
+
+    // Recibe errores desde Dart y los muestra como squiggles
+    // errors = [{line, col, endLine, endCol, message, severity}]
+    // severity: 8=Error, 4=Warning, 2=Info, 1=Hint
+    function monacoSetMarkers(errorsJson) {
+      if (!_editor) return;
+      var errors = JSON.parse(errorsJson);
+      var markers = errors.map(function(e) {
+        return {
+          startLineNumber: e.line,
+          startColumn:     e.col || 1,
+          endLineNumber:   e.endLine || e.line,
+          endColumn:       e.endCol  || (e.col || 1) + 1,
+          message:         e.message,
+          severity:        e.severity || monaco.MarkerSeverity.Error,
+        };
+      });
+      monaco.editor.setModelMarkers(_editor.getModel(), 'dart-checker', markers);
+    }
+
+    // Scroll a una línea específica
+    function monacoRevealLine(line) {
+      if (!_editor) return;
+      _editor.revealLineInCenter(line);
+    }
+
+    // Formato del documento
+    function monacoFormat() {
+      if (!_editor) return;
+      _editor.getAction('editor.action.formatDocument').run();
+    }
+
+    // Recibir mensajes de Dart hacia Monaco
+    window.chrome.webview.addEventListener('message', function(event) {
+      try {
+        var msg = JSON.parse(event.data);
+        switch(msg.action) {
+          case 'setValue':    monacoSetValue(msg.value); break;
+          case 'setLanguage': monacoSetLanguage(msg.language); break;
+          case 'setTheme':    monacoSetTheme(msg.theme); break;
+          case 'setFontSize': monacoSetFontSize(msg.size); break;
+          case 'setReadOnly': monacoSetReadOnly(msg.value); break;
+          case 'setMarkers':  monacoSetMarkers(msg.errors); break;
+          case 'revealLine':  monacoRevealLine(msg.line); break;
+          case 'focus':       monacoFocus(); break;
+          case 'format':      monacoFormat(); break;
+        }
+      } catch(e) { /* ignorar mensajes malformados */ }
+    });
+  </script>
+</body>
+</html>
