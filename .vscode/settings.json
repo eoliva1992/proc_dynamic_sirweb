@@ -12,5 +12,6 @@
     "editor.wordBasedSuggestions": "off"
   },
   "dart.debugExternalPackageLibraries": false,
-  "dart.debugSdkLibraries": false
+  "dart.debugSdkLibraries": false,
+  "cmake.sourceDirectory": "C:/Users/eoliva/Documents/Projects/proc_dynamic_sirweb/windows"
 }

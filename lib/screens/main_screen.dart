@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_mobx/flutter_mobx.dart';
+import 'package:proc_dynamic_sirweb/models/procedimiento.dart';
 import '../providers/procedimientos_provider.dart';
 import '../providers/theme_provider.dart';
 import '../widgets/ambiente_selector.dart';
@@ -21,9 +22,8 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
-    // Cargar configuraciones en background al iniciar
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ProcedimientosProvider>().cargarConfiguraciones();
+      procedimientosProvider.cargarConfiguraciones();
     });
   }
 
@@ -37,8 +37,7 @@ class _MainScreenState extends State<MainScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            context.read<ProcedimientosProvider>().mensaje ??
-                'Creado correctamente',
+            procedimientosProvider.mensaje ?? 'Creado correctamente',
           ),
           backgroundColor: Colors.green.shade800,
           duration: const Duration(seconds: 3),
@@ -49,7 +48,7 @@ class _MainScreenState extends State<MainScreen> {
 
   void _showUsuarioDialog(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final provider = context.read<ProcedimientosProvider>();
+    final provider = procedimientosProvider;
     final ctrl = TextEditingController(text: provider.cdUsuario);
 
     showGeneralDialog(
@@ -283,28 +282,26 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ProcedimientosProvider>(
-      builder: (context, provider, _) {
-        return Scaffold(
-          appBar: _buildAppBar(context, provider),
-          body: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 200),
-            child: provider.modo == ViewMode.busqueda
-                ? const Column(
-                    key: ValueKey('busqueda'),
-                    children: [
-                      SearchBarWidget(),
-                      Expanded(child: ProcedureList()),
-                    ],
-                  )
-                : _buildEditorView(provider),
-          ),
-        );
-      },
+    return Observer(
+      builder: (_) => Scaffold(
+        appBar: _buildAppBar(context),
+        body: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: procedimientosProvider.modo == ViewMode.busqueda
+              ? const Column(
+                  key: ValueKey('busqueda'),
+                  children: [
+                    SearchBarWidget(),
+                    Expanded(child: ProcedureList()),
+                  ],
+                )
+              : _buildEditorView(),
+        ),
+      ),
     );
   }
 
-  AppBar _buildAppBar(BuildContext context, ProcedimientosProvider provider) {
+  AppBar _buildAppBar(BuildContext context) {
     return AppBar(
       titleSpacing: 16,
       title: const Text(
@@ -312,26 +309,29 @@ class _MainScreenState extends State<MainScreen> {
         style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
       ),
       actions: [
-        AmbienteSelector(
-          value: provider.ambiente,
-          onChanged: provider.setAmbiente,
+        Observer(
+          builder: (_) => AmbienteSelector(
+            value: procedimientosProvider.ambiente,
+            onChanged: procedimientosProvider.setAmbiente,
+          ),
         ),
         const SizedBox(width: 12),
-        _UsuarioButton(
-          cdUsuario: provider.cdUsuario,
-          onTap: () => _showUsuarioDialog(context),
+        Observer(
+          builder: (_) => _UsuarioButton(
+            cdUsuario: procedimientosProvider.cdUsuario,
+            onTap: () => _showUsuarioDialog(context),
+          ),
         ),
         const SizedBox(width: 8),
-        // Botón toggle de tema
-        Consumer<ThemeProvider>(
-          builder: (context, themeProvider, _) => Tooltip(
-            message: themeProvider.isDark
+        Observer(
+          builder: (_) => Tooltip(
+            message: themeStore.isDark
                 ? 'Cambiar a modo claro'
                 : 'Cambiar a modo oscuro',
             child: IconButton(
-              onPressed: themeProvider.toggle,
+              onPressed: themeStore.toggle,
               icon: Icon(
-                themeProvider.isDark
+                themeStore.isDark
                     ? Icons.light_mode_outlined
                     : Icons.dark_mode_outlined,
               ),
@@ -341,7 +341,7 @@ class _MainScreenState extends State<MainScreen> {
         ),
         const SizedBox(width: 4),
         Tooltip(
-          message: 'Nuevo procedimiento',
+          message: 'Nufixevo procedimiento',
           child: IconButton(
             onPressed: () => _showNewProcedureDialog(context),
             icon: const Icon(Icons.add_circle_outline),
@@ -353,8 +353,8 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  Widget _buildEditorView(ProcedimientosProvider provider) {
-    final proc = provider.procedimientoActual;
+  Widget _buildEditorView() {
+    final proc = procedimientosProvider.procedimientoActual;
     if (proc == null) return const SizedBox.shrink(key: ValueKey('empty'));
     return CodeEditorPanel(
       key: ValueKey(proc.cdProcedimiento),

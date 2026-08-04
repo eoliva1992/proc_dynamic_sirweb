@@ -55,8 +55,8 @@
     "semantic_hash": "ed61d5fdcd8d87fbae04abaaed60e247"
   },
   "lib/widgets/code_editor_panel.dart": {
-    "mtime": 1785562939.8033974,
-    "ast_hash": "f9261cb6ee1792476de96a7c03e3581a",
+    "mtime": 1785298502.4012637,
+    "ast_hash": "13ef831ba0c8f9e8a76d89c41bc8046e",
     "semantic_hash": ""
   },
   "lib/widgets/config_badge.dart": {
@@ -85,9 +85,9 @@
     "semantic_hash": "cf0e1d0b95be0987939f98ad11b018cf"
   },
   "windows/flutter/generated_plugin_registrant.cc": {
-    "mtime": 1785560072.0076675,
-    "ast_hash": "55cfd1a7a36bf33546d5b5751f4fe7ef",
-    "semantic_hash": ""
+    "mtime": 1785212679.69608,
+    "ast_hash": "a8f91348d8d9090f22ec69d597c41e1f",
+    "semantic_hash": "a8f91348d8d9090f22ec69d597c41e1f"
   },
   "windows/flutter/generated_plugin_registrant.h": {
     "mtime": 1785179784.7445977,
@@ -145,9 +145,9 @@
     "semantic_hash": "29c685c23a06da68389960ce6ac6f303"
   },
   "pubspec.yaml": {
-    "mtime": 1785560071.1026573,
-    "ast_hash": "b245c7393e4a817ff93bdd0c34f4bcde",
-    "semantic_hash": ""
+    "mtime": 1785212660.795012,
+    "ast_hash": "a69ccdd829a31eea4e31163ee1c74e1d",
+    "semantic_hash": "a69ccdd829a31eea4e31163ee1c74e1d"
   },
   "windows/CMakeLists.txt": {
     "mtime": 1785179780.1260436,
@@ -189,69 +189,34 @@
     "ast_hash": "6719da65e4fc40962fb1424d0b37911c",
     "semantic_hash": ""
   },
+  "lib/widgets/_editor_autocomplete.dart": {
+    "mtime": 1785248201.1708193,
+    "ast_hash": "d75541a21aec5de7847b9d8c28bb3dbb",
+    "semantic_hash": ""
+  },
   "lib/widgets/_editor_config_widgets.dart": {
     "mtime": 1785248222.983764,
     "ast_hash": "9fc125c9ae375967b224c1268e31907e",
     "semantic_hash": ""
   },
-  ".vscode/tasks.json": {
-    "mtime": 1785562964.9271252,
-    "ast_hash": "67d69d080b5b90a7eeab37a0ea115674",
+  "lib/widgets/_editor_find_bar.dart": {
+    "mtime": 1785248372.6589668,
+    "ast_hash": "41113785fc4648328e0c28d443464b3e",
     "semantic_hash": ""
   },
-  "assets/plsql_checker.js": {
-    "mtime": 1785554967.9871225,
-    "ast_hash": "864aaa8826343116474720f7f1794e9e",
+  "lib/widgets/_editor_status_bar.dart": {
+    "mtime": 1785248153.940791,
+    "ast_hash": "b18b3b4e3f7e9bf1a9a4683929dfb75e",
     "semantic_hash": ""
   },
-  "lib/widgets/_editor_js_engine.dart": {
-    "mtime": 1785554915.0878177,
-    "ast_hash": "8c76bd27da7166f47555f50c8505a350",
+  "lib/widgets/_editor_syntax_checker.dart": {
+    "mtime": 1785297837.3634157,
+    "ast_hash": "b7a98271ca957860c496633ce55c20bc",
     "semantic_hash": ""
   },
-  "lib/widgets/_editor_js_engine_native.dart": {
-    "mtime": 1785554974.760534,
-    "ast_hash": "80bf653a15300b62b3f76212aa415c51",
-    "semantic_hash": ""
-  },
-  "lib/widgets/_editor_js_engine_stub.dart": {
-    "mtime": 1785554907.1077712,
-    "ast_hash": "62db288009ace23e28b248d1fbf03d30",
-    "semantic_hash": ""
-  },
-  "lib/widgets/_editor_plsql_checker.dart": {
-    "mtime": 1785559273.8578484,
-    "ast_hash": "f0a4bf9b0510bca877d7ef3f9a295039",
-    "semantic_hash": ""
-  },
-  "lib/widgets/monaco_editor_widget.dart": {
-    "mtime": 1785562753.6469042,
-    "ast_hash": "e308fde31e7dd4815e757b1e05a95a3c",
-    "semantic_hash": ""
-  },
-  "tools/plsql_parser/build.ps1": {
-    "mtime": 1785554822.72175,
-    "ast_hash": "103a22f5019f4bff530a684e19a22d76",
-    "semantic_hash": ""
-  },
-  "tools/plsql_parser/package.json": {
-    "mtime": 1785554841.9563015,
-    "ast_hash": "3c7e2ba628da7f8e6081e179f624daf4",
-    "semantic_hash": ""
-  },
-  "tools/plsql_parser/rollup.config.mjs": {
-    "mtime": 1785554853.7625499,
-    "ast_hash": "d128031a28c0461003ca9523901da4d9",
-    "semantic_hash": ""
-  },
-  "tools/plsql_parser/src/checker.js": {
-    "mtime": 1785554873.392319,
-    "ast_hash": "0d99aead40eba39bd9fd322c619b496b",
-    "semantic_hash": ""
-  },
-  "assets/monaco_editor.html": {
-    "mtime": 1785556661.7448504,
-    "ast_hash": "61be00007db5fccf5e51f28a6cdf971c",
+  "lib/widgets/_editor_toolbar.dart": {
+    "mtime": 1785248339.2950757,
+    "ast_hash": "341d026387262cc48a85886f7e1496b1",
     "semantic_hash": ""
   }
 }

@@ -1,119 +1,134 @@
-import 'dart:async';
-import 'package:flutter/foundation.dart';
+﻿import 'dart:async';
+import 'package:mobx/mobx.dart';
 import '../models/procedimiento.dart';
 import '../models/configuracion_tipo.dart';
 import '../models/variable_dinamica.dart';
 import '../services/sirweb_service.dart';
 
+part 'procedimientos_provider.g.dart';
+
 enum ViewMode { busqueda, editor }
 
-class ProcedimientosProvider extends ChangeNotifier {
+final procedimientosProvider = ProcedimientosProvider();
+
+// ignore: library_private_types_in_public_api
+class ProcedimientosProvider = _ProcedimientosProvider
+    with _$ProcedimientosProvider;
+
+abstract class _ProcedimientosProvider with Store {
   final SirwebService _service = SirwebService();
 
-  String _ambiente = 'Desa';
-  String _cdUsuario = '';
-
-  List<Procedimiento> _resultados = [];
-  Procedimiento? _procedimientoActual;
-  ViewMode _modo = ViewMode.busqueda;
-
-  bool _cargando = false;
-  bool _cargandoEditor = false;
-  bool _cargandoMas = false;
-  String? _error;
-  String? _mensaje;
-
-  // Pagination
-  int _pagina = 1;
-  bool _tieneSiguiente = false;
-  bool _tienePrevio = false;
-
-  // Last search params
   String _lastBusqueda = '';
   String? _lastConfig;
   String? _lastEstado = '1';
-
-  // Configuraciones reales del sistema
-  List<ConfiguracionTipo> _configuraciones = [];
   bool _configuracionesCargadas = false;
-
-  // Variables dinámicas para autocomplete
-  List<VariableDinamica> _variablesDinamicas = [];
   bool _variablesCargadas = false;
 
-  String get ambiente => _ambiente;
-  String get cdUsuario => _cdUsuario;
-  List<Procedimiento> get resultados => _resultados;
-  Procedimiento? get procedimientoActual => _procedimientoActual;
-  ViewMode get modo => _modo;
-  bool get cargando => _cargando;
-  bool get cargandoEditor => _cargandoEditor;
-  bool get cargandoMas => _cargandoMas;
-  String? get error => _error;
-  String? get mensaje => _mensaje;
-  bool get tieneSiguiente => _tieneSiguiente;
-  bool get tienePrevio => _tienePrevio;
-  int get pagina => _pagina;
-  bool get haResultados => _resultados.isNotEmpty;
-  List<ConfiguracionTipo> get configuraciones => _configuraciones;
-  List<VariableDinamica> get variablesDinamicas => _variablesDinamicas;
+  @observable
+  String ambiente = 'Desa';
+
+  @observable
+  String cdUsuario = '';
+
+  @observable
+  ObservableList<Procedimiento> resultados = ObservableList();
+
+  @observable
+  Procedimiento? procedimientoActual;
+
+  @observable
+  ViewMode modo = ViewMode.busqueda;
+
+  @observable
+  bool cargando = false;
+
+  @observable
+  bool cargandoEditor = false;
+
+  @observable
+  bool cargandoMas = false;
+
+  @observable
+  String? error;
+
+  @observable
+  String? mensaje;
+
+  @observable
+  int pagina = 1;
+
+  @observable
+  bool tieneSiguiente = false;
+
+  @observable
+  bool tienePrevio = false;
+
+  @observable
+  ObservableList<ConfiguracionTipo> configuraciones = ObservableList();
+
+  @observable
+  ObservableList<VariableDinamica> variablesDinamicas = ObservableList();
+
+  @computed
+  bool get haResultados => resultados.isNotEmpty;
 
   String descriptionForConfig(String cdModulo) {
-    final match = _configuraciones
+    final match = configuraciones
         .where((c) => c.cdModulo == cdModulo)
         .firstOrNull;
     return match?.deArgumento ?? cdModulo;
   }
 
+  @action
   Future<void> cargarConfiguraciones() async {
     if (_configuracionesCargadas) return;
     try {
-      _configuraciones = await _service.obtenerConfiguraciones();
-      _configuracionesCargadas = true;
-      notifyListeners();
-    } catch (_) {
-      // Si falla, se usan los valores hardcoded en los widgets
-    }
+      final result = await _service.obtenerConfiguraciones();
+      runInAction(() {
+        configuraciones = ObservableList.of(result);
+        _configuracionesCargadas = true;
+      });
+    } catch (_) {}
   }
 
+  @action
   Future<void> cargarVariablesDinamicas() async {
     if (_variablesCargadas) return;
     try {
-      _variablesDinamicas = await _service.obtenerVariablesDinamicas(
-        ambiente: _ambiente,
+      final result = await _service.obtenerVariablesDinamicas(
+        ambiente: ambiente,
       );
-      _variablesCargadas = true;
-      notifyListeners();
-    } catch (_) {
-      // Silently fail — autocomplete seguirá sin variables
-    }
+      runInAction(() {
+        variablesDinamicas = ObservableList.of(result);
+        _variablesCargadas = true;
+      });
+    } catch (_) {}
   }
 
+  @action
   void setAmbiente(String value) {
-    _ambiente = value;
-    _variablesCargadas = false; // reset on ambiente change
-    notifyListeners();
+    ambiente = value;
+    _variablesCargadas = false;
   }
 
-  void setCdUsuario(String value) {
-    _cdUsuario = value;
-    notifyListeners();
-  }
+  @action
+  void setCdUsuario(String value) => cdUsuario = value;
 
+  @action
   void limpiarMensajes() {
-    _error = null;
-    _mensaje = null;
-    notifyListeners();
+    error = null;
+    mensaje = null;
   }
 
+  @action
   void volver() {
-    _procedimientoActual = null;
-    _modo = ViewMode.busqueda;
-    _error = null;
-    _mensaje = null;
-    notifyListeners();
+    procedimientoActual = null;
+    modo = ViewMode.busqueda;
+    error = null;
+    mensaje = null;
   }
 
+  @action
   Future<void> buscar({
     String busqueda = '',
     String? config,
@@ -122,214 +137,223 @@ class ProcedimientosProvider extends ChangeNotifier {
     _lastBusqueda = busqueda;
     _lastConfig = config;
     _lastEstado = estado;
-    _pagina = 1;
+    pagina = 1;
     await _ejecutarBusqueda();
   }
 
+  @action
   Future<void> siguientePagina() async {
-    if (!_tieneSiguiente) return;
-    _pagina++;
+    if (!tieneSiguiente) return;
+    pagina++;
     await _ejecutarBusqueda();
   }
 
+  @action
   Future<void> paginaAnterior() async {
-    if (!_tienePrevio) return;
-    _pagina--;
+    if (!tienePrevio) return;
+    pagina--;
     await _ejecutarBusqueda();
   }
 
+  @action
   Future<void> cargarMas() async {
-    if (!_tieneSiguiente || _cargandoMas || _cargando) return;
-    _pagina++;
-    _cargandoMas = true;
-    _error = null;
-    notifyListeners();
-
+    if (!tieneSiguiente || cargandoMas || cargando) return;
+    pagina++;
+    cargandoMas = true;
+    error = null;
     try {
       final resultado = await _service.listarProcedimientos(
         busqueda: _lastBusqueda,
         configuracion: _lastConfig,
         estado: _lastEstado,
-        ambiente: _ambiente,
-        pagina: _pagina,
+        ambiente: ambiente,
+        pagina: pagina,
       );
-      _resultados = [..._resultados, ...resultado.items];
-      _tieneSiguiente = resultado.tieneSiguiente;
-      _tienePrevio = resultado.tienePrevio;
+      runInAction(() {
+        resultados = ObservableList.of([...resultados, ...resultado.items]);
+        tieneSiguiente = resultado.tieneSiguiente;
+        tienePrevio = resultado.tienePrevio;
+        cargandoMas = false;
+      });
     } catch (e) {
-      _pagina--;
-      _error = e.toString().replaceFirst('Exception: ', '');
-    } finally {
-      _cargandoMas = false;
-      notifyListeners();
+      runInAction(() {
+        pagina--;
+        error = e.toString().replaceFirst('Exception: ', '');
+        cargandoMas = false;
+      });
     }
   }
 
   Future<void> _ejecutarBusqueda() async {
-    _cargando = true;
-    _error = null;
-    _mensaje = null;
-    notifyListeners();
-
+    runInAction(() {
+      cargando = true;
+      error = null;
+      mensaje = null;
+    });
     try {
       final resultado = await _service.listarProcedimientos(
         busqueda: _lastBusqueda,
         configuracion: _lastConfig,
         estado: _lastEstado,
-        ambiente: _ambiente,
-        pagina: _pagina,
+        ambiente: ambiente,
+        pagina: pagina,
       );
-      _resultados = resultado.items;
-      _tieneSiguiente = resultado.tieneSiguiente;
-      _tienePrevio = resultado.tienePrevio;
+      runInAction(() {
+        resultados = ObservableList.of(resultado.items);
+        tieneSiguiente = resultado.tieneSiguiente;
+        tienePrevio = resultado.tienePrevio;
+        cargando = false;
+      });
     } catch (e) {
-      _error = e.toString().replaceFirst('Exception: ', '');
-    } finally {
-      _cargando = false;
-      notifyListeners();
+      runInAction(() {
+        error = e.toString().replaceFirst('Exception: ', '');
+        cargando = false;
+      });
     }
   }
 
+  @action
   Future<void> seleccionar(Procedimiento proc) async {
-    _modo = ViewMode.editor;
-    _cargandoEditor = true;
-    _error = null;
-    _mensaje = null;
-    _procedimientoActual = proc;
-    notifyListeners();
-
-    unawaited(cargarVariablesDinamicas()); // carga en background para autocomplete
-
+    modo = ViewMode.editor;
+    cargandoEditor = true;
+    error = null;
+    mensaje = null;
+    procedimientoActual = proc;
+    unawaited(cargarVariablesDinamicas());
     try {
       final completo = await _service.obtenerProcedimiento(
         proc.cdProcedimiento,
-        ambiente: _ambiente,
+        ambiente: ambiente,
       );
-      _procedimientoActual = completo;
+      runInAction(() {
+        procedimientoActual = completo;
+        cargandoEditor = false;
+      });
     } catch (e) {
-      _error = e.toString().replaceFirst('Exception: ', '');
-    } finally {
-      _cargandoEditor = false;
-      notifyListeners();
+      runInAction(() {
+        error = e.toString().replaceFirst('Exception: ', '');
+        cargandoEditor = false;
+      });
     }
   }
 
+  @action
   Future<bool> guardar({
     required String deTexto,
     String? inConfiguracion,
   }) async {
-    if (_procedimientoActual == null) return false;
-    if (_cdUsuario.trim().isEmpty) {
-      _error = 'Ingresa tu usuario antes de guardar.';
-      notifyListeners();
+    if (procedimientoActual == null) return false;
+    if (cdUsuario.trim().isEmpty) {
+      error = 'Ingresa tu usuario antes de guardar.';
       return false;
     }
-
-    _cargando = true;
-    _error = null;
-    _mensaje = null;
-    notifyListeners();
-
+    cargando = true;
+    error = null;
+    mensaje = null;
     try {
       await _service.actualizarProcedimiento(
-        cdProcedimiento: _procedimientoActual!.cdProcedimiento,
+        cdProcedimiento: procedimientoActual!.cdProcedimiento,
         deTexto: deTexto,
-        cdUsuario: _cdUsuario,
+        cdUsuario: cdUsuario,
         inConfiguracion: inConfiguracion,
-        ambiente: _ambiente,
+        ambiente: ambiente,
       );
-      _procedimientoActual = _procedimientoActual!.copyWith(
-        deTexto: deTexto,
-        inConfiguracion: inConfiguracion ?? _procedimientoActual!.inConfiguracion,
-        version: _procedimientoActual!.version + 1,
-      );
-      _mensaje = 'Guardado correctamente. Versión ${_procedimientoActual!.version}';
+      runInAction(() {
+        procedimientoActual = procedimientoActual!.copyWith(
+          deTexto: deTexto,
+          inConfiguracion:
+              inConfiguracion ?? procedimientoActual!.inConfiguracion,
+          version: procedimientoActual!.version + 1,
+        );
+        mensaje =
+            'Guardado correctamente. Version ${procedimientoActual!.version}';
+        cargando = false;
+      });
       return true;
     } catch (e) {
-      _error = e.toString().replaceFirst('Exception: ', '');
+      runInAction(() {
+        error = e.toString().replaceFirst('Exception: ', '');
+        cargando = false;
+      });
       return false;
-    } finally {
-      _cargando = false;
-      notifyListeners();
     }
   }
 
-  Future<bool> activar() async {
-    return _toggleEstado(activar: true);
-  }
+  Future<bool> activar() => _toggleEstado(activar: true);
+  Future<bool> desactivar() => _toggleEstado(activar: false);
 
-  Future<bool> desactivar() async {
-    return _toggleEstado(activar: false);
-  }
-
+  @action
   Future<bool> _toggleEstado({required bool activar}) async {
-    if (_procedimientoActual == null) return false;
-    if (_cdUsuario.trim().isEmpty) {
-      _error = 'Ingresa tu usuario antes de continuar.';
-      notifyListeners();
+    if (procedimientoActual == null) return false;
+    if (cdUsuario.trim().isEmpty) {
+      error = 'Ingresa tu usuario antes de continuar.';
       return false;
     }
-
-    _cargando = true;
-    _error = null;
-    _mensaje = null;
-    notifyListeners();
-
+    cargando = true;
+    error = null;
+    mensaje = null;
     try {
       if (activar) {
         await _service.activarProcedimiento(
-          cdProcedimiento: _procedimientoActual!.cdProcedimiento,
-          cdUsuario: _cdUsuario,
-          ambiente: _ambiente,
+          cdProcedimiento: procedimientoActual!.cdProcedimiento,
+          cdUsuario: cdUsuario,
+          ambiente: ambiente,
         );
       } else {
         await _service.desactivarProcedimiento(
-          cdProcedimiento: _procedimientoActual!.cdProcedimiento,
-          cdUsuario: _cdUsuario,
-          ambiente: _ambiente,
+          cdProcedimiento: procedimientoActual!.cdProcedimiento,
+          cdUsuario: cdUsuario,
+          ambiente: ambiente,
         );
       }
-      _procedimientoActual = _procedimientoActual!.copyWith(
-        stProcedimiento: activar ? '1' : '0',
-      );
-      _mensaje = activar ? 'Procedimiento activado.' : 'Procedimiento desactivado.';
+      runInAction(() {
+        procedimientoActual = procedimientoActual!.copyWith(
+          stProcedimiento: activar ? '1' : '0',
+        );
+        mensaje = activar
+            ? 'Procedimiento activado.'
+            : 'Procedimiento desactivado.';
+        cargando = false;
+      });
       return true;
     } catch (e) {
-      _error = e.toString().replaceFirst('Exception: ', '');
+      runInAction(() {
+        error = e.toString().replaceFirst('Exception: ', '');
+        cargando = false;
+      });
       return false;
-    } finally {
-      _cargando = false;
-      notifyListeners();
     }
   }
 
+  @action
   Future<bool> crear({
     required String cdProcedimiento,
     required String deTexto,
     required String inConfiguracion,
     required String cdUsuario,
   }) async {
-    _cargando = true;
-    _error = null;
-    _mensaje = null;
-    notifyListeners();
-
+    cargando = true;
+    error = null;
+    mensaje = null;
     try {
       await _service.crearProcedimiento(
         cdProcedimiento: cdProcedimiento,
         deTexto: deTexto,
         inConfiguracion: inConfiguracion,
         cdUsuario: cdUsuario,
-        ambiente: _ambiente,
+        ambiente: ambiente,
       );
-      _mensaje = 'Procedimiento "$cdProcedimiento" creado correctamente.';
+      runInAction(() {
+        mensaje = 'Procedimiento "$cdProcedimiento" creado correctamente.';
+        cargando = false;
+      });
       return true;
     } catch (e) {
-      _error = e.toString().replaceFirst('Exception: ', '');
+      runInAction(() {
+        error = e.toString().replaceFirst('Exception: ', '');
+        cargando = false;
+      });
       return false;
-    } finally {
-      _cargando = false;
-      notifyListeners();
     }
   }
 }

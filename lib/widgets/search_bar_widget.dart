@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_mobx/flutter_mobx.dart';
 import '../providers/procedimientos_provider.dart';
 
 class SearchBarWidget extends StatefulWidget {
@@ -14,11 +14,7 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
   String? _selectedConfig;
   String? _selectedEstado = '1';
 
-  static const _estados = {
-    '1': 'Activos',
-    '0': 'Inactivos',
-    '': 'Todos',
-  };
+  static const _estados = {'1': 'Activos', '0': 'Inactivos', '': 'Todos'};
 
   @override
   void dispose() {
@@ -27,11 +23,11 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
   }
 
   void _buscar() {
-    context.read<ProcedimientosProvider>().buscar(
-          busqueda: _searchCtrl.text.trim(),
-          config: _selectedConfig,
-          estado: _selectedEstado,
-        );
+    procedimientosProvider.buscar(
+      busqueda: _searchCtrl.text.trim(),
+      config: _selectedConfig,
+      estado: _selectedEstado,
+    );
   }
 
   @override
@@ -39,16 +35,15 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Consumer<ProcedimientosProvider>(
-      builder: (context, provider, _) {
+    return Observer(
+      builder: (context) {
+        final provider = procedimientosProvider;
         return Container(
           color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF5F5F5),
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
           child: Row(
             children: [
-              Expanded(
-                child: _buildSearchField(cs, isDark),
-              ),
+              Expanded(child: _buildSearchField(cs, isDark)),
               const SizedBox(width: 8),
               _buildConfigFilter(provider, isDark),
               const SizedBox(width: 8),
@@ -84,8 +79,11 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
           ),
           suffixIcon: _searchCtrl.text.isNotEmpty
               ? IconButton(
-                  icon: Icon(Icons.clear, size: 16,
-                      color: isDark ? const Color(0xFF606060) : Colors.black45),
+                  icon: Icon(
+                    Icons.clear,
+                    size: 16,
+                    color: isDark ? const Color(0xFF606060) : Colors.black45,
+                  ),
                   onPressed: () {
                     _searchCtrl.clear();
                     setState(() {});
@@ -137,10 +135,7 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String?>(
           value: _selectedConfig,
-          hint: Text(
-            'Tipo',
-            style: TextStyle(color: hintColor, fontSize: 12),
-          ),
+          hint: Text('Tipo', style: TextStyle(color: hintColor, fontSize: 12)),
           dropdownColor: dropColor,
           isDense: true,
           style: TextStyle(color: textColor, fontSize: 12),
@@ -232,5 +227,3 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
     );
   }
 }
-
-

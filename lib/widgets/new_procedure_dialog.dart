@@ -1,9 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:re_editor/re_editor.dart';
-import 'package:re_highlight/languages/sql.dart';
-import 'package:re_highlight/languages/javascript.dart';
-import 'package:re_highlight/styles/github.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_mobx/flutter_mobx.dart';
 import '../providers/procedimientos_provider.dart';
 import 'config_badge.dart';
 
@@ -19,7 +15,7 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
   final _codigoCtrl = TextEditingController();
   final _usuarioCtrl = TextEditingController();
   String _selectedConfig = 'D';
-  late CodeLineEditingController _codeCtrl;
+  late TextEditingController _codeCtrl;
 
   static const _configs = [
     'D',
@@ -38,12 +34,12 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
   @override
   void initState() {
     super.initState();
-    _codeCtrl = CodeLineEditingController.fromText(
-      'BEGIN\n  DECLARE\n    W_STAT VARCHAR2(5) := \'0\';\n  BEGIN\n    -- Tu código aquí\n    NULL;\n  EXCEPTION\n    WHEN OTHERS THEN\n      :P_ERROR := \'NOMBRE_PROC EN \' || W_STAT || \' ** \' || SQLERRM;\n  END;\nEND;',
+    _codeCtrl = TextEditingController(
+      text:
+          'BEGIN\n  DECLARE\n    W_STAT VARCHAR2(5) := \'0\';\n  BEGIN\n    -- Tu código aquí\n    NULL;\n  EXCEPTION\n    WHEN OTHERS THEN\n      :P_ERROR := \'NOMBRE_PROC EN \' || W_STAT || \' ** \' || SQLERRM;\n  END;\nEND;',
     );
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final cdUsuario = context.read<ProcedimientosProvider>().cdUsuario;
+      final cdUsuario = procedimientosProvider.cdUsuario;
       if (cdUsuario.isNotEmpty) _usuarioCtrl.text = cdUsuario;
     });
   }
@@ -65,7 +61,7 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
   Future<void> _crear() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final provider = context.read<ProcedimientosProvider>();
+    final provider = procedimientosProvider;
     final ok = await provider.crear(
       cdProcedimiento: _codigoCtrl.text.trim().toUpperCase(),
       deTexto: _codeCtrl.text,
@@ -158,48 +154,15 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
           ),
           Divider(height: 1, color: theme.dividerColor),
           Expanded(
-            child: CodeEditor(
+            child: TextField(
               controller: _codeCtrl,
-              wordWrap: false,
-              style: CodeEditorStyle(
-                fontSize: 13,
-                fontFamily: 'Consolas',
-                fontHeight: 1.5,
-                backgroundColor: Colors.white,
-                codeTheme: CodeHighlightTheme(
-                  languages: {
-                    'sql': CodeHighlightThemeMode(mode: langSql),
-                    'javascript': CodeHighlightThemeMode(mode: langJavascript),
-                  },
-                  theme: githubTheme,
-                ),
+              maxLines: null,
+              expands: true,
+              style: const TextStyle(fontSize: 13, fontFamily: 'Consolas'),
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.all(12),
               ),
-              indicatorBuilder: (ctx, editCtrl, chunkCtrl, notifier) {
-                return Row(
-                  children: [
-                    Container(
-                      color: const Color(0xFFF5F5F5),
-                      child: DefaultCodeLineNumber(
-                        controller: editCtrl,
-                        notifier: notifier,
-                        textStyle: const TextStyle(
-                          color: Color(0xFF999999),
-                          fontSize: 12,
-                          fontFamily: 'Consolas',
-                        ),
-                      ),
-                    ),
-                    Container(
-                      color: const Color(0xFFF5F5F5),
-                      child: DefaultCodeChunkIndicator(
-                        width: 14,
-                        controller: chunkCtrl,
-                        notifier: notifier,
-                      ),
-                    ),
-                  ],
-                );
-              },
             ),
           ),
         ],
@@ -239,8 +202,7 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
 
   Widget _buildConfigDropdown() {
     final colorScheme = Theme.of(context).colorScheme;
-    final provider = context.watch<ProcedimientosProvider>();
-    final configs = provider.configuraciones;
+    final configs = procedimientosProvider.configuraciones;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -333,8 +295,9 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
   Widget _buildFooter() {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    return Consumer<ProcedimientosProvider>(
-      builder: (context, provider, _) {
+    return Observer(
+      builder: (context) {
+        final provider = procedimientosProvider;
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           decoration: BoxDecoration(

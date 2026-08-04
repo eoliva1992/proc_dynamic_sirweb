@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import '../models/procedimiento.dart';
 import '../providers/procedimientos_provider.dart';
 import 'config_badge.dart';
@@ -21,8 +20,10 @@ class ProcedureCard extends StatelessWidget {
     final titleColor = isDark ? const Color(0xFFD4D4D4) : Colors.black87;
     final metaColor = isDark ? const Color(0xFF808080) : Colors.black45;
 
-    final provider = context.watch<ProcedimientosProvider>();
-    final configDesc = provider.descriptionForConfig(procedimiento.inConfiguracion);
+    final provider = procedimientosProvider;
+    final configDesc = provider.descriptionForConfig(
+      procedimiento.inConfiguracion,
+    );
 
     return Card(
       color: cardColor,
@@ -62,7 +63,11 @@ class ProcedureCard extends StatelessWidget {
                           const SizedBox(width: 8),
                         ],
                         if (procedimiento.cdUsuario != null) ...[
-                          Icon(Icons.person_outline, size: 11, color: metaColor),
+                          Icon(
+                            Icons.person_outline,
+                            size: 11,
+                            color: metaColor,
+                          ),
                           const SizedBox(width: 3),
                           Text(
                             procedimiento.cdUsuario!,
@@ -91,9 +96,11 @@ class ProcedureCard extends StatelessWidget {
               const SizedBox(width: 8),
               _EstadoBadge(activo: procedimiento.activo),
               const SizedBox(width: 4),
-              Icon(Icons.chevron_right,
-                  color: isDark ? const Color(0xFF606060) : Colors.black38,
-                  size: 18),
+              Icon(
+                Icons.chevron_right,
+                color: isDark ? const Color(0xFF606060) : Colors.black38,
+                size: 18,
+              ),
             ],
           ),
         ),
@@ -110,7 +117,11 @@ class _VersionBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       'v$version',
-      style: const TextStyle(color: Color(0xFF569CD6), fontSize: 11, fontFamily: 'Consolas'),
+      style: const TextStyle(
+        color: Color(0xFF569CD6),
+        fontSize: 11,
+        fontFamily: 'Consolas',
+      ),
     );
   }
 }
@@ -144,5 +155,3 @@ class _EstadoBadge extends StatelessWidget {
     );
   }
 }
-
-

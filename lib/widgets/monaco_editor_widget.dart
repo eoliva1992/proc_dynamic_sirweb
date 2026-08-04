@@ -26,7 +26,7 @@ class MonacoEditorController {
   bool _ready = false;
   final List<Future<void> Function(fm.MonacoController)> _pending = [];
 
-  void _attach(fm.MonacoController ctrl) {
+  void attach(fm.MonacoController ctrl) {
     _ctrl = ctrl;
     _ready = true;
     for (final cmd in _pending) {
@@ -88,13 +88,16 @@ class MonacoEditorController {
 
   void revealLine(int line) {
     _enqueue(
-      (ctrl) async =>
-          ctrl.revealPosition(fm.Position(line: line, column: 1)),
+      (ctrl) async => ctrl.revealPosition(fm.Position(line: line, column: 1)),
     );
   }
 
+  void clearContent() {
+    _enqueue((ctrl) async => ctrl.document.setText(''));
+  }
+
+  // fm.MonacoEditor owns the controller lifecycle — only release the reference.
   void dispose() {
-    _ctrl?.dispose();
     _ctrl = null;
     _ready = false;
     _pending.clear();
@@ -112,6 +115,7 @@ class MonacoEditorWidget extends StatefulWidget {
   final bool darkTheme;
   final ValueChanged<String>? onChanged;
   final void Function(int line, int col)? onCursorChanged;
+  final void Function(Object error, StackTrace stackTrace)? onError;
 
   const MonacoEditorWidget({
     super.key,
@@ -121,6 +125,7 @@ class MonacoEditorWidget extends StatefulWidget {
     this.darkTheme = true,
     this.onChanged,
     this.onCursorChanged,
+    this.onError,
   });
 
   @override
@@ -131,20 +136,20 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
   StreamSubscription<fm.Range?>? _selectionSub;
 
   fm.EditorOptions get _editorOptions => fm.EditorOptions(
-        language: widget.language == 'javascript'
-            ? fm.MonacoLanguage.javascript
-            : fm.MonacoLanguage.sql,
-        theme: widget.darkTheme ? fm.MonacoTheme.vsDark : fm.MonacoTheme.vs,
-        fontSize: 14,
-        minimap: const fm.MonacoMinimapOptions(enabled: true),
-        wordWrap: fm.MonacoWordWrap.off,
-        lineNumbers: fm.MonacoLineNumbers.on,
-        renderWhitespace: fm.RenderWhitespace.none,
-        tabSize: 2,
-      );
+    language: widget.language == 'javascript'
+        ? fm.MonacoLanguage.javascript
+        : fm.MonacoLanguage.sql,
+    theme: widget.darkTheme ? fm.MonacoTheme.vsDark : fm.MonacoTheme.vs,
+    fontSize: 14,
+    minimap: const fm.MonacoMinimapOptions(enabled: true),
+    wordWrap: fm.MonacoWordWrap.off,
+    lineNumbers: fm.MonacoLineNumbers.on,
+    renderWhitespace: fm.RenderWhitespace.none,
+    tabSize: 2,
+  );
 
   void _onReady(fm.MonacoController ctrl) {
-    widget.controller._attach(ctrl);
+    widget.controller.attach(ctrl);
     _selectionSub = ctrl.onSelectionChanged.listen((range) {
       if (range != null) {
         widget.onCursorChanged?.call(range.startLine, range.startColumn);
@@ -175,6 +180,7 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
       contentDebounce: const Duration(milliseconds: 400),
       onReady: _onReady,
       onContentChanged: widget.onChanged,
+      onError: widget.onError,
     );
   }
 }

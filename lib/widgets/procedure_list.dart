@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_mobx/flutter_mobx.dart';
 import '../providers/procedimientos_provider.dart';
 import 'procedure_card.dart';
 
@@ -29,14 +29,15 @@ class _ProcedureListState extends State<ProcedureList> {
   void _onScroll() {
     if (_scrollController.position.pixels >=
         _scrollController.position.maxScrollExtent - 200) {
-      context.read<ProcedimientosProvider>().cargarMas();
+      procedimientosProvider.cargarMas();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ProcedimientosProvider>(
-      builder: (context, provider, _) {
+    return Observer(
+      builder: (context) {
+        final provider = procedimientosProvider;
         if (provider.cargando) {
           return const Center(
             child: CircularProgressIndicator(color: Color(0xFF0078D4)),
@@ -48,7 +49,11 @@ class _ProcedureListState extends State<ProcedureList> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.error_outline, color: Colors.redAccent, size: 40),
+                const Icon(
+                  Icons.error_outline,
+                  color: Colors.redAccent,
+                  size: 40,
+                ),
                 const SizedBox(height: 8),
                 Text(
                   provider.error!,
@@ -58,7 +63,10 @@ class _ProcedureListState extends State<ProcedureList> {
                 const SizedBox(height: 16),
                 TextButton(
                   onPressed: provider.limpiarMensajes,
-                  child: const Text('Cerrar', style: TextStyle(color: Color(0xFF0078D4))),
+                  child: const Text(
+                    'Cerrar',
+                    style: TextStyle(color: Color(0xFF0078D4)),
+                  ),
                 ),
               ],
             ),
@@ -84,7 +92,8 @@ class _ProcedureListState extends State<ProcedureList> {
         return ListView.builder(
           controller: _scrollController,
           padding: const EdgeInsets.only(top: 8, bottom: 16),
-          itemCount: provider.resultados.length + (provider.tieneSiguiente ? 1 : 0),
+          itemCount:
+              provider.resultados.length + (provider.tieneSiguiente ? 1 : 0),
           itemBuilder: (context, index) {
             if (index == provider.resultados.length) {
               return const Padding(

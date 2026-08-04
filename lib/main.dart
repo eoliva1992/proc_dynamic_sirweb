@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'providers/procedimientos_provider.dart';
+import 'package:flutter_mobx/flutter_mobx.dart';
 import 'providers/theme_provider.dart';
 import 'screens/main_screen.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await themeStore.loadFromPrefs();
   runApp(const ProcDynamicApp());
 }
 
@@ -52,26 +53,15 @@ class ProcDynamicApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => ThemeProvider()),
-        ChangeNotifierProvider(create: (_) => ProcedimientosProvider()),
-      ],
-      child: Consumer<ThemeProvider>(
-        builder: (context, themeProvider, _) {
-          return MaterialApp(
-            title: 'Procedimientos Dinámicos',
-            debugShowCheckedModeBanner: false,
-            theme: _buildLightTheme(),
-            darkTheme: _buildDarkTheme(),
-            themeMode: themeProvider.themeMode,
-            home: const MainScreen(),
-          );
-        },
+    return Observer(
+      builder: (_) => MaterialApp(
+        title: 'Procedimientos Dinámicos',
+        debugShowCheckedModeBanner: false,
+        theme: _buildLightTheme(),
+        darkTheme: _buildDarkTheme(),
+        themeMode: themeStore.themeMode,
+        home: const MainScreen(),
       ),
     );
   }
 }
-
-
-
