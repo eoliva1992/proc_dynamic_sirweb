@@ -15,10 +15,7 @@ class ProcedureCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = isDark ? const Color(0xFF252526) : Colors.white;
-    final titleColor = isDark ? const Color(0xFFD4D4D4) : Colors.black87;
-    final metaColor = isDark ? const Color(0xFF808080) : Colors.black45;
+    final cs = Theme.of(context).colorScheme;
 
     final provider = procedimientosProvider;
     final configDesc = provider.descriptionForConfig(
@@ -26,9 +23,8 @@ class ProcedureCard extends StatelessWidget {
     );
 
     return Card(
-      color: cardColor,
+      color: cs.surface,
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      elevation: isDark ? 0 : 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
       child: InkWell(
         borderRadius: BorderRadius.circular(6),
@@ -44,7 +40,7 @@ class ProcedureCard extends StatelessWidget {
                     Text(
                       procedimiento.cdProcedimiento,
                       style: TextStyle(
-                        color: titleColor,
+                        color: cs.onSurface,
                         fontWeight: FontWeight.w600,
                         fontSize: 13,
                         fontFamily: 'Consolas',
@@ -54,11 +50,18 @@ class ProcedureCard extends StatelessWidget {
                     Row(
                       children: [
                         if (procedimiento.feModificacion != null) ...[
-                          Icon(Icons.access_time, size: 11, color: metaColor),
+                          Icon(
+                            Icons.access_time,
+                            size: 11,
+                            color: cs.onSurfaceVariant,
+                          ),
                           const SizedBox(width: 3),
                           Text(
                             procedimiento.feModificacion!,
-                            style: TextStyle(color: metaColor, fontSize: 11),
+                            style: TextStyle(
+                              color: cs.onSurfaceVariant,
+                              fontSize: 11,
+                            ),
                           ),
                           const SizedBox(width: 8),
                         ],
@@ -66,12 +69,15 @@ class ProcedureCard extends StatelessWidget {
                           Icon(
                             Icons.person_outline,
                             size: 11,
-                            color: metaColor,
+                            color: cs.onSurfaceVariant,
                           ),
                           const SizedBox(width: 3),
                           Text(
                             procedimiento.cdUsuario!,
-                            style: TextStyle(color: metaColor, fontSize: 11),
+                            style: TextStyle(
+                              color: cs.onSurfaceVariant,
+                              fontSize: 11,
+                            ),
                           ),
                           const SizedBox(width: 8),
                         ],
@@ -79,7 +85,7 @@ class ProcedureCard extends StatelessWidget {
                         Text(
                           configDesc,
                           style: TextStyle(
-                            color: metaColor,
+                            color: cs.onSurfaceVariant,
                             fontSize: 11,
                             fontStyle: FontStyle.italic,
                           ),
@@ -96,11 +102,7 @@ class ProcedureCard extends StatelessWidget {
               const SizedBox(width: 8),
               _EstadoBadge(activo: procedimiento.activo),
               const SizedBox(width: 4),
-              Icon(
-                Icons.chevron_right,
-                color: isDark ? const Color(0xFF606060) : Colors.black38,
-                size: 18,
-              ),
+              Icon(Icons.chevron_right, color: cs.onSurfaceVariant, size: 18),
             ],
           ),
         ),

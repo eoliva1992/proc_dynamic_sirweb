@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_mobx/flutter_mobx.dart';
 import '../providers/procedimientos_provider.dart';
 import 'procedure_card.dart';
+import 'search_tab_state.dart';
 
 class ProcedureList extends StatefulWidget {
-  const ProcedureList({super.key});
+  final SearchTabState tabState;
+  const ProcedureList({super.key, required this.tabState});
 
   @override
   State<ProcedureList> createState() => _ProcedureListState();
@@ -29,22 +30,23 @@ class _ProcedureListState extends State<ProcedureList> {
   void _onScroll() {
     if (_scrollController.position.pixels >=
         _scrollController.position.maxScrollExtent - 200) {
-      procedimientosProvider.cargarMas();
+      widget.tabState.cargarMas(ambiente: procedimientosProvider.ambiente);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Observer(
-      builder: (context) {
-        final provider = procedimientosProvider;
-        if (provider.cargando) {
+    return ListenableBuilder(
+      listenable: widget.tabState,
+      builder: (context, _) {
+        final state = widget.tabState;
+        if (state.cargando) {
           return const Center(
             child: CircularProgressIndicator(color: Color(0xFF0078D4)),
           );
         }
 
-        if (provider.error != null) {
+        if (state.error != null) {
           return Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -56,13 +58,13 @@ class _ProcedureListState extends State<ProcedureList> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  provider.error!,
+                  state.error!,
                   style: const TextStyle(color: Colors.redAccent, fontSize: 13),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),
                 TextButton(
-                  onPressed: provider.limpiarMensajes,
+                  onPressed: state.clearError,
                   child: const Text(
                     'Cerrar',
                     style: TextStyle(color: Color(0xFF0078D4)),
@@ -73,7 +75,7 @@ class _ProcedureListState extends State<ProcedureList> {
           );
         }
 
-        if (provider.resultados.isEmpty) {
+        if (state.resultados.isEmpty) {
           return Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -92,10 +94,9 @@ class _ProcedureListState extends State<ProcedureList> {
         return ListView.builder(
           controller: _scrollController,
           padding: const EdgeInsets.only(top: 8, bottom: 16),
-          itemCount:
-              provider.resultados.length + (provider.tieneSiguiente ? 1 : 0),
+          itemCount: state.resultados.length + (state.tieneSiguiente ? 1 : 0),
           itemBuilder: (context, index) {
-            if (index == provider.resultados.length) {
+            if (index == state.resultados.length) {
               return const Padding(
                 padding: EdgeInsets.symmetric(vertical: 16),
                 child: Center(
@@ -110,10 +111,10 @@ class _ProcedureListState extends State<ProcedureList> {
                 ),
               );
             }
-            final proc = provider.resultados[index];
+            final proc = state.resultados[index];
             return ProcedureCard(
               procedimiento: proc,
-              onTap: () => provider.seleccionar(proc),
+              onTap: () => procedimientosProvider.seleccionar(proc),
             );
           },
         );

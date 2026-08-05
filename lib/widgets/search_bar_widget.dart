@@ -1,20 +1,44 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import '../providers/procedimientos_provider.dart';
+import 'ambiente_selector.dart';
+import 'search_tab_state.dart';
 
 class SearchBarWidget extends StatefulWidget {
-  const SearchBarWidget({super.key});
+  final SearchTabState tabState;
+  final String ambiente;
+  final ValueChanged<String> onAmbienteChanged;
+  final VoidCallback? onNewProcedure;
+
+  const SearchBarWidget({
+    super.key,
+    required this.tabState,
+    required this.ambiente,
+    required this.onAmbienteChanged,
+    this.onNewProcedure,
+  });
 
   @override
   State<SearchBarWidget> createState() => _SearchBarWidgetState();
 }
 
 class _SearchBarWidgetState extends State<SearchBarWidget> {
-  final _searchCtrl = TextEditingController();
-  String? _selectedConfig;
-  String? _selectedEstado = '1';
+  late final TextEditingController _searchCtrl;
+  late String? _selectedConfig;
+  late String? _selectedEstado;
 
   static const _estados = {'1': 'Activos', '0': 'Inactivos', '': 'Todos'};
+
+  @override
+  void initState() {
+    super.initState();
+    _searchCtrl = TextEditingController(text: widget.tabState.searchText);
+    _selectedConfig = widget.tabState.config;
+    _selectedEstado = widget.tabState.estado;
+    _searchCtrl.addListener(
+      () => widget.tabState.searchText = _searchCtrl.text,
+    );
+  }
 
   @override
   void dispose() {
@@ -23,33 +47,39 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
   }
 
   void _buscar() {
-    procedimientosProvider.buscar(
+    widget.tabState.buscar(
       busqueda: _searchCtrl.text.trim(),
-      config: _selectedConfig,
-      estado: _selectedEstado,
+      cfg: _selectedConfig,
+      est: _selectedEstado,
+      ambiente: procedimientosProvider.ambiente,
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Observer(
       builder: (context) {
         final provider = procedimientosProvider;
         return Container(
-          color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF5F5F5),
+          color: cs.surfaceContainerLow,
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
           child: Row(
             children: [
-              Expanded(child: _buildSearchField(cs, isDark)),
+              Expanded(child: _buildSearchField(cs)),
               const SizedBox(width: 8),
-              _buildConfigFilter(provider, isDark),
+              _buildConfigFilter(provider, cs),
               const SizedBox(width: 8),
-              _buildEstadoFilter(isDark),
+              _buildEstadoFilter(cs),
               const SizedBox(width: 8),
               _buildBuscarButton(),
+              const SizedBox(width: 8),
+              AmbienteSelector(
+                value: widget.ambiente,
+                onChanged: widget.onAmbienteChanged,
+              ),
+              if (widget.onNewProcedure != null) ..._buildNewProcButton(),
             ],
           ),
         );
@@ -57,95 +87,66 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
     );
   }
 
-  Widget _buildSearchField(ColorScheme cs, bool isDark) {
+  Widget _buildSearchField(ColorScheme cs) {
     return SizedBox(
       height: 38,
       child: TextField(
         controller: _searchCtrl,
-        style: TextStyle(
-          color: isDark ? const Color(0xFFD4D4D4) : Colors.black87,
-          fontSize: 13,
-        ),
+        style: TextStyle(color: cs.onSurface, fontSize: 13),
         decoration: InputDecoration(
           hintText: 'Buscar por código o contenido del procedimiento…',
-          hintStyle: TextStyle(
-            color: isDark ? const Color(0xFF606060) : Colors.black45,
-            fontSize: 12,
-          ),
-          prefixIcon: Icon(
-            Icons.search,
-            size: 18,
-            color: isDark ? const Color(0xFF606060) : Colors.black45,
-          ),
+          prefixIcon: const Icon(Icons.search, size: 18),
           suffixIcon: _searchCtrl.text.isNotEmpty
               ? IconButton(
-                  icon: Icon(
-                    Icons.clear,
-                    size: 16,
-                    color: isDark ? const Color(0xFF606060) : Colors.black45,
-                  ),
+                  icon: const Icon(Icons.clear, size: 16),
                   onPressed: () {
                     _searchCtrl.clear();
                     setState(() {});
                   },
                 )
               : null,
-          filled: true,
-          fillColor: isDark ? const Color(0xFF3C3C3C) : Colors.white,
-          contentPadding: const EdgeInsets.symmetric(vertical: 9),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(4),
-            borderSide: BorderSide(
-              color: isDark ? const Color(0xFF474747) : Colors.grey.shade300,
-            ),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(4),
-            borderSide: BorderSide(
-              color: isDark ? const Color(0xFF474747) : Colors.grey.shade300,
-            ),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(4),
-            borderSide: const BorderSide(color: Color(0xFF0078D4), width: 1.5),
-          ),
         ),
-        onChanged: (_) => setState(() {}),
+        onChanged: (v) {
+          widget.tabState.searchText = v;
+          setState(() {});
+        },
         onSubmitted: (_) => _buscar(),
       ),
     );
   }
 
-  Widget _buildConfigFilter(ProcedimientosProvider provider, bool isDark) {
+  Widget _buildConfigFilter(ProcedimientosProvider provider, ColorScheme cs) {
     final configs = provider.configuraciones;
-    final fillColor = isDark ? const Color(0xFF3C3C3C) : Colors.white;
-    final borderColor = isDark ? const Color(0xFF474747) : Colors.grey.shade300;
-    final textColor = isDark ? const Color(0xFFD4D4D4) : Colors.black87;
-    final hintColor = isDark ? const Color(0xFF606060) : Colors.black45;
-    final dropColor = isDark ? const Color(0xFF2D2D2D) : Colors.white;
 
     return Container(
       height: 38,
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
-        color: fillColor,
+        color: cs.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: borderColor),
+        border: Border.all(color: cs.outline),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String?>(
           value: _selectedConfig,
-          hint: Text('Tipo', style: TextStyle(color: hintColor, fontSize: 12)),
-          dropdownColor: dropColor,
+          hint: Text(
+            'Tipo',
+            style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+          ),
+          dropdownColor: cs.surfaceContainerHigh,
           isDense: true,
-          style: TextStyle(color: textColor, fontSize: 12),
-          icon: Icon(Icons.arrow_drop_down, color: hintColor, size: 18),
+          style: TextStyle(color: cs.onSurface, fontSize: 12),
+          icon: Icon(
+            Icons.arrow_drop_down,
+            color: cs.onSurfaceVariant,
+            size: 18,
+          ),
           items: [
             DropdownMenuItem<String?>(
               value: null,
               child: Text(
                 'Todos los tipos',
-                style: TextStyle(color: hintColor),
+                style: TextStyle(color: cs.onSurfaceVariant),
               ),
             ),
             if (configs.isEmpty)
@@ -153,7 +154,7 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
               ...['D', 'J', 'A', 'G', 'S', 'C', 'F', 'T', 'V', 'O', 'I'].map(
                 (c) => DropdownMenuItem<String?>(
                   value: c,
-                  child: Text(c, style: TextStyle(color: textColor)),
+                  child: Text(c, style: TextStyle(color: cs.onSurface)),
                 ),
               )
             else
@@ -162,40 +163,41 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
                   value: c.cdModulo,
                   child: Text(
                     '${c.cdModulo} — ${c.deArgumento}',
-                    style: TextStyle(color: textColor),
+                    style: TextStyle(color: cs.onSurface),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ),
           ],
-          onChanged: (v) => setState(() => _selectedConfig = v),
+          onChanged: (v) {
+            setState(() => _selectedConfig = v);
+            widget.tabState.config = v;
+          },
         ),
       ),
     );
   }
 
-  Widget _buildEstadoFilter(bool isDark) {
-    final fillColor = isDark ? const Color(0xFF3C3C3C) : Colors.white;
-    final borderColor = isDark ? const Color(0xFF474747) : Colors.grey.shade300;
-    final textColor = isDark ? const Color(0xFFD4D4D4) : Colors.black87;
-    final hintColor = isDark ? const Color(0xFF606060) : Colors.black45;
-    final dropColor = isDark ? const Color(0xFF2D2D2D) : Colors.white;
-
+  Widget _buildEstadoFilter(ColorScheme cs) {
     return Container(
       height: 38,
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
-        color: fillColor,
+        color: cs.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: borderColor),
+        border: Border.all(color: cs.outline),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String?>(
           value: _selectedEstado,
-          dropdownColor: dropColor,
+          dropdownColor: cs.surfaceContainerHigh,
           isDense: true,
-          style: TextStyle(color: textColor, fontSize: 12),
-          icon: Icon(Icons.arrow_drop_down, color: hintColor, size: 18),
+          style: TextStyle(color: cs.onSurface, fontSize: 12),
+          icon: Icon(
+            Icons.arrow_drop_down,
+            color: cs.onSurfaceVariant,
+            size: 18,
+          ),
           items: _estados.entries
               .map(
                 (e) => DropdownMenuItem<String?>(
@@ -204,7 +206,10 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
                 ),
               )
               .toList(),
-          onChanged: (v) => setState(() => _selectedEstado = v),
+          onChanged: (v) {
+            setState(() => _selectedEstado = v);
+            widget.tabState.estado = v;
+          },
         ),
       ),
     );
@@ -225,5 +230,29 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
         ),
       ),
     );
+  }
+
+  List<Widget> _buildNewProcButton() {
+    return [
+      const SizedBox(width: 8),
+      const SizedBox(height: 24, child: VerticalDivider(width: 1)),
+      const SizedBox(width: 8),
+      SizedBox(
+        height: 38,
+        child: FilledButton.icon(
+          onPressed: widget.onNewProcedure,
+          icon: const Icon(Icons.add, size: 16),
+          label: const Text('Nuevo', style: TextStyle(fontSize: 13)),
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF107C10),
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(4),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+          ),
+        ),
+      ),
+    ];
   }
 }

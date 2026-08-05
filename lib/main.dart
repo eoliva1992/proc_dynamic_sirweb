@@ -13,29 +13,69 @@ class ProcDynamicApp extends StatelessWidget {
   const ProcDynamicApp({super.key});
 
   static ThemeData _buildDarkTheme() {
+    const cs = ColorScheme.dark(
+      primary: Color(0xFF0078D4),
+      onPrimary: Colors.white,
+      surface: Color(0xFF252526),
+      surfaceContainer: Color(0xFF252526),
+      surfaceContainerLow: Color(0xFF1E1E1E),
+      surfaceContainerHigh: Color(0xFF2D2D2D),
+      surfaceContainerHighest: Color(0xFF3C3C3C),
+      onSurface: Color(0xFFD4D4D4),
+      onSurfaceVariant: Color(0xFF969696),
+      outline: Color(0xFF474747),
+      outlineVariant: Color(0xFF3C3C3C),
+    );
     return ThemeData.dark().copyWith(
-      scaffoldBackgroundColor: const Color(0xFF1E1E1E),
-      colorScheme: const ColorScheme.dark(
-        primary: Color(0xFF0078D4),
-        surface: Color(0xFF252526),
-      ),
+      colorScheme: cs,
+      scaffoldBackgroundColor: cs.surfaceContainerLow,
       appBarTheme: const AppBarTheme(
         backgroundColor: Color(0xFF323233),
         elevation: 0,
         iconTheme: IconThemeData(color: Color(0xFFCCCCCC)),
       ),
-      cardTheme: const CardThemeData(color: Color(0xFF252526), elevation: 0),
-      dividerColor: const Color(0xFF3C3C3C),
+      cardTheme: CardThemeData(color: cs.surface, elevation: 0),
+      dividerColor: cs.outlineVariant,
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: cs.surfaceContainerHighest,
+        contentPadding: const EdgeInsets.symmetric(vertical: 9),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(4),
+          borderSide: BorderSide(color: cs.outline),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(4),
+          borderSide: BorderSide(color: cs.outline),
+        ),
+        focusedBorder: const OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(4)),
+          borderSide: BorderSide(color: Color(0xFF0078D4), width: 1.5),
+        ),
+        hintStyle: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+        prefixIconColor: cs.onSurfaceVariant,
+        suffixIconColor: cs.onSurfaceVariant,
+      ),
     );
   }
 
   static ThemeData _buildLightTheme() {
+    const cs = ColorScheme.light(
+      primary: Color(0xFF0078D4),
+      onPrimary: Colors.white,
+      surface: Colors.white,
+      surfaceContainer: Color(0xFFECECEC),
+      surfaceContainerLow: Color(0xFFF5F5F5),
+      surfaceContainerHigh: Color(0xFFECECEC),
+      surfaceContainerHighest: Colors.white,
+      onSurface: Color(0xDD000000),
+      onSurfaceVariant: Color(0x73000000),
+      outline: Color(0xFFE0E0E0),
+      outlineVariant: Color(0xFFEEEEEE),
+    );
     return ThemeData.light().copyWith(
-      scaffoldBackgroundColor: const Color(0xFFF5F5F5),
-      colorScheme: const ColorScheme.light(
-        primary: Color(0xFF0078D4),
-        surface: Colors.white,
-      ),
+      colorScheme: cs,
+      scaffoldBackgroundColor: cs.surfaceContainerLow,
       appBarTheme: const AppBarTheme(
         backgroundColor: Color(0xFF2C2C2C),
         elevation: 1,
@@ -46,8 +86,28 @@ class ProcDynamicApp extends StatelessWidget {
           fontWeight: FontWeight.w500,
         ),
       ),
-      cardTheme: const CardThemeData(color: Colors.white, elevation: 1),
-      dividerColor: Colors.grey.shade300,
+      cardTheme: CardThemeData(color: cs.surface, elevation: 1),
+      dividerColor: cs.outlineVariant,
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: cs.surfaceContainerHighest,
+        contentPadding: const EdgeInsets.symmetric(vertical: 9),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(4),
+          borderSide: BorderSide(color: cs.outline),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(4),
+          borderSide: BorderSide(color: cs.outline),
+        ),
+        focusedBorder: const OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(4)),
+          borderSide: BorderSide(color: Color(0xFF0078D4), width: 1.5),
+        ),
+        hintStyle: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+        prefixIconColor: cs.onSurfaceVariant,
+        suffixIconColor: cs.onSurfaceVariant,
+      ),
     );
   }
 

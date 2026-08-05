@@ -443,6 +443,18 @@ mixin _$ProcedimientosProvider on _ProcedimientosProvider, Store {
   }
 
   @override
+  void setProcedimientoActual(Procedimiento? proc) {
+    final _$actionInfo = _$_ProcedimientosProviderActionController.startAction(
+      name: '_ProcedimientosProvider.setProcedimientoActual',
+    );
+    try {
+      return super.setProcedimientoActual(proc);
+    } finally {
+      _$_ProcedimientosProviderActionController.endAction(_$actionInfo);
+    }
+  }
+
+  @override
   void limpiarMensajes() {
     final _$actionInfo = _$_ProcedimientosProviderActionController.startAction(
       name: '_ProcedimientosProvider.limpiarMensajes',

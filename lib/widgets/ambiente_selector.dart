@@ -4,7 +4,7 @@ class AmbienteSelector extends StatelessWidget {
   final String value;
   final ValueChanged<String> onChanged;
 
-  static const _ambientes = ['Desa', 'Demo', 'QA', 'Replica', 'Prod'];
+  static const ambientes = ['Desa', 'Demo', 'QA', 'Replica', 'Prod'];
 
   const AmbienteSelector({
     super.key,
@@ -12,7 +12,7 @@ class AmbienteSelector extends StatelessWidget {
     required this.onChanged,
   });
 
-  Color _colorForAmbiente(String ambiente) {
+  static Color colorForAmbiente(String ambiente) {
     return switch (ambiente) {
       'Prod' => Colors.red.shade700,
       'QA' => Colors.orange.shade700,
@@ -27,9 +27,9 @@ class AmbienteSelector extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: _colorForAmbiente(value).withValues(alpha: 0.15),
+        color: colorForAmbiente(value).withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: _colorForAmbiente(value), width: 1),
+        border: Border.all(color: colorForAmbiente(value), width: 1),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
@@ -37,19 +37,23 @@ class AmbienteSelector extends StatelessWidget {
           isDense: true,
           dropdownColor: const Color(0xFF2D2D2D),
           style: TextStyle(
-            color: _colorForAmbiente(value),
+            color: colorForAmbiente(value),
             fontWeight: FontWeight.bold,
             fontSize: 13,
           ),
-          icon: Icon(Icons.arrow_drop_down, color: _colorForAmbiente(value), size: 18),
-          items: _ambientes
+          icon: Icon(
+            Icons.arrow_drop_down,
+            color: colorForAmbiente(value),
+            size: 18,
+          ),
+          items: ambientes
               .map(
                 (a) => DropdownMenuItem(
                   value: a,
                   child: Text(
                     a,
                     style: TextStyle(
-                      color: _colorForAmbiente(a),
+                      color: colorForAmbiente(a),
                       fontWeight: FontWeight.bold,
                     ),
                   ),

@@ -20,6 +20,9 @@ class ConfigBadge extends StatelessWidget {
     'I': 'Integración',
   };
 
+  static Color colorForConfig(String config) =>
+      _colors[config] ?? const Color(0xFF95A5A6);
+
   static const _colors = {
     'D': Color(0xFF9B59B6),
     'J': Color(0xFFF0DB4F),

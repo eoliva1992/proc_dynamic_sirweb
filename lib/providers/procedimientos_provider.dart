@@ -115,6 +115,12 @@ abstract class _ProcedimientosProvider with Store {
   void setCdUsuario(String value) => cdUsuario = value;
 
   @action
+  void setProcedimientoActual(Procedimiento? proc) {
+    procedimientoActual = proc;
+    modo = proc != null ? ViewMode.editor : ViewMode.busqueda;
+  }
+
+  @action
   void limpiarMensajes() {
     error = null;
     mensaje = null;
