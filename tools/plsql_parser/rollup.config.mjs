@@ -23,8 +23,9 @@ export default {
 
   plugins: [
     resolve({
-      browser: false,     // QuickJS no es browser ni Node — usar defaults
+      browser: false,
       preferBuiltins: false,
+      exportConditions: ['browser', 'default'],
     }),
     commonjs(),
     terser({

@@ -1,11 +1,16 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'providers/theme_provider.dart';
 import 'screens/main_screen.dart';
+import 'services/schema_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await themeStore.loadFromPrefs();
+  // Iniciar carga/refresco del schema Oracle en background desde el arranque
+  // para que el autocompletado esté listo cuando el usuario abra el editor.
+  unawaited(SchemaService.instance.loadMetadata());
   runApp(const ProcDynamicApp());
 }
 

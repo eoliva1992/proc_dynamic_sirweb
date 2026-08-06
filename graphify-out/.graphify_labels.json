@@ -67,5 +67,11 @@
   "65": "Procedimiento? get",
   "66": "ThemeMode get",
   "67": "Timer?",
-  "68": "ViewMode get"
+  "68": "ViewMode get",
+  "69": "app_tab.dart",
+  "70": "procedure_card.dart",
+  "71": "StatelessWidget",
+  "72": "package:proc_dynamic_sirweb/models/procedimiento.dart",
+  "73": "../widgets/procedure_list.dart",
+  "74": "../widgets/search_bar_widget.dart"
 }

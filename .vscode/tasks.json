@@ -144,6 +144,287 @@
 			"type": "shell",
 			"command": "flutter analyze lib 2>&1 | Select-String -Pattern '  error -'",
 			"group": "build"
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze schema",
+			"type": "shell",
+			"command": "dart analyze lib/services/schema_service.dart lib/services/schema_service_clean.dart",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze key files",
+			"type": "shell",
+			"command": "dart analyze lib/services/schema_service_clean.dart lib/widgets/code_editor_panel.dart lib/widgets/monaco_editor_widget.dart",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze no corrupt",
+			"type": "shell",
+			"command": "dart analyze 2>&1 | grep -v schema_service.dart | head -20",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze filtered",
+			"type": "shell",
+			"command": "dart analyze 2>&1 | Select-String -NotMatch 'schema_service.dart' | Select-Object -First 20"
+		},
+		{
+			"label": "dart analyze functional",
+			"type": "shell",
+			"command": "dart analyze lib/services/schema_service_clean.dart lib/widgets/code_editor_panel.dart lib/widgets/monaco_editor_widget.dart lib/models/schema_metadata.dart"
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "dart analyze",
+			"type": "shell",
+			"command": "dart analyze",
+			"problemMatcher": [
+				"$dart-analyze"
+			]
+		},
+		{
+			"label": "flutter-run-windows",
+			"type": "shell",
+			"command": "flutter run -d windows",
+			"isBackground": true,
+			"problemMatcher": []
 		}
 	]
 }

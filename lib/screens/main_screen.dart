@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:mobx/mobx.dart' show reaction, ReactionDisposer;
+import '../models/procedimiento.dart';
 import '../providers/procedimientos_provider.dart';
 import '../providers/theme_provider.dart';
 import '../widgets/ambiente_selector.dart';
@@ -8,6 +12,8 @@ import '../widgets/app_tab.dart';
 import '../widgets/code_editor_panel.dart';
 import '../widgets/config_badge.dart';
 import '../widgets/new_procedure_dialog.dart';
+import '../widgets/schema_browser_modal.dart';
+import '../widgets/schema_status_overlay.dart';
 import '../widgets/search_tab_view.dart';
 
 part '_usuario_button.dart';
@@ -22,6 +28,8 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   final List<AppTab> _tabs = [AppTab()];
   int _activeTab = 0;
+  int? _loadingTabIndex; // tab that owns the current seleccionar() call
+  bool _syncingActiveTab = false; // true while _activateTab syncs the provider
   late ReactionDisposer _tabReaction;
 
   @override
@@ -34,13 +42,51 @@ class _MainScreenState extends State<MainScreen> {
       (_) => (
         procedimientosProvider.procedimientoActual,
         procedimientosProvider.cargandoEditor,
+        procedimientosProvider.error,
       ),
       (state) {
+        if (_syncingActiveTab) return;
+        // Only handle explicit tracked loads (ambiente change, new procedure).
+        // onSelect manages its own lifecycle via async/await.
+        if (_loadingTabIndex == null) return;
         final proc = state.$1;
+        final loading = state.$2;
+        final error = state.$3;
+        // Use the tab that initiated the load; fall back to the active tab.
+        final targetIndex = _loadingTabIndex ?? _activeTab;
+        if (targetIndex >= _tabs.length) return;
+        // If load failed (null proc, no longer loading) and the tab was waiting, clear it
+        if (proc == null &&
+            !loading &&
+            error != null &&
+            _tabs[targetIndex].loading) {
+          final procCode = _tabs[targetIndex].procedimiento?.cdProcedimiento;
+          final amb = _tabs[targetIndex].ambiente;
+          _loadingTabIndex = null;
+          setState(() {
+            _tabs[targetIndex].procedimiento = null;
+            _tabs[targetIndex].loading = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                procCode != null ? '$procCode no existe en $amb' : error,
+              ),
+              backgroundColor: Colors.red.shade700,
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+          return;
+        }
         if (proc == null) return;
+        // Only update the tab when the load finishes, never while it is in progress.
+        if (loading) return;
+        _loadingTabIndex = null;
+        final target = _tabs[targetIndex];
         setState(() {
-          _tabs[_activeTab].procedimiento = proc;
-          _tabs[_activeTab].loading = state.$2;
+          target.procedimiento = proc;
+          target.loading = false;
         });
       },
     );
@@ -67,8 +113,11 @@ class _MainScreenState extends State<MainScreen> {
     if (_activeTab == index) return;
     setState(() => _activeTab = index);
     final tab = _tabs[index];
+    // Guard so the reaction ignores this provider sync.
+    _syncingActiveTab = true;
     procedimientosProvider.setProcedimientoActual(tab.procedimiento);
     procedimientosProvider.setAmbiente(tab.ambiente);
+    _syncingActiveTab = false;
   }
 
   void _closeTab(int index) {
@@ -98,40 +147,61 @@ class _MainScreenState extends State<MainScreen> {
 
   void _onTabAmbienteChanged(AppTab tab, String newAmbiente) {
     setState(() => tab.ambiente = newAmbiente);
-    if (_tabs[_activeTab].tabId == tab.tabId) {
-      procedimientosProvider.setAmbiente(newAmbiente);
+    if (_tabs[_activeTab].tabId != tab.tabId) return;
+    procedimientosProvider.setAmbiente(newAmbiente);
+    final proc = tab.procedimiento;
+    if (proc != null) {
+      // Reload the open procedure from the new environment
+      _loadingTabIndex = _tabs.indexOf(tab);
+      setState(() => tab.loading = true);
+      unawaited(procedimientosProvider.seleccionar(proc));
+    } else if (tab.searchState.resultados.isNotEmpty) {
+      // Re-run the active search in the new environment
+      unawaited(
+        tab.searchState.buscar(
+          busqueda: tab.searchState.searchText,
+          cfg: tab.searchState.config,
+          est: tab.searchState.estado,
+          ambiente: newAmbiente,
+        ),
+      );
     }
   }
 
   void _onTabReorder(int oldIndex, int newIndex) {
-    setState(() {
-      final tab = _tabs.removeAt(oldIndex);
-      _tabs.insert(newIndex, tab);
-      if (_activeTab == oldIndex) {
-        _activeTab = newIndex;
-      } else if (_activeTab > oldIndex && _activeTab <= newIndex) {
-        _activeTab--;
-      } else if (_activeTab < oldIndex && _activeTab >= newIndex) {
-        _activeTab++;
-      }
-    });
+    // _tabs already mutated by _MainTabBarState._handleReorder (shared reference).
+    int newActive = _activeTab;
+    if (_activeTab == oldIndex) {
+      newActive = newIndex;
+    } else if (_activeTab > oldIndex && _activeTab <= newIndex) {
+      newActive = _activeTab - 1;
+    } else if (_activeTab < oldIndex && _activeTab >= newIndex) {
+      newActive = _activeTab + 1;
+    }
+    setState(() => _activeTab = newActive);
   }
 
   Future<void> _showNewProcedureDialog(BuildContext context) async {
     // Require a registered user — open the user dialog first if missing
     if (procedimientosProvider.cdUsuario.isEmpty) {
-      _showUsuarioDialog(context);
+      _showUsuarioDialog(
+        context,
+        onSaved: () => _showNewProcedureDialog(context),
+      );
       return;
     }
     final ambiente = _tabs[_activeTab].ambiente;
     // Sync provider to the active tab's database before opening the dialog
     procedimientosProvider.setAmbiente(ambiente);
-    final result = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => NewProcedureDialog(ambiente: ambiente),
-    );
-    if (result == true && context.mounted) {
+    final result =
+        await showDialog<
+          ({String cdProcedimiento, String inConfiguracion, String ambiente})?
+        >(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => NewProcedureDialog(ambiente: ambiente),
+        );
+    if (result != null && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -141,10 +211,30 @@ class _MainScreenState extends State<MainScreen> {
           duration: const Duration(seconds: 3),
         ),
       );
+      // Open the new procedure in a fresh tab
+      final stub = Procedimiento(
+        cdProcedimiento: result.cdProcedimiento,
+        deTexto: '',
+        inConfiguracion: result.inConfiguracion,
+        version: 0,
+        stProcedimiento: '1',
+      );
+      setState(() {
+        _tabs.add(AppTab(ambiente: result.ambiente));
+        _activeTab = _tabs.length - 1;
+        _tabs[_activeTab].loading = true;
+      });
+      procedimientosProvider.setAmbiente(result.ambiente);
+      _loadingTabIndex = _tabs.length - 1;
+      unawaited(procedimientosProvider.seleccionar(stub));
     }
   }
 
-  void _showUsuarioDialog(BuildContext context) {
+  void _showSchemaBrowser(BuildContext context) {
+    showSchemaBrowser(context, ambiente: _tabs[_activeTab].ambiente);
+  }
+
+  void _showUsuarioDialog(BuildContext context, {VoidCallback? onSaved}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final provider = procedimientosProvider;
     final ctrl = TextEditingController(text: provider.cdUsuario);
@@ -253,6 +343,14 @@ class _MainScreenState extends State<MainScreen> {
                         letterSpacing: 1.2,
                       ),
                       textCapitalization: TextCapitalization.characters,
+                      inputFormatters: [
+                        TextInputFormatter.withFunction(
+                          (old, val) => val.copyWith(
+                            text: val.text.toUpperCase(),
+                            selection: val.selection,
+                          ),
+                        ),
+                      ],
                       decoration: InputDecoration(
                         hintText: 'Ej: EOLIVA',
                         hintStyle: TextStyle(
@@ -300,6 +398,7 @@ class _MainScreenState extends State<MainScreen> {
                       onSubmitted: (v) {
                         provider.setCdUsuario(v.trim());
                         Navigator.of(ctx).pop();
+                        if (v.trim().isNotEmpty) onSaved?.call();
                       },
                     ),
                   ),
@@ -340,6 +439,7 @@ class _MainScreenState extends State<MainScreen> {
                             onPressed: () {
                               provider.setCdUsuario(ctrl.text.trim());
                               Navigator.of(ctx).pop();
+                              if (ctrl.text.trim().isNotEmpty) onSaved?.call();
                             },
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF0078D4),
@@ -382,15 +482,27 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: _buildAppBar(context),
-      body: Column(
+      body: Stack(
         children: [
-          _buildTabBar(context),
-          Expanded(
-            child: IndexedStack(
-              index: _activeTab,
-              children: [for (final tab in _tabs) _buildTabContent(tab)],
-            ),
+          Column(
+            children: [
+              _MainTabBar(
+                tabs: _tabs,
+                activeTab: _activeTab,
+                onActivate: _activateTab,
+                onClose: _closeTab,
+                onAdd: _addSearchTab,
+                onReorder: _onTabReorder,
+              ),
+              Expanded(
+                child: IndexedStack(
+                  index: _activeTab,
+                  children: [for (final tab in _tabs) _buildTabContent(tab)],
+                ),
+              ),
+            ],
           ),
+          const Positioned(left: 12, bottom: 12, child: SchemaStatusOverlay()),
         ],
       ),
     );
@@ -404,6 +516,35 @@ class _MainScreenState extends State<MainScreen> {
         ambiente: tab.ambiente,
         onAmbienteChanged: (v) => _onTabAmbienteChanged(tab, v),
         onNewProcedure: () => _showNewProcedureDialog(context),
+        onSelect: (Procedimiento proc) async {
+          if (!mounted) return;
+          final tabIndex = _tabs.indexOf(tab);
+          setState(() {
+            tab.procedimiento = proc;
+            tab.loading = true;
+          });
+          await procedimientosProvider.seleccionar(proc);
+          if (!mounted) return;
+          if (tabIndex >= _tabs.length || _tabs[tabIndex] != tab) return;
+          final result = procedimientosProvider.procedimientoActual;
+          final err = procedimientosProvider.error;
+          setState(() {
+            tab.procedimiento = result;
+            tab.loading = false;
+          });
+          if (result == null && err != null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  '${proc.cdProcedimiento} no existe en ${tab.ambiente}',
+                ),
+                backgroundColor: Colors.red.shade700,
+                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+        },
       );
     }
     return Column(
@@ -526,7 +667,109 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  Widget _buildTabBar(BuildContext context) {
+  AppBar _buildAppBar(BuildContext context) {
+    return AppBar(
+      titleSpacing: 16,
+      title: const Text(
+        'Procedimientos Dinámicos',
+        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+      ),
+      actions: [
+        Tooltip(
+          message: 'Explorador de esquema',
+          child: IconButton(
+            onPressed: () => _showSchemaBrowser(context),
+            icon: const Icon(Icons.storage_rounded),
+            color: Colors.white70,
+          ),
+        ),
+        Observer(
+          builder: (_) => _UsuarioButton(
+            cdUsuario: procedimientosProvider.cdUsuario,
+            onTap: () => _showUsuarioDialog(context),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Observer(
+          builder: (_) => Tooltip(
+            message: themeStore.isDark
+                ? 'Cambiar a modo claro'
+                : 'Cambiar a modo oscuro',
+            child: IconButton(
+              onPressed: themeStore.toggle,
+              icon: Icon(
+                themeStore.isDark
+                    ? Icons.light_mode_outlined
+                    : Icons.dark_mode_outlined,
+              ),
+              color: Colors.white70,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+      ],
+    );
+  }
+}
+
+class _MainTabBar extends StatefulWidget {
+  final List<AppTab> tabs;
+  final int activeTab;
+  final ValueChanged<int> onActivate;
+  final ValueChanged<int> onClose;
+  final VoidCallback onAdd;
+  final void Function(int oldIndex, int newIndex) onReorder;
+
+  const _MainTabBar({
+    required this.tabs,
+    required this.activeTab,
+    required this.onActivate,
+    required this.onClose,
+    required this.onAdd,
+    required this.onReorder,
+  });
+
+  @override
+  State<_MainTabBar> createState() => _MainTabBarState();
+}
+
+class _MainTabBarState extends State<_MainTabBar> {
+  late List<AppTab> _tabs;
+  late int _activeTab;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabs = widget.tabs;
+    _activeTab = widget.activeTab;
+  }
+
+  @override
+  void didUpdateWidget(_MainTabBar old) {
+    super.didUpdateWidget(old);
+    _tabs = widget.tabs;
+    _activeTab = widget.activeTab;
+  }
+
+  void _handleReorder(int oldIndex, int newIndex) {
+    final clamped = newIndex.clamp(0, _tabs.length - 1);
+    // Update local state immediately for a seamless visual
+    setState(() {
+      final tab = _tabs.removeAt(oldIndex);
+      _tabs.insert(clamped, tab);
+      if (_activeTab == oldIndex) {
+        _activeTab = clamped;
+      } else if (_activeTab > oldIndex && _activeTab <= clamped) {
+        _activeTab--;
+      } else if (_activeTab < oldIndex && _activeTab >= clamped) {
+        _activeTab++;
+      }
+    });
+    widget.onReorder(oldIndex, clamped);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final divider = cs.outlineVariant;
@@ -543,7 +786,7 @@ class _MainScreenState extends State<MainScreen> {
           if (i == _tabs.length) {
             return InkWell(
               key: const ValueKey('_add_tab_'),
-              onTap: _addSearchTab,
+              onTap: widget.onAdd,
               child: SizedBox(
                 width: 32,
                 height: 35,
@@ -554,21 +797,20 @@ class _MainScreenState extends State<MainScreen> {
           return ReorderableDragStartListener(
             key: ValueKey(_tabs[i].tabId),
             index: i,
-            child: _buildTabItem(i, isDark, divider),
+            child: _buildTabItem(i, isDark, divider, cs),
           );
         },
         onReorderItem: (oldIndex, newIndex) {
           if (oldIndex >= _tabs.length) return;
-          _onTabReorder(oldIndex, newIndex.clamp(0, _tabs.length - 1));
+          _handleReorder(oldIndex, newIndex);
         },
       ),
     );
   }
 
-  Widget _buildTabItem(int index, bool isDark, Color divider) {
+  Widget _buildTabItem(int index, bool isDark, Color divider, ColorScheme cs) {
     final tab = _tabs[index];
     final isActive = index == _activeTab;
-    final cs = Theme.of(context).colorScheme;
     final activeBg = isDark ? cs.surfaceContainerLow : cs.surface;
     final inactiveBg = cs.surfaceContainerHigh;
     final activeText = cs.onSurface;
@@ -601,7 +843,7 @@ class _MainScreenState extends State<MainScreen> {
         children: [
           Flexible(
             child: InkWell(
-              onTap: () => _activateTab(index),
+              onTap: () => widget.onActivate(index),
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(8, 0, 4, 0),
                 child: Row(
@@ -640,7 +882,7 @@ class _MainScreenState extends State<MainScreen> {
           _buildAmbienteBadge(tab),
           if (_tabs.length > 1)
             InkWell(
-              onTap: () => _closeTab(index),
+              onTap: () => widget.onClose(index),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 5,
@@ -679,42 +921,6 @@ class _MainScreenState extends State<MainScreen> {
           letterSpacing: 0.3,
         ),
       ),
-    );
-  }
-
-  AppBar _buildAppBar(BuildContext context) {
-    return AppBar(
-      titleSpacing: 16,
-      title: const Text(
-        'Procedimientos Dinámicos',
-        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-      ),
-      actions: [
-        Observer(
-          builder: (_) => _UsuarioButton(
-            cdUsuario: procedimientosProvider.cdUsuario,
-            onTap: () => _showUsuarioDialog(context),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Observer(
-          builder: (_) => Tooltip(
-            message: themeStore.isDark
-                ? 'Cambiar a modo claro'
-                : 'Cambiar a modo oscuro',
-            child: IconButton(
-              onPressed: themeStore.toggle,
-              icon: Icon(
-                themeStore.isDark
-                    ? Icons.light_mode_outlined
-                    : Icons.dark_mode_outlined,
-              ),
-              color: Colors.white70,
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-      ],
     );
   }
 }

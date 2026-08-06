@@ -21,6 +21,7 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
   final _codigoCtrl = TextEditingController();
   final _usuarioCtrl = TextEditingController();
   String _selectedConfig = 'D';
+  late String _selectedAmbiente;
   String _code = _kDefaultCode;
   bool _editorReady = false;
   MonacoController? _editorCtrl;
@@ -96,6 +97,7 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
   @override
   void initState() {
     super.initState();
+    _selectedAmbiente = widget.ambiente;
     _codigoCtrl.addListener(_syncFunctionName);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final u = procedimientosProvider.cdUsuario;
@@ -135,15 +137,21 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
         ? await _editorCtrl!.document.getText()
         : _code;
     final provider = procedimientosProvider;
+    final cdProc = _codigoCtrl.text.trim().toUpperCase();
+    provider.setAmbiente(_selectedAmbiente);
     final ok = await provider.crear(
-      cdProcedimiento: _codigoCtrl.text.trim().toUpperCase(),
+      cdProcedimiento: cdProc,
       deTexto: code,
       inConfiguracion: _selectedConfig,
       cdUsuario: _usuarioCtrl.text.trim(),
     );
     if (ok && mounted) {
       provider.setCdUsuario(_usuarioCtrl.text.trim());
-      Navigator.of(context).pop(true);
+      Navigator.of(context).pop((
+        cdProcedimiento: cdProc,
+        inConfiguracion: _selectedConfig,
+        ambiente: _selectedAmbiente,
+      ));
     }
   }
 
@@ -180,7 +188,6 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
   // ── Header ──────────────────────────────────────────────────────────────
 
   Widget _buildHeader(bool isDark, ColorScheme cs) {
-    final ambColor = AmbienteSelector.colorForAmbiente(widget.ambiente);
     final headerBg = isDark
         ? cs.surfaceContainerHighest
         : const Color(0xFF0053A6);
@@ -229,12 +236,16 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
               color: isDark
-                  ? ambColor.withValues(alpha: 0.15)
+                  ? AmbienteSelector.colorForAmbiente(
+                      _selectedAmbiente,
+                    ).withValues(alpha: 0.15)
                   : Colors.white.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(6),
               border: Border.all(
                 color: isDark
-                    ? ambColor.withValues(alpha: 0.5)
+                    ? AmbienteSelector.colorForAmbiente(
+                        _selectedAmbiente,
+                      ).withValues(alpha: 0.5)
                     : Colors.white.withValues(alpha: 0.35),
               ),
             ),
@@ -244,13 +255,17 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
                 Icon(
                   Icons.storage_rounded,
                   size: 13,
-                  color: isDark ? ambColor : Colors.white,
+                  color: isDark
+                      ? AmbienteSelector.colorForAmbiente(_selectedAmbiente)
+                      : Colors.white,
                 ),
                 const SizedBox(width: 5),
                 Text(
-                  widget.ambiente,
+                  _selectedAmbiente,
                   style: TextStyle(
-                    color: isDark ? ambColor : Colors.white,
+                    color: isDark
+                        ? AmbienteSelector.colorForAmbiente(_selectedAmbiente)
+                        : Colors.white,
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.5,
@@ -288,14 +303,21 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
       ),
       child: Form(
         key: _formKey,
-        child: Row(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(flex: 3, child: _buildCodigoField(cs)),
-            const SizedBox(width: 16),
-            Expanded(flex: 4, child: _buildConfigSelector(isDark, cs)),
-            const SizedBox(width: 16),
-            Expanded(flex: 2, child: _buildUsuarioField(cs)),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 3, child: _buildCodigoField(cs)),
+                const SizedBox(width: 16),
+                Expanded(flex: 4, child: _buildConfigSelector(isDark, cs)),
+                const SizedBox(width: 16),
+                Expanded(flex: 2, child: _buildUsuarioField(cs)),
+                const SizedBox(width: 16),
+                _buildAmbienteField(isDark, cs),
+              ],
+            ),
           ],
         ),
       ),
@@ -341,6 +363,23 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
           decoration: _deco(cs, Icons.person_outline_rounded, hint: 'USUARIO'),
           textCapitalization: TextCapitalization.characters,
           validator: (v) => v == null || v.trim().isEmpty ? 'Requerido' : null,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAmbienteField(bool isDark, ColorScheme cs) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _label('Base de datos'),
+        const SizedBox(height: 6),
+        SizedBox(
+          height: 42,
+          child: AmbienteSelector(
+            value: _selectedAmbiente,
+            onChanged: (v) => setState(() => _selectedAmbiente = v),
+          ),
         ),
       ],
     );
@@ -507,7 +546,7 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
                     language: _isJsConfig(_selectedConfig)
                         ? MonacoLanguage.javascript
                         : MonacoLanguage.sql,
-                    theme: isDark ? oracleDarkTheme : oracleLightTheme,
+                    theme: oracleDarkTheme,
                     fontSize: 13,
                     lineNumbers: MonacoLineNumbers.on,
                     minimap: const MonacoMinimapOptions(enabled: false),
@@ -519,6 +558,8 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
                     _editorCtrl = ctrl;
                     await ctrl.defineTheme(oracleDark);
                     await ctrl.defineTheme(oracleLight);
+                    // Custom themes must be defined before setTheme can apply them
+                    await ctrl.setTheme(oracleDarkTheme);
                     // Apply correct template/language if JS config was set before editor was ready
                     if (_isJsConfig(_selectedConfig)) {
                       await ctrl.document.setText(_jsTemplateFor());

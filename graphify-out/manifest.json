@@ -10,8 +10,8 @@
     "semantic_hash": ""
   },
   "lib/main.dart": {
-    "mtime": 1785856903.246815,
-    "ast_hash": "a9580991b7196f84e41836984861aefe",
+    "mtime": 1785877610.3399048,
+    "ast_hash": "79700abb6d49999463468fe3e33491f9",
     "semantic_hash": ""
   },
   "lib/models/configuracion_tipo.dart": {
@@ -30,8 +30,8 @@
     "semantic_hash": "64db44684de2764cd44452c2d56208ff"
   },
   "lib/providers/procedimientos_provider.dart": {
-    "mtime": 1785641624.003044,
-    "ast_hash": "898e80198db4b40d9ed8de89b26b088f",
+    "mtime": 1785875948.7935534,
+    "ast_hash": "13cccb1960153807a2cdfa3767baffa7",
     "semantic_hash": ""
   },
   "lib/providers/theme_provider.dart": {
@@ -40,8 +40,8 @@
     "semantic_hash": ""
   },
   "lib/screens/main_screen.dart": {
-    "mtime": 1785655451.981974,
-    "ast_hash": "94b43651187f3907e7662222f411a7fa",
+    "mtime": 1785903605.0989752,
+    "ast_hash": "d005de8ebb2e61586e37283f0924c2f0",
     "semantic_hash": ""
   },
   "lib/services/sirweb_service.dart": {
@@ -50,38 +50,38 @@
     "semantic_hash": "e0ca7e313f172819e5232cbb7fdd797c"
   },
   "lib/widgets/ambiente_selector.dart": {
-    "mtime": 1785182114.1647916,
-    "ast_hash": "ed61d5fdcd8d87fbae04abaaed60e247",
-    "semantic_hash": "ed61d5fdcd8d87fbae04abaaed60e247"
+    "mtime": 1785877610.3687956,
+    "ast_hash": "1c5c46711b5d67ec3f46418647d73f78",
+    "semantic_hash": ""
   },
   "lib/widgets/code_editor_panel.dart": {
-    "mtime": 1785856903.2478268,
-    "ast_hash": "099c383258da9353a0e75c60ececce43",
+    "mtime": 1785896549.3925166,
+    "ast_hash": "f7be4e62a700e0a4c827709c50c80584",
     "semantic_hash": ""
   },
   "lib/widgets/config_badge.dart": {
-    "mtime": 1785209805.4259768,
-    "ast_hash": "fdcf889dd0cea9137d2f5fddcdd532a5",
-    "semantic_hash": "fdcf889dd0cea9137d2f5fddcdd532a5"
+    "mtime": 1785903605.0884578,
+    "ast_hash": "e33ee3d9a83cc0af9d6e357bc8a54fee",
+    "semantic_hash": ""
   },
   "lib/widgets/new_procedure_dialog.dart": {
-    "mtime": 1785641623.8197618,
-    "ast_hash": "181e44dbda5e009ce7561ce024644d9b",
+    "mtime": 1785905743.713863,
+    "ast_hash": "f4c4e2253f9f11be8b950f4c25800adf",
     "semantic_hash": ""
   },
   "lib/widgets/procedure_card.dart": {
-    "mtime": 1785641624.0563533,
-    "ast_hash": "bdd32a9ca6f9c4c4d1e176007ac0c126",
+    "mtime": 1785877610.367847,
+    "ast_hash": "230fbead94862bab9cb8370a4202814e",
     "semantic_hash": ""
   },
   "lib/widgets/procedure_list.dart": {
-    "mtime": 1785641624.0050452,
-    "ast_hash": "9363714c3937cb7484bcb826f92ef363",
+    "mtime": 1785875948.8251064,
+    "ast_hash": "c1376d0c406e0f2696e2fe1139ba6bb1",
     "semantic_hash": ""
   },
   "lib/widgets/search_bar_widget.dart": {
-    "mtime": 1785641624.003044,
-    "ast_hash": "eafcdf114b8bdb3929c1993c18400adf",
+    "mtime": 1785896549.3872697,
+    "ast_hash": "8e951b4bf45cccef680d8a95accf1a42",
     "semantic_hash": ""
   },
   "windows/flutter/generated_plugin_registrant.cc": {
@@ -250,8 +250,8 @@
     "semantic_hash": ""
   },
   "lib/providers/procedimientos_provider.g.dart": {
-    "mtime": 1785641049.8694024,
-    "ast_hash": "db41af6974df5852b9834a29898ee668",
+    "mtime": 1785874118.3758426,
+    "ast_hash": "7dcd0ab2ee3317729d25835e658fbf88",
     "semantic_hash": ""
   },
   "lib/providers/theme_provider.g.dart": {
@@ -292,6 +292,41 @@
   "web/icons/Icon-maskable-512.png": {
     "mtime": 1780452781.366933,
     "ast_hash": "301a7604d45b3e739efc881eb04896ea",
+    "semantic_hash": ""
+  },
+  "lib/widgets/_editor_oracle_theme.dart": {
+    "mtime": 1785896549.406003,
+    "ast_hash": "616349e1797aedb30489d436d6088c63",
+    "semantic_hash": ""
+  },
+  "lib/widgets/_editor_plsql_checker.dart": {
+    "mtime": 1785886709.2569208,
+    "ast_hash": "144054e6f1583f5be96a0913bb08e3e4",
+    "semantic_hash": ""
+  },
+  "lib/widgets/_editor_plsql_completions.dart": {
+    "mtime": 1785896549.4242275,
+    "ast_hash": "420a9a192c17ee8c495364c00a3d817a",
+    "semantic_hash": ""
+  },
+  "lib/widgets/app_tab.dart": {
+    "mtime": 1785877610.3399048,
+    "ast_hash": "1fb106b25040e8f8fda969caee257c94",
+    "semantic_hash": ""
+  },
+  "lib/widgets/procedure_diff_panel.dart": {
+    "mtime": 1785896549.4350324,
+    "ast_hash": "45a37d2edf6820a98db50b3d53c67d6b",
+    "semantic_hash": ""
+  },
+  "lib/widgets/search_tab_state.dart": {
+    "mtime": 1785875948.779323,
+    "ast_hash": "51debc4be2fb4f18a75aa578723614ca",
+    "semantic_hash": ""
+  },
+  "lib/widgets/search_tab_view.dart": {
+    "mtime": 1785896549.3872697,
+    "ast_hash": "ab879c91ebdb53eaeb052798a6a07bed",
     "semantic_hash": ""
   }
 }

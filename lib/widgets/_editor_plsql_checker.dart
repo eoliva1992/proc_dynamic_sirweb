@@ -107,7 +107,8 @@ List<PlSqlIssue> checkPlSqlSyntax(String code) {
 
   // ── Pass 2: BEGIN/END balance (keywords only, outside strings/comments) ──
   final beginRe = RegExp(r'\bBEGIN\b', caseSensitive: false);
-  final endRe = RegExp(r'\bEND\b', caseSensitive: false);
+  // Only match END that closes a BEGIN block — not END IF / END LOOP / END CASE
+  final endRe = RegExp(r'\bEND\b(?!\s*(IF|LOOP|CASE)\b)', caseSensitive: false);
 
   // Strip strings and comments to avoid false positives
   final stripped = _stripCommentsAndStrings(code);

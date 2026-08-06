@@ -238,6 +238,7 @@ abstract class _ProcedimientosProvider with Store {
     } catch (e) {
       runInAction(() {
         error = e.toString().replaceFirst('Exception: ', '');
+        procedimientoActual = null;
         cargandoEditor = false;
       });
     }

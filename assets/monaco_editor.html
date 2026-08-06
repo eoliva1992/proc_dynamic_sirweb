@@ -73,42 +73,228 @@
         },
       });
 
-      // Completions básicas PL/SQL
+      // Completions básicas PL/SQL + dinámicas desde Dart
+      // ─────────────────────────────────────────────────────────────────────
+
+      // Schema recibido desde Dart (se actualiza via monacoReceiveMessage)
+      var _schema = {
+        tables: [],
+        views: [],
+        objects: [],   // [{name, type}]
+        columns: {},   // { 'TABLA': [{name, type}] }
+      };
+
+      // Extrae las tablas del bloque FROM/JOIN del texto antes del cursor
+      function extractFromTables(textBefore) {
+        var result = {};
+        // FROM ... hasta WHERE/GROUP/ORDER/HAVING o fin
+        var fromMatch = textBefore.match(/FROM\s+([\s\S]*?)(?:WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|$)/i);
+        var fromBlock = fromMatch ? fromMatch[1] : '';
+
+        // Cada "tabla [AS] alias" separado por coma
+        var tableRe = /(\w+)(?:\s+AS\s+|\s+)(\w+)?/gi;
+        var m;
+        while ((m = tableRe.exec(fromBlock)) !== null) {
+          var tbl = m[1].toUpperCase();
+          var alias = m[2] ? m[2].toUpperCase() : null;
+          result[tbl] = tbl;
+          if (alias && alias !== tbl) result[alias] = tbl;
+        }
+
+        // JOINs
+        var joinRe = /JOIN\s+(\w+)(?:\s+AS\s+|\s+)(\w+)?/gi;
+        while ((m = joinRe.exec(textBefore)) !== null) {
+          var tbl = m[1].toUpperCase();
+          var alias = m[2] ? m[2].toUpperCase() : null;
+          result[tbl] = tbl;
+          if (alias) result[alias] = tbl;
+        }
+
+        return result;
+      }
+
       monaco.languages.registerCompletionItemProvider('plsql', {
+        // Disparar también al escribir punto
+        triggerCharacters: ['.'],
+
         provideCompletionItems: function(model, position) {
+          var textBefore = model.getValueInRange({
+            startLineNumber: 1, startColumn: 1,
+            endLineNumber: position.lineNumber, endColumn: position.column,
+          });
+
           var word = model.getWordUntilPosition(position);
           var range = {
             startLineNumber: position.lineNumber,
             endLineNumber: position.lineNumber,
             startColumn: word.startColumn,
-            endColumn: word.endColumn
+            endColumn: word.endColumn,
           };
+
+          var suggestions = [];
+
+          // ── Caso 1: "ALIAS." → columnas de esa tabla ──────────────────────
+          var dotMatch = textBefore.match(/(\w+)\.\s*$/);
+          if (dotMatch) {
+            var tableRef = dotMatch[1].toUpperCase();
+            var fromMap = extractFromTables(textBefore);
+            var realTable = fromMap[tableRef] || tableRef;
+            var cols = _schema.columns[realTable] || [];
+
+            // Ajustar range para reemplazar desde después del punto
+            var dotRange = {
+              startLineNumber: position.lineNumber,
+              endLineNumber: position.lineNumber,
+              startColumn: position.column,
+              endColumn: position.column,
+            };
+
+            cols.forEach(function(col) {
+              suggestions.push({
+                label: col.name,
+                kind: monaco.languages.CompletionItemKind.Field,
+                detail: col.type + ' · ' + realTable,
+                insertText: col.name,
+                range: dotRange,
+                sortText: '0' + col.name, // columnas primero
+              });
+            });
+
+            // Si no hay columnas cargadas aún, ofrecer placeholder
+            if (cols.length === 0) {
+              suggestions.push({
+                label: '⏳ Cargando columnas de ' + realTable + '...',
+                kind: monaco.languages.CompletionItemKind.Text,
+                insertText: '',
+                range: dotRange,
+                sortText: 'z',
+              });
+            }
+
+            return { suggestions: suggestions };
+          }
+
+          // ── Caso 2: palabra suelta ─────────────────────────────────────────
+          var prefix = word.word.toUpperCase();
+          var fromTables = extractFromTables(textBefore);
+
+          // Columnas de tablas en el FROM (sin punto)
+          Object.values(fromTables).forEach(function(realTable) {
+            var cols = _schema.columns[realTable] || [];
+            cols.forEach(function(col) {
+              if (!prefix || col.name.startsWith(prefix)) {
+                suggestions.push({
+                  label: col.name,
+                  kind: monaco.languages.CompletionItemKind.Field,
+                  detail: col.type + ' · ' + realTable,
+                  insertText: col.name,
+                  range: range,
+                  sortText: '1' + col.name,
+                });
+              }
+            });
+          });
+
+          // Tablas
+          _schema.tables.forEach(function(t) {
+            if (!prefix || t.startsWith(prefix)) {
+              suggestions.push({
+                label: t,
+                kind: monaco.languages.CompletionItemKind.Class,
+                detail: 'TABLE',
+                insertText: t,
+                range: range,
+                sortText: '2' + t,
+              });
+            }
+          });
+
+          // Vistas
+          _schema.views.forEach(function(v) {
+            if (!prefix || v.startsWith(prefix)) {
+              suggestions.push({
+                label: v,
+                kind: monaco.languages.CompletionItemKind.Interface,
+                detail: 'VIEW',
+                insertText: v,
+                range: range,
+                sortText: '3' + v,
+              });
+            }
+          });
+
+          // Objetos (procedimientos, funciones, packages)
+          _schema.objects.forEach(function(o) {
+            if (!prefix || o.name.startsWith(prefix)) {
+              var itemKind = o.type === 'FUNCTION'
+                ? monaco.languages.CompletionItemKind.Function
+                : o.type === 'PACKAGE'
+                  ? monaco.languages.CompletionItemKind.Module
+                  : monaco.languages.CompletionItemKind.Method;
+              suggestions.push({
+                label: o.name,
+                kind: itemKind,
+                detail: o.type,
+                insertText: o.name,
+                range: range,
+                sortText: '4' + o.name,
+              });
+            }
+          });
+
+          // Snippets básicos PL/SQL
           var snippets = [
-            { label: 'BEGIN...END', kind: monaco.languages.CompletionItemKind.Snippet,
-              insertText: 'BEGIN\n\t${1:NULL};\nEND;', insertTextRules: 4,
-              documentation: 'Bloque BEGIN/END', range: range },
-            { label: 'IF...THEN...END IF', kind: monaco.languages.CompletionItemKind.Snippet,
-              insertText: 'IF ${1:condicion} THEN\n\t${2:NULL};\nEND IF;', insertTextRules: 4,
-              documentation: 'Condicional IF', range: range },
-            { label: 'FOR...LOOP', kind: monaco.languages.CompletionItemKind.Snippet,
-              insertText: 'FOR ${1:i} IN ${2:1}..${3:10} LOOP\n\t${4:NULL};\nEND LOOP;', insertTextRules: 4,
-              documentation: 'Bucle FOR', range: range },
-            { label: 'WHILE...LOOP', kind: monaco.languages.CompletionItemKind.Snippet,
-              insertText: 'WHILE ${1:condicion} LOOP\n\t${2:NULL};\nEND LOOP;', insertTextRules: 4,
-              documentation: 'Bucle WHILE', range: range },
-            { label: 'EXCEPTION', kind: monaco.languages.CompletionItemKind.Snippet,
-              insertText: 'EXCEPTION\n\tWHEN ${1:OTHERS} THEN\n\t\t${2:NULL};', insertTextRules: 4,
-              documentation: 'Bloque EXCEPTION', range: range },
-            { label: 'DBMS_OUTPUT.PUT_LINE', kind: monaco.languages.CompletionItemKind.Function,
-              insertText: "DBMS_OUTPUT.PUT_LINE('${1:mensaje}');", insertTextRules: 4,
-              documentation: 'Print de debug', range: range },
-            { label: 'CURSOR', kind: monaco.languages.CompletionItemKind.Snippet,
-              insertText: 'CURSOR ${1:cur} IS\n\tSELECT ${2:*} FROM ${3:tabla};', insertTextRules: 4,
-              documentation: 'Declaración de cursor', range: range },
+            { label: 'BEGIN...END', insertText: 'BEGIN\n\t${1:NULL};\nEND;',
+              detail: 'Bloque BEGIN/END' },
+            { label: 'IF...THEN...END IF',
+              insertText: 'IF ${1:condicion} THEN\n\t${2:NULL};\nEND IF;',
+              detail: 'Condicional IF' },
+            { label: 'FOR...LOOP',
+              insertText: 'FOR ${1:i} IN ${2:1}..${3:10} LOOP\n\t${4:NULL};\nEND LOOP;',
+              detail: 'Bucle FOR' },
+            { label: 'WHILE...LOOP',
+              insertText: 'WHILE ${1:condicion} LOOP\n\t${2:NULL};\nEND LOOP;',
+              detail: 'Bucle WHILE' },
+            { label: 'EXCEPTION',
+              insertText: 'EXCEPTION\n\tWHEN ${1:OTHERS} THEN\n\t\t${2:NULL};',
+              detail: 'Bloque EXCEPTION' },
+            { label: 'DBMS_OUTPUT.PUT_LINE',
+              insertText: "DBMS_OUTPUT.PUT_LINE('${1:mensaje}');",
+              detail: 'Print de debug' },
+            { label: 'CURSOR',
+              insertText: 'CURSOR ${1:cur} IS\n\tSELECT ${2:*} FROM ${3:tabla};',
+              detail: 'Declaración de cursor' },
           ];
-          return { suggestions: snippets };
+
+          snippets.forEach(function(s) {
+            if (!prefix || s.label.toUpperCase().startsWith(prefix)) {
+              suggestions.push({
+                label: s.label,
+                kind: monaco.languages.CompletionItemKind.Snippet,
+                insertText: s.insertText,
+                insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                documentation: s.detail,
+                detail: s.detail,
+                range: range,
+                sortText: '5' + s.label,
+              });
+            }
+          });
+
+          return { suggestions: suggestions };
         }
       });
+
+      // Función para recibir mensajes desde Dart con datos del schema
+      function monacoReceiveMessage(msg) {
+        if (msg.action === 'setCompletionSchema') {
+          _schema.tables = msg.tables || [];
+          _schema.views = msg.views || [];
+          _schema.objects = msg.objects || [];
+        } else if (msg.action === 'setTableColumns') {
+          _schema.columns[msg.table] = msg.columns || [];
+        }
+      }
 
       // Crear el editor
       _editor = monaco.editor.create(document.getElementById('container'), {
@@ -132,7 +318,8 @@
         contextmenu: true,
         quickSuggestions: { other: true, comments: false, strings: false },
         suggestOnTriggerCharacters: true,
-        acceptSuggestionOnEnter: 'on',
+        acceptSuggestionOnEnter: 'off',   // Tab acepta, Enter NO
+        tabCompletion: 'on',               // Tab acepta sugerencias
         snippetSuggestions: 'top',
         scrollbar: {
           vertical: 'auto',
@@ -238,15 +425,17 @@
       try {
         var msg = JSON.parse(event.data);
         switch(msg.action) {
-          case 'setValue':    monacoSetValue(msg.value); break;
-          case 'setLanguage': monacoSetLanguage(msg.language); break;
-          case 'setTheme':    monacoSetTheme(msg.theme); break;
-          case 'setFontSize': monacoSetFontSize(msg.size); break;
-          case 'setReadOnly': monacoSetReadOnly(msg.value); break;
-          case 'setMarkers':  monacoSetMarkers(msg.errors); break;
-          case 'revealLine':  monacoRevealLine(msg.line); break;
-          case 'focus':       monacoFocus(); break;
-          case 'format':      monacoFormat(); break;
+          case 'setValue':            monacoSetValue(msg.value); break;
+          case 'setLanguage':         monacoSetLanguage(msg.language); break;
+          case 'setTheme':            monacoSetTheme(msg.theme); break;
+          case 'setFontSize':         monacoSetFontSize(msg.size); break;
+          case 'setReadOnly':         monacoSetReadOnly(msg.value); break;
+          case 'setMarkers':          monacoSetMarkers(msg.errors); break;
+          case 'revealLine':          monacoRevealLine(msg.line); break;
+          case 'focus':               monacoFocus(); break;
+          case 'format':              monacoFormat(); break;
+          case 'setCompletionSchema': monacoReceiveMessage(msg); break;
+          case 'setTableColumns':     monacoReceiveMessage(msg); break;
         }
       } catch(e) { /* ignorar mensajes malformados */ }
     });

@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_monaco/flutter_monaco.dart' as fm;
+
+import '../services/schema_service.dart';
 
 // ─── Modelo de error (lo que el panel pasa desde _SyntaxError) ───────────────
 class MonacoError {
@@ -96,6 +99,52 @@ class MonacoEditorController {
     _enqueue((ctrl) async => ctrl.document.setText(''));
   }
 
+  /// Envía el schema Oracle al WebView para que Monaco lo use en el
+  /// autocompletado. Usa [SchemaService.instance.getMetadata] (sin refrescar)
+  /// y pasa tablas, vistas y objetos como JSON via postMessage.
+  /// Las columnas se envían bajo demanda cuando el usuario escribe "TABLA.".
+  Future<void> loadAndSendSchema({String ambiente = 'Desa'}) async {
+    try {
+      final schema = await SchemaService.instance.getMetadata(
+        ambiente: ambiente,
+      );
+
+      final payload = jsonEncode({
+        'action': 'setCompletionSchema',
+        'tables': schema.tables,
+        'views': schema.views,
+        'objects': schema.objects
+            .map((o) => {'name': o.name, 'type': o.type})
+            .toList(),
+      });
+
+      _enqueue((ctrl) async {
+        await ctrl.runJavaScript('monacoReceiveMessage($payload)');
+      });
+    } catch (_) {
+      // Schema no crítico — el editor sigue funcionando sin autocompletado
+    }
+  }
+
+  /// Carga las columnas de [tableName] y las envía a Monaco.
+  /// Se llama automáticamente cuando el usuario escribe "TABLA.".
+  Future<void> sendColumnsFor(String tableName, {String ambiente = 'Desa'}) async {
+    try {
+      final cols = await SchemaService.instance.getColumns(
+        tableName,
+        ambiente: ambiente,
+      );
+      final payload = jsonEncode({
+        'action': 'setTableColumns',
+        'table': tableName.toUpperCase(),
+        'columns': cols.map((c) => {'name': c.name, 'type': c.dataType}).toList(),
+      });
+      _enqueue((ctrl) async {
+        await ctrl.runJavaScript('monacoReceiveMessage($payload)');
+      });
+    } catch (_) {}
+  }
+
   // fm.MonacoEditor owns the controller lifecycle — only release the reference.
   void dispose() {
     _ctrl = null;
@@ -113,6 +162,7 @@ class MonacoEditorWidget extends StatefulWidget {
   final String initialCode;
   final String language; // 'plsql' | 'javascript'
   final bool darkTheme;
+  final String ambiente; // 'Desa' | 'Demo' | 'QA' | 'Prod'
   final ValueChanged<String>? onChanged;
   final void Function(int line, int col)? onCursorChanged;
   final void Function(Object error, StackTrace stackTrace)? onError;
@@ -123,6 +173,7 @@ class MonacoEditorWidget extends StatefulWidget {
     required this.initialCode,
     this.language = 'plsql',
     this.darkTheme = true,
+    this.ambiente = 'Desa',
     this.onChanged,
     this.onCursorChanged,
     this.onError,
@@ -155,6 +206,8 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
         widget.onCursorChanged?.call(range.startLine, range.startColumn);
       }
     });
+    // Cargar schema Oracle en background al abrir el editor
+    widget.controller.loadAndSendSchema(ambiente: widget.ambiente);
   }
 
   @override
@@ -179,8 +232,27 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
       options: _editorOptions,
       contentDebounce: const Duration(milliseconds: 400),
       onReady: _onReady,
-      onContentChanged: widget.onChanged,
+      onContentChanged: (code) {
+        widget.onChanged?.call(code);
+        _checkDotTrigger(code);
+      },
       onError: widget.onError,
     );
+  }
+
+  /// Detecta cuando el usuario escribe "TABLA." y carga las columnas bajo demanda.
+  final _lastTableLoaded = <String>{};
+
+  void _checkDotTrigger(String code) {
+    // Busca "PALABRA." al final del texto completo (ancla con $)
+    final match = RegExp(r'\b(\w{3,})\.$').firstMatch(code);
+    if (match == null) return;
+    final tableRef = match.group(1)!.toUpperCase();
+
+    // Evitar recargar la misma tabla repetidamente
+    if (_lastTableLoaded.contains(tableRef)) return;
+
+    _lastTableLoaded.add(tableRef);
+    widget.controller.sendColumnsFor(tableRef, ambiente: widget.ambiente);
   }
 }

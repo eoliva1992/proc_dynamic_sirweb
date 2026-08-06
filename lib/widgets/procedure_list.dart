@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
+import '../models/procedimiento.dart';
 import '../providers/procedimientos_provider.dart';
 import 'procedure_card.dart';
 import 'search_tab_state.dart';
 
 class ProcedureList extends StatefulWidget {
   final SearchTabState tabState;
-  const ProcedureList({super.key, required this.tabState});
+  final ValueChanged<Procedimiento>? onSelect;
+  const ProcedureList({super.key, required this.tabState, this.onSelect});
 
   @override
   State<ProcedureList> createState() => _ProcedureListState();
@@ -114,7 +116,8 @@ class _ProcedureListState extends State<ProcedureList> {
             final proc = state.resultados[index];
             return ProcedureCard(
               procedimiento: proc,
-              onTap: () => procedimientosProvider.seleccionar(proc),
+              onTap: () =>
+                  (widget.onSelect ?? procedimientosProvider.seleccionar)(proc),
             );
           },
         );
