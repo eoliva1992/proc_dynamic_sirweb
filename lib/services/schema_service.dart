@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-// ── Claves en SharedPreferences ───────────────────────────────────────────────
+// ── Claves en SharedPreferences (se prefijan con el ambiente) ────────────────
 const _kTables = 'schema_tables';
 const _kViews = 'schema_views';
 const _kObjects = 'schema_objects';
@@ -24,15 +24,21 @@ enum SchemaLoadStatus {
 class SchemaMetadata {
   final List<String> tables;
   final List<String> views;
-  final List<({String name, String type})>
-  objects; // PROCEDURE, FUNCTION, PACKAGE
+  final List<({String name, String type, String owner})> objects;
   final Map<String, List<({String name, String dataType})>> cachedColumns;
+  final String
+  owner; // usuario conectado (fallback cuando no hay owner por objeto)
+  final Map<String, String> tableOwners; // TABLE_NAME → OWNER
+  final Map<String, String> viewOwners; // VIEW_NAME  → OWNER
 
   const SchemaMetadata({
     required this.tables,
     required this.views,
     required this.objects,
     this.cachedColumns = const {},
+    this.owner = '',
+    this.tableOwners = const {},
+    this.viewOwners = const {},
   });
 
   SchemaMetadata copyWithColumns(
@@ -48,6 +54,9 @@ class SchemaMetadata {
       views: views,
       objects: objects,
       cachedColumns: updated,
+      owner: owner,
+      tableOwners: tableOwners,
+      viewOwners: viewOwners,
     );
   }
 }
@@ -67,9 +76,13 @@ class SchemaService {
 
   static const String _mcpUrl = 'http://localhost:5179/mcp';
 
-  SchemaMetadata? _cache;
-  bool _loading = false;
+  // Per-ambiente in-memory caches and loading flags
+  final _caches = <String, SchemaMetadata>{};
+  final _loadings = <String, bool>{};
   int _nextId = 1;
+
+  /// Normaliza el nombre del ambiente para usarlo como clave de caché.
+  static String _env(String? a) => (a == null || a.isEmpty) ? 'Desa' : a;
 
   /// Notifica el estado actual de carga — escúchalo para actualizar la UI.
   final status = ValueNotifier<SchemaLoadStatus>(SchemaLoadStatus.idle);
@@ -78,63 +91,59 @@ class SchemaService {
 
   /// Devuelve el schema en caché sin disparar un refresco.
   /// Si la carga inicial aún está en curso, espera a que termine.
-  /// Usar desde el editor para no repetir el refresh al abrir cada pestaña.
   Future<SchemaMetadata> getMetadata({String? ambiente}) async {
-    if (_cache != null) return _cache!;
-    if (_loading) {
-      while (_loading) {
+    final env = _env(ambiente);
+    if (_caches.containsKey(env)) return _caches[env]!;
+    if (_loadings[env] == true) {
+      while (_loadings[env] == true) {
         await Future.delayed(const Duration(milliseconds: 50));
       }
-      return _cache!;
+      return _caches[env]!;
     }
-    // Sin caché y sin carga en curso → delegar a loadMetadata (primera vez)
     return loadMetadata(ambiente: ambiente);
   }
 
   /// Devuelve el schema local inmediatamente si existe, y **siempre** lanza
   /// un refresco en background al iniciar la app para mantener los datos frescos.
   Future<SchemaMetadata> loadMetadata({String? ambiente}) async {
-    // 1. Ya está en memoria → devolver y refrescar en background
-    if (_cache != null) {
+    final env = _env(ambiente);
+
+    if (_caches.containsKey(env)) {
       _launchBackgroundRefresh(ambiente: ambiente);
-      return _cache!;
+      return _caches[env]!;
     }
 
-    // 2. Evitar cargas paralelas
-    if (_loading) {
-      while (_loading) {
+    if (_loadings[env] == true) {
+      while (_loadings[env] == true) {
         await Future.delayed(const Duration(milliseconds: 50));
       }
-      return _cache!;
+      return _caches[env]!;
     }
-    _loading = true;
+    _loadings[env] = true;
 
     try {
       status.value = SchemaLoadStatus.loadingLocal;
       final prefs = await SharedPreferences.getInstance();
-      final local = _readFromPrefs(prefs);
+      final local = _readFromPrefs(prefs, env);
 
       if (local != null) {
-        // Tenemos datos locales → devolver de inmediato
-        _cache = local;
+        _caches[env] = local;
         status.value = SchemaLoadStatus.ready;
-        // Siempre refrescar en background al iniciar la app
         _refreshInBackground(prefs, ambiente: ambiente);
-        return _cache!;
+        return _caches[env]!;
       }
 
-      // No hay datos locales → primera vez, cargar del servidor
       status.value = SchemaLoadStatus.loadingServer;
       final fresh = await _fetchFromServer(ambiente: ambiente);
-      _cache = fresh;
-      _saveToPrefs(prefs, fresh);
+      _caches[env] = fresh;
+      _saveToPrefs(prefs, fresh, env);
       status.value = SchemaLoadStatus.ready;
-      return _cache!;
+      return _caches[env]!;
     } catch (_) {
       status.value = SchemaLoadStatus.error;
       rethrow;
     } finally {
-      _loading = false;
+      _loadings[env] = false;
     }
   }
 
@@ -155,29 +164,29 @@ class SchemaService {
   /// Orden de prioridad: memoria → SharedPreferences → servidor.
   Future<List<({String name, String dataType})>> getColumns(
     String tableName, {
+    String? owner,
     String? ambiente,
   }) async {
     final table = tableName.toUpperCase();
+    final env = _env(ambiente);
 
-    // 1. Memoria
-    if (_cache?.cachedColumns.containsKey(table) == true) {
-      return _cache!.cachedColumns[table]!;
+    if (_caches[env]?.cachedColumns.containsKey(table) == true) {
+      return _caches[env]!.cachedColumns[table]!;
     }
 
-    // 2. SharedPreferences
     final prefs = await SharedPreferences.getInstance();
-    final local = _readColumnsFromPrefs(prefs, table);
+    final local = _readColumnsFromPrefs(prefs, table, env);
     if (local != null) {
-      if (_cache != null) {
-        _cache = _cache!.copyWithColumns(table, local);
+      if (_caches.containsKey(env)) {
+        _caches[env] = _caches[env]!.copyWithColumns(table, local);
       }
       return local;
     }
 
-    // 3. Servidor
     try {
       final result = await _call('get_table_columns', {
         'tableName': table,
+        if (owner != null && owner.isNotEmpty) 'tableOwner': owner,
         if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
       });
 
@@ -193,10 +202,9 @@ class SchemaService {
           .where((c) => c.name.isNotEmpty)
           .toList();
 
-      // Persistir en prefs y en memoria
-      _saveColumnsToPrefs(prefs, table, cols);
-      if (_cache != null) {
-        _cache = _cache!.copyWithColumns(table, cols);
+      _saveColumnsToPrefs(prefs, table, cols, env);
+      if (_caches.containsKey(env)) {
+        _caches[env] = _caches[env]!.copyWithColumns(table, cols);
       }
       return cols;
     } catch (_) {
@@ -231,10 +239,126 @@ class SchemaService {
     }
   }
 
-  /// Fuerza recarga desde el servidor en la próxima llamada.
-  void clearCache() {
-    _cache = null;
+  /// Atributos de un TYPE Oracle objeto (vacío para colecciones TABLE/VARRAY).
+  Future<List<({String name, String dataType})>> getTypeAttributes(
+    String typeName, {
+    String? ambiente,
+  }) async {
+    try {
+      final result = await _call('get_type_attributes', {
+        'typeName': typeName.toUpperCase(),
+        if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+      });
+      final rawList = result['data'] as List? ?? [];
+      return rawList
+          .cast<Map<String, dynamic>>()
+          .map(
+            (r) => (
+              name: (r['attributeName'] as String? ?? '').toUpperCase(),
+              dataType: r['dataType'] as String? ?? '',
+            ),
+          )
+          .where((a) => a.name.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return [];
+    }
   }
+
+  /// Subprogramas de un paquete Oracle con sus argumentos en una sola llamada.
+  Future<
+    List<
+      ({
+        String name,
+        String kind,
+        List<({String name, String dataType, String inOut})> arguments,
+      })
+    >
+  >
+  getPackageSubprograms(String packageName, {String? ambiente}) async {
+    try {
+      final result = await _call('get_package_subprograms', {
+        'packageName': packageName.toUpperCase(),
+        if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+      });
+      final rawList = result['data'] as List? ?? [];
+      return rawList.cast<Map<String, dynamic>>().map((p) {
+        final args = (p['arguments'] as List? ?? [])
+            .cast<Map<String, dynamic>>()
+            .map(
+              (a) => (
+                name: (a['argumentName'] as String? ?? '').toUpperCase(),
+                dataType: a['dataType'] as String? ?? '',
+                inOut: a['inOut'] as String? ?? '',
+              ),
+            )
+            .toList();
+        return (
+          name: (p['name'] as String? ?? '').toUpperCase(),
+          kind: p['kind'] as String? ?? 'PROCEDURE',
+          arguments: args,
+        );
+      }).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Ejecuta el DDL en Oracle y retorna lista de errores de compilación (vacía = éxito).
+  Future<List<({int line, int position, String text, String attribute})>>
+  compileObject(
+    String source,
+    String objectName,
+    String objectType, {
+    String? ambiente,
+  }) async {
+    final result = await _call('compile_object_ddl', {
+      'source': source,
+      'objectName': objectName.toUpperCase(),
+      'objectType': objectType.toUpperCase(),
+      if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+    });
+    final rawList = result['data'] as List? ?? [];
+    return rawList
+        .cast<Map<String, dynamic>>()
+        .map(
+          (e) => (
+            line: (e['line'] as num).toInt(),
+            position: (e['position'] as num).toInt(),
+            text: e['text'] as String? ?? '',
+            attribute: e['attribute'] as String? ?? 'ERROR',
+          ),
+        )
+        .toList();
+  }
+
+  /// Código fuente de un objeto Oracle. Para PACKAGE/TYPE también retorna el body.
+  Future<({String spec, String? body})> getObjectSource(
+    String objectName,
+    String objectType, {
+    String? ambiente,
+  }) async {
+    final result = await _call('get_object_source', {
+      'objectName': objectName.toUpperCase(),
+      'objectType': objectType.toUpperCase(),
+      if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+    });
+    if (result['success'] == false) {
+      throw Exception(
+        result['message']?.toString() ??
+            result['error']?.toString() ??
+            'Error obteniendo fuente',
+      );
+    }
+    final data = result['data'] as Map<String, dynamic>? ?? {};
+    return (spec: data['spec'] as String? ?? '', body: data['body'] as String?);
+  }
+
+  /// Fuerza recarga desde el servidor en la próxima llamada (para todos los ambientes).
+  void clearCache() => _caches.clear();
+
+  /// Devuelve el schema en memoria para el ambiente dado, sin disparar carga ni refresco.
+  SchemaMetadata? getCached({String? ambiente}) => _caches[_env(ambiente)];
 
   // ── Internos: servidor ─────────────────────────────────────────────────────
 
@@ -244,84 +368,145 @@ class SchemaService {
     });
 
     final data = result['data'] as Map<String, dynamic>? ?? {};
+
+    List<({String name, String owner})> parseItems(dynamic raw) {
+      if (raw == null) return [];
+      return (raw as List)
+          .map((e) {
+            if (e is String) return (name: e.toUpperCase(), owner: '');
+            final m = e as Map<String, dynamic>;
+            return (
+              name: (m['name'] as String? ?? '').toUpperCase(),
+              owner: (m['owner'] as String? ?? '').toUpperCase(),
+            );
+          })
+          .where((x) => x.name.isNotEmpty)
+          .toList();
+    }
+
+    List<({String name, String type, String owner})> parseObjects(
+      dynamic raw,
+      String type,
+    ) {
+      if (raw == null) return [];
+      return (raw as List)
+          .map((e) {
+            if (e is String)
+              return (name: e.toUpperCase(), type: type, owner: '');
+            final m = e as Map<String, dynamic>;
+            return (
+              name: (m['name'] as String? ?? '').toUpperCase(),
+              type: type,
+              owner: (m['owner'] as String? ?? '').toUpperCase(),
+            );
+          })
+          .where((x) => x.name.isNotEmpty)
+          .toList();
+    }
+
+    final tableItems = parseItems(data['tables']);
+    final viewItems = parseItems(data['views']);
     return SchemaMetadata(
-      tables: _toStringList(data['tables']),
-      views: _toStringList(data['views']),
+      tables: tableItems.map((e) => e.name).toList(),
+      views: viewItems.map((e) => e.name).toList(),
       objects: [
-        ..._toStringList(
-          data['procedures'],
-        ).map((n) => (name: n, type: 'PROCEDURE')),
-        ..._toStringList(
-          data['functions'],
-        ).map((n) => (name: n, type: 'FUNCTION')),
-        ..._toStringList(
-          data['packages'],
-        ).map((n) => (name: n, type: 'PACKAGE')),
+        ...parseObjects(data['procedures'], 'PROCEDURE'),
+        ...parseObjects(data['functions'], 'FUNCTION'),
+        ...parseObjects(data['packages'], 'PACKAGE'),
+        ...parseObjects(data['types'], 'TYPE'),
       ],
+      owner: data['owner'] as String? ?? '',
+      tableOwners: {for (final e in tableItems) e.name: e.owner},
+      viewOwners: {for (final e in viewItems) e.name: e.owner},
     );
   }
 
   /// Refresca el schema desde el servidor en background sin bloquear nada.
   void _refreshInBackground(SharedPreferences prefs, {String? ambiente}) {
+    final env = _env(ambiente);
     status.value = SchemaLoadStatus.refreshing;
     _fetchFromServer(ambiente: ambiente)
         .then((fresh) {
           final existingCols =
               Map<String, List<({String name, String dataType})>>.from(
-                _cache?.cachedColumns ?? {},
+                _caches[env]?.cachedColumns ?? {},
               );
-          _cache = SchemaMetadata(
+          _caches[env] = SchemaMetadata(
             tables: fresh.tables,
             views: fresh.views,
             objects: fresh.objects,
             cachedColumns: existingCols,
+            owner: fresh.owner,
+            tableOwners: fresh.tableOwners,
+            viewOwners: fresh.viewOwners,
           );
-          _saveToPrefs(prefs, fresh);
+          _saveToPrefs(prefs, fresh, env);
           status.value = SchemaLoadStatus.ready;
         })
         .catchError((_) {
-          status.value = SchemaLoadStatus
-              .ready; // error silencioso — mantener datos locales
+          status.value = SchemaLoadStatus.ready;
         });
   }
 
-  // ── Internos: SharedPreferences ────────────────────────────────────────────
+  // ── Internos: SharedPreferences (claves prefijadas por ambiente) ─────────
 
-  SchemaMetadata? _readFromPrefs(SharedPreferences prefs) {
-    final tablesJson = prefs.getString(_kTables);
-    final viewsJson = prefs.getString(_kViews);
-    final objectsJson = prefs.getString(_kObjects);
-    if (tablesJson == null || objectsJson == null) return null;
-
-    final tables = (jsonDecode(tablesJson) as List).cast<String>();
-    final views = viewsJson != null
-        ? (jsonDecode(viewsJson) as List).cast<String>()
+  /// Lee schema del ambiente indicado. Para 'Desa' intenta clave sin prefijo como fallback.
+  SchemaMetadata? _readFromPrefs(SharedPreferences prefs, String env) {
+    String? t = prefs.getString('${env}_$_kTables');
+    String? v = prefs.getString('${env}_$_kViews');
+    String? o = prefs.getString('${env}_$_kObjects');
+    // Migración: claves legacy sin prefijo para Desa
+    if (t == null && env == 'Desa') {
+      t = prefs.getString(_kTables);
+      v = prefs.getString(_kViews);
+      o = prefs.getString(_kObjects);
+    }
+    if (t == null || o == null) return null;
+    final tables = (jsonDecode(t) as List).cast<String>();
+    final views = v != null
+        ? (jsonDecode(v) as List).cast<String>()
         : <String>[];
-    final objects = (jsonDecode(objectsJson) as List)
+    final objects = (jsonDecode(o) as List)
         .cast<Map<String, dynamic>>()
-        .map((o) => (name: o['name'] as String, type: o['type'] as String))
+        .map(
+          (x) => (
+            name: x['name'] as String,
+            type: x['type'] as String,
+            owner: (x['owner'] as String? ?? '').toUpperCase(),
+          ),
+        )
         .toList();
-
     return SchemaMetadata(tables: tables, views: views, objects: objects);
   }
 
-  void _saveToPrefs(SharedPreferences prefs, SchemaMetadata schema) {
-    prefs.setString(_kTables, jsonEncode(schema.tables));
-    prefs.setString(_kViews, jsonEncode(schema.views));
+  void _saveToPrefs(
+    SharedPreferences prefs,
+    SchemaMetadata schema,
+    String env,
+  ) {
+    prefs.setString('${env}_$_kTables', jsonEncode(schema.tables));
+    prefs.setString('${env}_$_kViews', jsonEncode(schema.views));
     prefs.setString(
-      _kObjects,
+      '${env}_$_kObjects',
       jsonEncode(
-        schema.objects.map((o) => {'name': o.name, 'type': o.type}).toList(),
+        schema.objects
+            .map((o) => {'name': o.name, 'type': o.type, 'owner': o.owner})
+            .toList(),
       ),
     );
-    prefs.setString(_kLastUpdated, DateTime.now().toIso8601String());
+    prefs.setString('${env}_$_kLastUpdated', DateTime.now().toIso8601String());
   }
 
   List<({String name, String dataType})>? _readColumnsFromPrefs(
     SharedPreferences prefs,
     String table,
+    String env,
   ) {
-    final json = prefs.getString('$_kColPrefix$table');
+    String? json = prefs.getString('${env}_$_kColPrefix$table');
+    // Migración: clave legacy para Desa
+    if (json == null && env == 'Desa') {
+      json = prefs.getString('$_kColPrefix$table');
+    }
     if (json == null) return null;
     final list = (jsonDecode(json) as List).cast<Map<String, dynamic>>();
     return list
@@ -333,9 +518,10 @@ class SchemaService {
     SharedPreferences prefs,
     String table,
     List<({String name, String dataType})> cols,
+    String env,
   ) {
     prefs.setString(
-      '$_kColPrefix$table',
+      '${env}_$_kColPrefix$table',
       jsonEncode(
         cols.map((c) => {'name': c.name, 'type': c.dataType}).toList(),
       ),
@@ -380,12 +566,5 @@ class SchemaService {
       if (line.startsWith('data: ')) return line.substring(6);
     }
     return raw;
-  }
-
-  List<String> _toStringList(dynamic value) {
-    if (value is List) {
-      return value.map((e) => e.toString().toUpperCase()).toList();
-    }
-    return [];
   }
 }

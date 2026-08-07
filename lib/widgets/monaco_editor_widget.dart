@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_monaco/flutter_monaco.dart' as fm;
 
 import '../services/schema_service.dart';
+import '_editor_themes.dart';
 
 // ─── Modelo de error (lo que el panel pasa desde _SyntaxError) ───────────────
 class MonacoError {
@@ -99,6 +100,10 @@ class MonacoEditorController {
     _enqueue((ctrl) async => ctrl.document.setText(''));
   }
 
+  void setTheme(fm.MonacoTheme theme) {
+    _enqueue((ctrl) => ctrl.setTheme(theme));
+  }
+
   /// Envía el schema Oracle al WebView para que Monaco lo use en el
   /// autocompletado. Usa [SchemaService.instance.getMetadata] (sin refrescar)
   /// y pasa tablas, vistas y objetos como JSON via postMessage.
@@ -128,7 +133,10 @@ class MonacoEditorController {
 
   /// Carga las columnas de [tableName] y las envía a Monaco.
   /// Se llama automáticamente cuando el usuario escribe "TABLA.".
-  Future<void> sendColumnsFor(String tableName, {String ambiente = 'Desa'}) async {
+  Future<void> sendColumnsFor(
+    String tableName, {
+    String ambiente = 'Desa',
+  }) async {
     try {
       final cols = await SchemaService.instance.getColumns(
         tableName,
@@ -137,7 +145,9 @@ class MonacoEditorController {
       final payload = jsonEncode({
         'action': 'setTableColumns',
         'table': tableName.toUpperCase(),
-        'columns': cols.map((c) => {'name': c.name, 'type': c.dataType}).toList(),
+        'columns': cols
+            .map((c) => {'name': c.name, 'type': c.dataType})
+            .toList(),
       });
       _enqueue((ctrl) async {
         await ctrl.runJavaScript('monacoReceiveMessage($payload)');
@@ -186,11 +196,21 @@ class MonacoEditorWidget extends StatefulWidget {
 class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
   StreamSubscription<fm.Range?>? _selectionSub;
 
+  @override
+  void initState() {
+    super.initState();
+    editorThemeStore.addListener(_onEditorThemeChanged);
+  }
+
+  void _onEditorThemeChanged() {
+    widget.controller.setTheme(editorThemeStore.monacoTheme);
+  }
+
   fm.EditorOptions get _editorOptions => fm.EditorOptions(
     language: widget.language == 'javascript'
         ? fm.MonacoLanguage.javascript
         : fm.MonacoLanguage.sql,
-    theme: widget.darkTheme ? fm.MonacoTheme.vsDark : fm.MonacoTheme.vs,
+    theme: editorThemeStore.monacoTheme,
     fontSize: 14,
     minimap: const fm.MonacoMinimapOptions(enabled: true),
     wordWrap: fm.MonacoWordWrap.off,
@@ -201,6 +221,9 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
 
   void _onReady(fm.MonacoController ctrl) {
     widget.controller.attach(ctrl);
+    // Register themes then apply the current one
+    EditorThemeStore.defineAllThemes(ctrl);
+    editorThemeStore.addListener(_onEditorThemeChanged);
     _selectionSub = ctrl.onSelectionChanged.listen((range) {
       if (range != null) {
         widget.onCursorChanged?.call(range.startLine, range.startColumn);
@@ -221,6 +244,7 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
   @override
   void dispose() {
     _selectionSub?.cancel();
+    editorThemeStore.removeListener(_onEditorThemeChanged);
     widget.controller.dispose();
     super.dispose();
   }

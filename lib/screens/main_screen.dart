@@ -6,11 +6,11 @@ import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:mobx/mobx.dart' show reaction, ReactionDisposer;
 import '../models/procedimiento.dart';
 import '../providers/procedimientos_provider.dart';
-import '../providers/theme_provider.dart';
 import '../widgets/ambiente_selector.dart';
 import '../widgets/app_tab.dart';
 import '../widgets/code_editor_panel.dart';
 import '../widgets/config_badge.dart';
+import '../widgets/_editor_themes.dart';
 import '../widgets/new_procedure_dialog.dart';
 import '../widgets/schema_browser_modal.dart';
 import '../widgets/schema_status_overlay.dart';
@@ -28,13 +28,33 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   final List<AppTab> _tabs = [AppTab()];
   int _activeTab = 0;
-  int? _loadingTabIndex; // tab that owns the current seleccionar() call
-  bool _syncingActiveTab = false; // true while _activateTab syncs the provider
+  int? _loadingTabIndex;
+  bool _syncingActiveTab = false;
   late ReactionDisposer _tabReaction;
+
+  // LRU list of tab IDs kept alive in the IndexedStack (search tabs only)
+  final List<int> _lruTabIds = [];
+  static const _maxLiveSearchTabs = 5;
+
+  void _markTabLive(int index) {
+    final id = _tabs[index].tabId;
+    _lruTabIds.remove(id);
+    _lruTabIds.add(id);
+    while (_lruTabIds.length > _maxLiveSearchTabs) {
+      _lruTabIds.removeAt(0);
+    }
+  }
+
+  bool _isLive(AppTab tab) {
+    return tab.procedimiento != null ||
+        tab.loading ||
+        _lruTabIds.contains(tab.tabId);
+  }
 
   @override
   void initState() {
     super.initState();
+    _markTabLive(0);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       procedimientosProvider.cargarConfiguraciones();
     });
@@ -102,9 +122,44 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _goBackToSearch() {
+    final tab = _tabs[_activeTab];
+    if (tab.isDirty) {
+      showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Salir del editor'),
+          content: const Text(
+            'Hay cambios sin guardar. ¿Salir de todas formas?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange.shade700,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Salir sin guardar'),
+            ),
+          ],
+        ),
+      ).then((confirmed) {
+        if (confirmed == true) _doGoBackToSearch();
+      });
+      return;
+    }
+    _doGoBackToSearch();
+  }
+
+  void _doGoBackToSearch() {
     setState(() {
-      _tabs[_activeTab].procedimiento = null;
-      _tabs[_activeTab].loading = false;
+      final tab = _tabs[_activeTab];
+      tab.procedimiento = null;
+      tab.loading = false;
+      tab.isDirty = false;
     });
     procedimientosProvider.setProcedimientoActual(null);
   }
@@ -112,8 +167,8 @@ class _MainScreenState extends State<MainScreen> {
   void _activateTab(int index) {
     if (_activeTab == index) return;
     setState(() => _activeTab = index);
+    _markTabLive(index);
     final tab = _tabs[index];
-    // Guard so the reaction ignores this provider sync.
     _syncingActiveTab = true;
     procedimientosProvider.setProcedimientoActual(tab.procedimiento);
     procedimientosProvider.setAmbiente(tab.ambiente);
@@ -122,7 +177,41 @@ class _MainScreenState extends State<MainScreen> {
 
   void _closeTab(int index) {
     if (_tabs.length <= 1) return;
+    final inEditor = _tabs[index].procedimiento != null;
+    if (_tabs[index].isDirty && inEditor) {
+      showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Cerrar pestaña'),
+          content: const Text(
+            'Hay cambios sin guardar. ¿Cerrar de todos modos?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red.shade700,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Cerrar sin guardar'),
+            ),
+          ],
+        ),
+      ).then((confirmed) {
+        if (confirmed == true) _doCloseTab(index);
+      });
+      return;
+    }
+    _doCloseTab(index);
+  }
+
+  void _doCloseTab(int index) {
     _tabs[index].searchState.dispose();
+    _lruTabIds.remove(_tabs[index].tabId);
     setState(() {
       _tabs.removeAt(index);
       if (_activeTab >= _tabs.length) {
@@ -141,11 +230,47 @@ class _MainScreenState extends State<MainScreen> {
       _tabs.add(AppTab());
       _activeTab = _tabs.length - 1;
     });
+    _markTabLive(_activeTab);
     procedimientosProvider.setProcedimientoActual(null);
     procedimientosProvider.setAmbiente(_tabs[_activeTab].ambiente);
   }
 
   void _onTabAmbienteChanged(AppTab tab, String newAmbiente) {
+    if (tab.isDirty && tab.procedimiento != null) {
+      showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Cambiar ambiente'),
+          content: const Text(
+            'Hay cambios sin guardar. ¿Cambiar de ambiente de todas formas?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange.shade700,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Cambiar sin guardar'),
+            ),
+          ],
+        ),
+      ).then((confirmed) {
+        if (confirmed == true) {
+          tab.isDirty = false;
+          _doTabAmbienteChanged(tab, newAmbiente);
+        }
+      });
+      return;
+    }
+    _doTabAmbienteChanged(tab, newAmbiente);
+  }
+
+  void _doTabAmbienteChanged(AppTab tab, String newAmbiente) {
     setState(() => tab.ambiente = newAmbiente);
     if (_tabs[_activeTab].tabId != tab.tabId) return;
     procedimientosProvider.setAmbiente(newAmbiente);
@@ -179,6 +304,11 @@ class _MainScreenState extends State<MainScreen> {
       newActive = _activeTab + 1;
     }
     setState(() => _activeTab = newActive);
+  }
+
+  void _cycleTab(int direction) {
+    if (_tabs.length < 2) return;
+    _activateTab((_activeTab + direction + _tabs.length) % _tabs.length);
   }
 
   Future<void> _showNewProcedureDialog(BuildContext context) async {
@@ -224,6 +354,7 @@ class _MainScreenState extends State<MainScreen> {
         _activeTab = _tabs.length - 1;
         _tabs[_activeTab].loading = true;
       });
+      _markTabLive(_activeTab);
       procedimientosProvider.setAmbiente(result.ambiente);
       _loadingTabIndex = _tabs.length - 1;
       unawaited(procedimientosProvider.seleccionar(stub));
@@ -480,30 +611,63 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: _buildAppBar(context),
-      body: Stack(
-        children: [
-          Column(
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyT, control: true):
+            _addSearchTab,
+        const SingleActivator(LogicalKeyboardKey.keyW, control: true): () =>
+            _closeTab(_activeTab),
+        const SingleActivator(LogicalKeyboardKey.tab, control: true): () =>
+            _cycleTab(1),
+        const SingleActivator(
+          LogicalKeyboardKey.tab,
+          control: true,
+          shift: true,
+        ): () =>
+            _cycleTab(-1),
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          appBar: _buildAppBar(context),
+          body: Stack(
             children: [
-              _MainTabBar(
-                tabs: _tabs,
-                activeTab: _activeTab,
-                onActivate: _activateTab,
-                onClose: _closeTab,
-                onAdd: _addSearchTab,
-                onReorder: _onTabReorder,
+              Column(
+                children: [
+                  _MainTabBar(
+                    tabs: _tabs,
+                    activeTab: _activeTab,
+                    onActivate: _activateTab,
+                    onClose: _closeTab,
+                    onAdd: _addSearchTab,
+                    onReorder: _onTabReorder,
+                  ),
+                  Expanded(
+                    child: IndexedStack(
+                      index: _activeTab,
+                      children: [
+                        for (final tab in _tabs)
+                          _TabFadeIn(
+                            key: ValueKey(tab.tabId),
+                            child: _isLive(tab)
+                                ? _buildTabContent(tab)
+                                : SizedBox.shrink(
+                                    key: ValueKey('dead_${tab.tabId}'),
+                                  ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              Expanded(
-                child: IndexedStack(
-                  index: _activeTab,
-                  children: [for (final tab in _tabs) _buildTabContent(tab)],
-                ),
+              const Positioned(
+                left: 12,
+                bottom: 12,
+                child: SchemaStatusOverlay(),
               ),
             ],
           ),
-          const Positioned(left: 12, bottom: 12, child: SchemaStatusOverlay()),
-        ],
+        ),
       ),
     );
   }
@@ -516,6 +680,40 @@ class _MainScreenState extends State<MainScreen> {
         ambiente: tab.ambiente,
         onAmbienteChanged: (v) => _onTabAmbienteChanged(tab, v),
         onNewProcedure: () => _showNewProcedureDialog(context),
+        onOpenInNewTab: (Procedimiento proc) async {
+          if (!mounted) return;
+          final newTab = AppTab(ambiente: tab.ambiente);
+          final newIndex = _tabs.length;
+          setState(() {
+            _tabs.add(newTab);
+            _activeTab = newIndex;
+            newTab.procedimiento = proc;
+            newTab.loading = true;
+          });
+          _markTabLive(newIndex);
+          procedimientosProvider.setAmbiente(newTab.ambiente);
+          await procedimientosProvider.seleccionar(proc);
+          if (!mounted) return;
+          if (newIndex >= _tabs.length || _tabs[newIndex] != newTab) return;
+          final result = procedimientosProvider.procedimientoActual;
+          final err = procedimientosProvider.error;
+          setState(() {
+            newTab.procedimiento = result;
+            newTab.loading = false;
+          });
+          if (result == null && err != null && context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  '${proc.cdProcedimiento} no existe en ${newTab.ambiente}',
+                ),
+                backgroundColor: Colors.red.shade700,
+                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+        },
         onSelect: (Procedimiento proc) async {
           if (!mounted) return;
           final tabIndex = _tabs.indexOf(tab);
@@ -551,6 +749,32 @@ class _MainScreenState extends State<MainScreen> {
       key: ValueKey('e_${tab.tabId}'),
       children: [
         _buildEditorNav(tab),
+        if (tab.ambiente == 'Prod')
+          Container(
+            width: double.infinity,
+            color: Colors.red.shade900.withValues(alpha: 0.85),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  size: 13,
+                  color: Colors.orange.shade300,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'PRODUCCIÓN — Los cambios afectan datos reales',
+                  style: TextStyle(
+                    color: Colors.orange.shade200,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
         if (tab.loading)
           const Expanded(
             child: Center(
@@ -562,6 +786,9 @@ class _MainScreenState extends State<MainScreen> {
             child: CodeEditorPanel(
               key: ValueKey('editor_${tab.tabId}'),
               procedimiento: tab.procedimiento!,
+              onDirtyChanged: (dirty) {
+                if (tab.isDirty != dirty) setState(() => tab.isDirty = dirty);
+              },
             ),
           ),
       ],
@@ -690,21 +917,90 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ),
         const SizedBox(width: 8),
-        Observer(
-          builder: (_) => Tooltip(
-            message: themeStore.isDark
-                ? 'Cambiar a modo claro'
-                : 'Cambiar a modo oscuro',
-            child: IconButton(
-              onPressed: themeStore.toggle,
-              icon: Icon(
-                themeStore.isDark
-                    ? Icons.light_mode_outlined
-                    : Icons.dark_mode_outlined,
+        ListenableBuilder(
+          listenable: editorThemeStore,
+          builder: (context, _) {
+            final meta = editorThemeStore.currentMeta;
+            String? cat;
+            final items = <PopupMenuEntry<String>>[];
+            for (final t in kEditorThemes) {
+              if (t.category != cat) {
+                if (cat != null) items.add(const PopupMenuDivider(height: 6));
+                items.add(
+                  PopupMenuItem<String>(
+                    enabled: false,
+                    height: 26,
+                    child: Text(
+                      t.category.toUpperCase(),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                );
+                cat = t.category;
+              }
+              final active = editorThemeStore.themeId == t.id;
+              items.add(
+                PopupMenuItem<String>(
+                  value: t.id,
+                  height: 36,
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 14,
+                        height: 14,
+                        decoration: BoxDecoration(
+                          color: t.swatch,
+                          borderRadius: BorderRadius.circular(3),
+                          border: Border.all(color: Colors.grey, width: 0.6),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(t.name, style: const TextStyle(fontSize: 13)),
+                      if (active) ...[
+                        const Spacer(),
+                        const Icon(Icons.check, size: 14),
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            }
+            return Tooltip(
+              message: 'Tema: ${meta.name}',
+              child: PopupMenuButton<String>(
+                tooltip: '',
+                offset: const Offset(0, 40),
+                onSelected: editorThemeStore.setTheme,
+                itemBuilder: (_) => items,
+                icon: Stack(
+                  children: [
+                    const Icon(
+                      Icons.palette_outlined,
+                      color: Colors.white70,
+                      size: 22,
+                    ),
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 9,
+                        height: 9,
+                        decoration: BoxDecoration(
+                          color: meta.swatch,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white70, width: 1),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              color: Colors.white70,
-            ),
-          ),
+            );
+          },
         ),
         const SizedBox(width: 8),
       ],
@@ -874,6 +1170,16 @@ class _MainTabBarState extends State<_MainTabBar> {
                         ),
                       ),
                     ),
+                    if (tab.isDirty && tab.procedimiento != null)
+                      Container(
+                        width: 6,
+                        height: 6,
+                        margin: const EdgeInsets.only(right: 2),
+                        decoration: const BoxDecoration(
+                          color: Colors.orange,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -922,5 +1228,53 @@ class _MainTabBarState extends State<_MainTabBar> {
         ),
       ),
     );
+  }
+}
+
+// Fades in a tab when it becomes active; subsequent activations start at 0.7
+// to avoid the "content cleared" visual artifact on returning to a known tab.
+class _TabFadeIn extends StatefulWidget {
+  final Widget child;
+  const _TabFadeIn({required super.key, required this.child});
+
+  @override
+  State<_TabFadeIn> createState() => _TabFadeInState();
+}
+
+class _TabFadeInState extends State<_TabFadeIn>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  bool _wasTickerEnabled = false;
+  bool _hasBeenActiveOnce = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 180),
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final enabled = TickerMode.valuesOf(context).enabled;
+    if (enabled && !_wasTickerEnabled) {
+      _ctrl.forward(from: _hasBeenActiveOnce ? 0.7 : 0.0);
+      _hasBeenActiveOnce = true;
+    }
+    _wasTickerEnabled = enabled;
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(opacity: _ctrl, child: widget.child);
   }
 }

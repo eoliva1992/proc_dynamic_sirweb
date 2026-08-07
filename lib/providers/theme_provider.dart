@@ -25,13 +25,24 @@ abstract class _ThemeStore with Store {
     await prefs.setString(_key, themeMode == ThemeMode.dark ? 'dark' : 'light');
   }
 
+  Future<void> setMode(ThemeMode mode) async {
+    themeMode = mode;
+    final prefs = await SharedPreferences.getInstance();
+    final str = switch (mode) {
+      ThemeMode.dark => 'dark',
+      ThemeMode.light => 'light',
+      _ => 'system',
+    };
+    await prefs.setString(_key, str);
+  }
+
   Future<void> loadFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString(_key);
-    if (saved == 'light') {
-      themeMode = ThemeMode.light;
-    } else {
-      themeMode = ThemeMode.dark;
-    }
+    themeMode = switch (saved) {
+      'light' => ThemeMode.light,
+      'system' => ThemeMode.system,
+      _ => ThemeMode.dark,
+    };
   }
 }

@@ -114,62 +114,70 @@ List<PlSqlIssue> checkPlSqlSyntax(String code) {
   final stripped = _stripCommentsAndStrings(code);
   final strippedLines = stripped.split('\n');
 
-  int depth = 0;
-  int firstExtraEndLine = -1;
-  int firstExtraEndCol = 1;
+  // PACKAGE and TYPE use AS/IS...END without BEGIN — balance check is invalid for them
+  final isPackageOrType = RegExp(
+    r'^\s*(?:CREATE\s+(?:OR\s+REPLACE\s+)?)?(?:PACKAGE|TYPE)\b',
+    caseSensitive: false,
+  ).hasMatch(stripped);
 
-  for (int li = 0; li < strippedLines.length; li++) {
-    final lineNo = li + 1;
-    final ln = strippedLines[li];
+  if (!isPackageOrType) {
+    int depth = 0;
+    int firstExtraEndLine = -1;
+    int firstExtraEndCol = 1;
 
-    // Count BEGINs
-    depth += beginRe.allMatches(ln).length;
-
-    // Count ENDs — each END closes one BEGIN
-    for (final m in endRe.allMatches(ln)) {
-      depth--;
-      if (depth < 0 && firstExtraEndLine == -1) {
-        firstExtraEndLine = lineNo;
-        firstExtraEndCol = m.start + 1;
-      }
-    }
-  }
-
-  if (firstExtraEndLine != -1) {
-    issues.add(
-      PlSqlIssue(
-        line: firstExtraEndLine,
-        col: firstExtraEndCol,
-        endCol: firstExtraEndCol + 3,
-        message: "END sin BEGIN correspondiente",
-      ),
-    );
-  } else if (depth > 0) {
-    // Find the line of the last unclosed BEGIN
-    int remaining = depth;
-    int beginErrLine = strippedLines.length;
-    int beginErrCol = 1;
-    for (int li = strippedLines.length - 1; li >= 0 && remaining > 0; li--) {
+    for (int li = 0; li < strippedLines.length; li++) {
+      final lineNo = li + 1;
       final ln = strippedLines[li];
-      final matches = beginRe.allMatches(ln).toList();
-      for (int mi = matches.length - 1; mi >= 0 && remaining > 0; mi--) {
-        remaining--;
-        if (remaining == 0) {
-          beginErrLine = li + 1;
-          beginErrCol = matches[mi].start + 1;
+
+      // Count BEGINs
+      depth += beginRe.allMatches(ln).length;
+
+      // Count ENDs — each END closes one BEGIN
+      for (final m in endRe.allMatches(ln)) {
+        depth--;
+        if (depth < 0 && firstExtraEndLine == -1) {
+          firstExtraEndLine = lineNo;
+          firstExtraEndCol = m.start + 1;
         }
       }
     }
-    issues.add(
-      PlSqlIssue(
-        line: beginErrLine,
-        col: beginErrCol,
-        endCol: beginErrCol + 5,
-        message:
-            "BEGIN sin END correspondiente ($depth bloque${depth == 1 ? '' : 's'} sin cerrar)",
-      ),
-    );
-  }
+
+    if (firstExtraEndLine != -1) {
+      issues.add(
+        PlSqlIssue(
+          line: firstExtraEndLine,
+          col: firstExtraEndCol,
+          endCol: firstExtraEndCol + 3,
+          message: "END sin BEGIN correspondiente",
+        ),
+      );
+    } else if (depth > 0) {
+      // Find the line of the last unclosed BEGIN
+      int remaining = depth;
+      int beginErrLine = strippedLines.length;
+      int beginErrCol = 1;
+      for (int li = strippedLines.length - 1; li >= 0 && remaining > 0; li--) {
+        final ln = strippedLines[li];
+        final matches = beginRe.allMatches(ln).toList();
+        for (int mi = matches.length - 1; mi >= 0 && remaining > 0; mi--) {
+          remaining--;
+          if (remaining == 0) {
+            beginErrLine = li + 1;
+            beginErrCol = matches[mi].start + 1;
+          }
+        }
+      }
+      issues.add(
+        PlSqlIssue(
+          line: beginErrLine,
+          col: beginErrCol,
+          endCol: beginErrCol + 5,
+          message:
+              "BEGIN sin END correspondiente ($depth bloque${depth == 1 ? '' : 's'} sin cerrar)",
+        ),
+      );
+    }
+  } // end if (!isPackageOrType)
 
   return issues;
 }

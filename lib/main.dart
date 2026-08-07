@@ -1,15 +1,14 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_mobx/flutter_mobx.dart';
 import 'providers/theme_provider.dart';
 import 'screens/main_screen.dart';
 import 'services/schema_service.dart';
+import 'widgets/_editor_themes.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await themeStore.loadFromPrefs();
-  // Iniciar carga/refresco del schema Oracle en background desde el arranque
-  // para que el autocompletado esté listo cuando el usuario abra el editor.
+  await editorThemeStore.loadFromPrefs();
   unawaited(SchemaService.instance.loadMetadata());
   runApp(const ProcDynamicApp());
 }
@@ -17,27 +16,47 @@ Future<void> main() async {
 class ProcDynamicApp extends StatelessWidget {
   const ProcDynamicApp({super.key});
 
-  static ThemeData _buildDarkTheme() {
-    const cs = ColorScheme.dark(
-      primary: Color(0xFF0078D4),
+  // ── Dark-theme builder ──────────────────────────────────────────────────
+
+  static ThemeData _dark({
+    required Color primary,
+    required Color scaffoldBg,
+    required Color surface,
+    required Color surfaceContainer,
+    required Color surfaceContainerLow,
+    required Color surfaceContainerHigh,
+    required Color surfaceContainerHighest,
+    required Color onSurface,
+    required Color onSurfaceVariant,
+    required Color outline,
+    required Color outlineVariant,
+    required Color appBarBg,
+  }) {
+    final cs = ColorScheme.dark(
+      primary: primary,
       onPrimary: Colors.white,
-      surface: Color(0xFF252526),
-      surfaceContainer: Color(0xFF252526),
-      surfaceContainerLow: Color(0xFF1E1E1E),
-      surfaceContainerHigh: Color(0xFF2D2D2D),
-      surfaceContainerHighest: Color(0xFF3C3C3C),
-      onSurface: Color(0xFFD4D4D4),
-      onSurfaceVariant: Color(0xFF969696),
-      outline: Color(0xFF474747),
-      outlineVariant: Color(0xFF3C3C3C),
+      surface: surface,
+      surfaceContainer: surfaceContainer,
+      surfaceContainerLow: surfaceContainerLow,
+      surfaceContainerHigh: surfaceContainerHigh,
+      surfaceContainerHighest: surfaceContainerHighest,
+      onSurface: onSurface,
+      onSurfaceVariant: onSurfaceVariant,
+      outline: outline,
+      outlineVariant: outlineVariant,
     );
     return ThemeData.dark().copyWith(
       colorScheme: cs,
-      scaffoldBackgroundColor: cs.surfaceContainerLow,
-      appBarTheme: const AppBarTheme(
-        backgroundColor: Color(0xFF323233),
+      scaffoldBackgroundColor: scaffoldBg,
+      appBarTheme: AppBarTheme(
+        backgroundColor: appBarBg,
         elevation: 0,
-        iconTheme: IconThemeData(color: Color(0xFFCCCCCC)),
+        iconTheme: const IconThemeData(color: Color(0xFFCCCCCC)),
+        titleTextStyle: const TextStyle(
+          color: Colors.white,
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
       ),
       cardTheme: CardThemeData(color: cs.surface, elevation: 0),
       dividerColor: cs.outlineVariant,
@@ -53,9 +72,9 @@ class ProcDynamicApp extends StatelessWidget {
           borderRadius: BorderRadius.circular(4),
           borderSide: BorderSide(color: cs.outline),
         ),
-        focusedBorder: const OutlineInputBorder(
-          borderRadius: BorderRadius.all(Radius.circular(4)),
-          borderSide: BorderSide(color: Color(0xFF0078D4), width: 1.5),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: const BorderRadius.all(Radius.circular(4)),
+          borderSide: BorderSide(color: primary, width: 1.5),
         ),
         hintStyle: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
         prefixIconColor: cs.onSurfaceVariant,
@@ -64,28 +83,43 @@ class ProcDynamicApp extends StatelessWidget {
     );
   }
 
-  static ThemeData _buildLightTheme() {
-    const cs = ColorScheme.light(
-      primary: Color(0xFF0078D4),
+  // ── Light-theme builder ─────────────────────────────────────────────────
+
+  static ThemeData _light({
+    required Color primary,
+    required Color scaffoldBg,
+    required Color surface,
+    required Color surfaceContainer,
+    required Color surfaceContainerLow,
+    required Color surfaceContainerHigh,
+    required Color surfaceContainerHighest,
+    required Color onSurface,
+    required Color onSurfaceVariant,
+    required Color outline,
+    required Color outlineVariant,
+    Color appBarBg = const Color(0xFF2C2C2C),
+  }) {
+    final cs = ColorScheme.light(
+      primary: primary,
       onPrimary: Colors.white,
-      surface: Colors.white,
-      surfaceContainer: Color(0xFFECECEC),
-      surfaceContainerLow: Color(0xFFF5F5F5),
-      surfaceContainerHigh: Color(0xFFECECEC),
-      surfaceContainerHighest: Colors.white,
-      onSurface: Color(0xDD000000),
-      onSurfaceVariant: Color(0x73000000),
-      outline: Color(0xFFE0E0E0),
-      outlineVariant: Color(0xFFEEEEEE),
+      surface: surface,
+      surfaceContainer: surfaceContainer,
+      surfaceContainerLow: surfaceContainerLow,
+      surfaceContainerHigh: surfaceContainerHigh,
+      surfaceContainerHighest: surfaceContainerHighest,
+      onSurface: onSurface,
+      onSurfaceVariant: onSurfaceVariant,
+      outline: outline,
+      outlineVariant: outlineVariant,
     );
     return ThemeData.light().copyWith(
       colorScheme: cs,
-      scaffoldBackgroundColor: cs.surfaceContainerLow,
-      appBarTheme: const AppBarTheme(
-        backgroundColor: Color(0xFF2C2C2C),
+      scaffoldBackgroundColor: scaffoldBg,
+      appBarTheme: AppBarTheme(
+        backgroundColor: appBarBg,
         elevation: 1,
-        iconTheme: IconThemeData(color: Colors.white),
-        titleTextStyle: TextStyle(
+        iconTheme: const IconThemeData(color: Colors.white),
+        titleTextStyle: const TextStyle(
           color: Colors.white,
           fontSize: 14,
           fontWeight: FontWeight.w500,
@@ -105,9 +139,9 @@ class ProcDynamicApp extends StatelessWidget {
           borderRadius: BorderRadius.circular(4),
           borderSide: BorderSide(color: cs.outline),
         ),
-        focusedBorder: const OutlineInputBorder(
-          borderRadius: BorderRadius.all(Radius.circular(4)),
-          borderSide: BorderSide(color: Color(0xFF0078D4), width: 1.5),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: const BorderRadius.all(Radius.circular(4)),
+          borderSide: BorderSide(color: primary, width: 1.5),
         ),
         hintStyle: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
         prefixIconColor: cs.onSurfaceVariant,
@@ -116,15 +150,145 @@ class ProcDynamicApp extends StatelessWidget {
     );
   }
 
+  // ── Per-theme definitions ───────────────────────────────────────────────
+
+  static ThemeData _buildThemeFor(String id) => switch (id) {
+    'monokai' => _dark(
+      primary: const Color(0xFFA6E22E),
+      scaffoldBg: const Color(0xFF272822),
+      surface: const Color(0xFF2D2E27),
+      surfaceContainer: const Color(0xFF32332C),
+      surfaceContainerLow: const Color(0xFF272822),
+      surfaceContainerHigh: const Color(0xFF3E3D32),
+      surfaceContainerHighest: const Color(0xFF49483E),
+      onSurface: const Color(0xFFF8F8F2),
+      onSurfaceVariant: const Color(0xFF90908A),
+      outline: const Color(0xFF4E4D40),
+      outlineVariant: const Color(0xFF3E3D32),
+      appBarBg: const Color(0xFF1F1F1A),
+    ),
+    'dracula' => _dark(
+      primary: const Color(0xFFBD93F9),
+      scaffoldBg: const Color(0xFF282A36),
+      surface: const Color(0xFF2E3045),
+      surfaceContainer: const Color(0xFF32354A),
+      surfaceContainerLow: const Color(0xFF21222C),
+      surfaceContainerHigh: const Color(0xFF44475A),
+      surfaceContainerHighest: const Color(0xFF565A75),
+      onSurface: const Color(0xFFF8F8F2),
+      onSurfaceVariant: const Color(0xFF6272A4),
+      outline: const Color(0xFF44475A),
+      outlineVariant: const Color(0xFF2E3045),
+      appBarBg: const Color(0xFF1E1F29),
+    ),
+    'solarized-dark' => _dark(
+      primary: const Color(0xFF268BD2),
+      scaffoldBg: const Color(0xFF002B36),
+      surface: const Color(0xFF073642),
+      surfaceContainer: const Color(0xFF0A3F4E),
+      surfaceContainerLow: const Color(0xFF002B36),
+      surfaceContainerHigh: const Color(0xFF0D4858),
+      surfaceContainerHighest: const Color(0xFF104F62),
+      onSurface: const Color(0xFF839496),
+      onSurfaceVariant: const Color(0xFF657B83),
+      outline: const Color(0xFF2F5867),
+      outlineVariant: const Color(0xFF1C4050),
+      appBarBg: const Color(0xFF001C23),
+    ),
+    'solarized-light' => _light(
+      primary: const Color(0xFF268BD2),
+      scaffoldBg: const Color(0xFFEEE8D5),
+      surface: const Color(0xFFFDF6E3),
+      surfaceContainer: const Color(0xFFEDE5CF),
+      surfaceContainerLow: const Color(0xFFEEE8D5),
+      surfaceContainerHigh: const Color(0xFFE5DCCA),
+      surfaceContainerHighest: const Color(0xFFFDF6E3),
+      onSurface: const Color(0xFF657B83),
+      onSurfaceVariant: const Color(0xFF93A1A1),
+      outline: const Color(0xFFC8BEAC),
+      outlineVariant: const Color(0xFFD5CDB8),
+    ),
+    'one-dark' => _dark(
+      primary: const Color(0xFF61AFEF),
+      scaffoldBg: const Color(0xFF21252B),
+      surface: const Color(0xFF282C34),
+      surfaceContainer: const Color(0xFF2C313A),
+      surfaceContainerLow: const Color(0xFF21252B),
+      surfaceContainerHigh: const Color(0xFF313842),
+      surfaceContainerHighest: const Color(0xFF3E4451),
+      onSurface: const Color(0xFFABB2BF),
+      onSurfaceVariant: const Color(0xFF5C6370),
+      outline: const Color(0xFF3E4451),
+      outlineVariant: const Color(0xFF2C313A),
+      appBarBg: const Color(0xFF1A1D23),
+    ),
+    'hc-black' => _dark(
+      primary: Colors.white,
+      scaffoldBg: Colors.black,
+      surface: const Color(0xFF0A0A0A),
+      surfaceContainer: const Color(0xFF111111),
+      surfaceContainerLow: Colors.black,
+      surfaceContainerHigh: const Color(0xFF1A1A1A),
+      surfaceContainerHighest: const Color(0xFF222222),
+      onSurface: Colors.white,
+      onSurfaceVariant: const Color(0xFFC8C8C8),
+      outline: const Color(0xFF6B6B6B),
+      outlineVariant: const Color(0xFF3D3D3D),
+      appBarBg: const Color(0xFF111111),
+    ),
+    'hc-light' => _light(
+      primary: const Color(0xFF0000CC),
+      scaffoldBg: Colors.white,
+      surface: const Color(0xFFF5F5F5),
+      surfaceContainer: const Color(0xFFEBEBEB),
+      surfaceContainerLow: Colors.white,
+      surfaceContainerHigh: const Color(0xFFE0E0E0),
+      surfaceContainerHighest: const Color(0xFFF5F5F5),
+      onSurface: Colors.black,
+      onSurfaceVariant: const Color(0xFF3D3D3D),
+      outline: const Color(0xFF767676),
+      outlineVariant: const Color(0xFFABABAB),
+      appBarBg: Colors.black,
+    ),
+    // oracle-light and vs share the same Flutter palette
+    'oracle-light' || 'vs' => _light(
+      primary: const Color(0xFF0078D4),
+      scaffoldBg: const Color(0xFFF5F5F5),
+      surface: Colors.white,
+      surfaceContainer: const Color(0xFFECECEC),
+      surfaceContainerLow: const Color(0xFFF5F5F5),
+      surfaceContainerHigh: const Color(0xFFECECEC),
+      surfaceContainerHighest: Colors.white,
+      onSurface: const Color(0xDD000000),
+      onSurfaceVariant: const Color(0x73000000),
+      outline: const Color(0xFFE0E0E0),
+      outlineVariant: const Color(0xFFEEEEEE),
+    ),
+    // oracle-dark, vs-dark, and anything else → default dark palette
+    _ => _dark(
+      primary: const Color(0xFF0078D4),
+      scaffoldBg: const Color(0xFF1E1E1E),
+      surface: const Color(0xFF252526),
+      surfaceContainer: const Color(0xFF252526),
+      surfaceContainerLow: const Color(0xFF1E1E1E),
+      surfaceContainerHigh: const Color(0xFF2D2D2D),
+      surfaceContainerHighest: const Color(0xFF3C3C3C),
+      onSurface: const Color(0xFFD4D4D4),
+      onSurfaceVariant: const Color(0xFF969696),
+      outline: const Color(0xFF474747),
+      outlineVariant: const Color(0xFF3C3C3C),
+      appBarBg: const Color(0xFF323233),
+    ),
+  };
+
   @override
   Widget build(BuildContext context) {
-    return Observer(
-      builder: (_) => MaterialApp(
+    return ListenableBuilder(
+      listenable: editorThemeStore,
+      builder: (_, _) => MaterialApp(
         title: 'Procedimientos Dinámicos',
         debugShowCheckedModeBanner: false,
-        theme: _buildLightTheme(),
-        darkTheme: _buildDarkTheme(),
-        themeMode: themeStore.themeMode,
+        theme: _buildThemeFor(editorThemeStore.themeId),
         home: const MainScreen(),
       ),
     );

@@ -82,6 +82,7 @@
         views: [],
         objects: [],   // [{name, type}]
         columns: {},   // { 'TABLA': [{name, type}] }
+        loaded: false, // false hasta que Dart envíe setCompletionSchema
       };
 
       // Extrae las tablas del bloque FROM/JOIN del texto antes del cursor
@@ -171,7 +172,7 @@
               });
             }
 
-            return { suggestions: suggestions };
+            return { suggestions: suggestions, incomplete: !_schema.loaded };
           }
 
           // ── Caso 2: palabra suelta ─────────────────────────────────────────
@@ -281,7 +282,7 @@
             }
           });
 
-          return { suggestions: suggestions };
+          return { suggestions: suggestions, incomplete: !_schema.loaded };
         }
       });
 
@@ -291,6 +292,7 @@
           _schema.tables = msg.tables || [];
           _schema.views = msg.views || [];
           _schema.objects = msg.objects || [];
+          _schema.loaded = true;
         } else if (msg.action === 'setTableColumns') {
           _schema.columns[msg.table] = msg.columns || [];
         }

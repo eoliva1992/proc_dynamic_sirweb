@@ -10,6 +10,7 @@ class SearchTabView extends StatelessWidget {
   final ValueChanged<String> onAmbienteChanged;
   final VoidCallback? onNewProcedure;
   final ValueChanged<Procedimiento>? onSelect;
+  final ValueChanged<Procedimiento>? onOpenInNewTab;
 
   const SearchTabView({
     super.key,
@@ -18,6 +19,7 @@ class SearchTabView extends StatelessWidget {
     required this.onAmbienteChanged,
     this.onNewProcedure,
     this.onSelect,
+    this.onOpenInNewTab,
   });
 
   @override
@@ -31,7 +33,11 @@ class SearchTabView extends StatelessWidget {
           onNewProcedure: onNewProcedure,
         ),
         Expanded(
-          child: ProcedureList(tabState: state, onSelect: onSelect),
+          child: ProcedureList(
+            tabState: state,
+            onSelect: onSelect,
+            onOpenInNewTab: onOpenInNewTab,
+          ),
         ),
       ],
     );

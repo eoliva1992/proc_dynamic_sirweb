@@ -12,14 +12,20 @@ import '../models/variable_dinamica.dart';
 import '../providers/procedimientos_provider.dart';
 import '../services/schema_service.dart';
 import '_editor_oracle_theme.dart';
+import '_editor_themes.dart';
 import '_editor_plsql_checker.dart';
 import '_editor_plsql_completions.dart';
 import 'procedure_diff_panel.dart';
 
 class CodeEditorPanel extends StatefulWidget {
   final Procedimiento procedimiento;
+  final ValueChanged<bool>? onDirtyChanged;
 
-  const CodeEditorPanel({super.key, required this.procedimiento});
+  const CodeEditorPanel({
+    super.key,
+    required this.procedimiento,
+    this.onDirtyChanged,
+  });
 
   @override
   State<CodeEditorPanel> createState() => _CodeEditorPanelState();
@@ -86,6 +92,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _openProcs.add(widget.procedimiento);
     _activeProcId = widget.procedimiento.cdProcedimiento;
     _loadPrefs();
+    editorThemeStore.addListener(_onEditorThemeChanged);
     // Two frames ensure DWM/DirectComposition is ready before WebView2 init.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -106,6 +113,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   @override
   void dispose() {
     _debounce?.cancel();
+    editorThemeStore.removeListener(_onEditorThemeChanged);
     _completionReg?.dispose();
     _variablesReg?.dispose();
     _schemaReg?.dispose();
@@ -121,9 +129,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   Future<void> _onReady(MonacoController ctrl) async {
     _ctrl = ctrl;
 
-    // Definir tema Oracle en esta instancia Monaco
-    await ctrl.defineTheme(oracleDark);
-    await ctrl.defineTheme(oracleLight);
+    // Registrar todos los temas custom; built-ins (vs, vs-dark, hc-*) ya existen en Monaco
+    await EditorThemeStore.defineAllThemes(ctrl);
+    await ctrl.setTheme(editorThemeStore.monacoTheme);
 
     // Abrir el procedimiento actual como documento con URI estable
     final proc = widget.procedimiento;
@@ -394,107 +402,130 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _schemaReg = null;
 
     // Usa getMetadata() — no dispara refresco, solo lee el caché disponible
-    SchemaService.instance.getMetadata().then((schema) async {
-      if (!mounted) return;
-      final ctrl = _ctrl;
-      if (ctrl == null) return;
+    SchemaService.instance
+        .getMetadata()
+        .then((schema) async {
+          if (!mounted) return;
+          final ctrl = _ctrl;
+          if (ctrl == null) return;
 
-      _schemaReg = await ctrl.registerCompletions(
-        id: 'oracle-schema',
-        languages: [MonacoLanguage.sql, MonacoLanguage('plsql')],
-        triggerCharacters: ['.', ' '],
-        provider: (request) async {
-          final line = request.lineText ?? '';
-          final trigger = request.triggerCharacter;
-          // Texto completo hasta la línea del cursor para detectar FROM en cualquier línea
-          final fullText = _editorFullText;
+          _schemaReg = await ctrl.registerCompletions(
+            id: 'oracle-schema',
+            languages: [MonacoLanguage.sql, MonacoLanguage('plsql')],
+            triggerCharacters: ['.', ' '],
+            provider: (request) async {
+              final line = request.lineText ?? '';
+              final trigger = request.triggerCharacter;
+              // Texto completo hasta la línea del cursor para detectar FROM en cualquier línea
+              final fullText = _editorFullText;
 
-          // ── Caso 1: "ALIAS." o "TABLA." → columnas de esa tabla ──────────
-          if (trigger == '.' || line.endsWith('.')) {
-            final dotMatch = RegExp(r'(\w+)\.$').firstMatch(line);
-            if (dotMatch != null) {
-              final tableRef = dotMatch.group(1)!.toUpperCase();
-              // Resolver alias en el texto completo del documento
+              // ── Caso 1: "ALIAS." o "TABLA." → columnas de esa tabla ──────────
+              if (trigger == '.' || line.endsWith('.')) {
+                final dotMatch = RegExp(r'(\w+)\.$').firstMatch(line);
+                if (dotMatch != null) {
+                  final tableRef = dotMatch.group(1)!.toUpperCase();
+                  // Resolver alias en el texto completo del documento
+                  final fromMap = _extractFromTables(fullText);
+                  final realTable = fromMap[tableRef] ?? tableRef;
+
+                  final cols = await SchemaService.instance.getColumns(
+                    realTable,
+                  );
+                  return CompletionList(
+                    suggestions: cols
+                        .map(
+                          (c) => CompletionItem(
+                            label: c.name,
+                            kind: CompletionItemKind.field,
+                            detail: '${c.dataType} · $realTable',
+                            insertText: c.name,
+                            sortText: '0${c.name}',
+                          ),
+                        )
+                        .toList(),
+                  );
+                }
+              }
+
+              // ── Caso 2: palabra suelta → prioriza columnas del FROM ───────────
+              final word = _wordBefore(line);
+              final upper = word.toUpperCase();
+
+              final suggestions = <CompletionItem>[];
+
+              // Extraer tablas del FROM en el texto completo
               final fromMap = _extractFromTables(fullText);
-              final realTable = fromMap[tableRef] ?? tableRef;
+              for (final realTable in fromMap.values.toSet()) {
+                // Cargar columnas bajo demanda si no están en caché
+                final cols = schema.cachedColumns.containsKey(realTable)
+                    ? schema.cachedColumns[realTable]!
+                    : await SchemaService.instance.getColumns(realTable);
 
-              final cols = await SchemaService.instance.getColumns(realTable);
-              return CompletionList(
-                suggestions: cols.map((c) => CompletionItem(
-                  label: c.name,
-                  kind: CompletionItemKind.field,
-                  detail: '${c.dataType} · $realTable',
-                  insertText: c.name,
-                  sortText: '0${c.name}',
-                )).toList(),
+                suggestions.addAll(
+                  cols
+                      .where((c) => upper.isEmpty || c.name.startsWith(upper))
+                      .map(
+                        (c) => CompletionItem(
+                          label: c.name,
+                          kind: CompletionItemKind.field,
+                          detail: '${c.dataType} · $realTable',
+                          sortText: '1${c.name}',
+                        ),
+                      ),
+                );
+              }
+
+              // Tablas
+              suggestions.addAll(
+                schema.tables
+                    .where((t) => upper.isEmpty || t.startsWith(upper))
+                    .map(
+                      (t) => CompletionItem(
+                        label: t,
+                        kind: CompletionItemKind.classType,
+                        detail: 'TABLE',
+                        sortText: '2$t',
+                      ),
+                    ),
               );
-            }
-          }
 
-          // ── Caso 2: palabra suelta → prioriza columnas del FROM ───────────
-          final word = _wordBefore(line);
-          final upper = word.toUpperCase();
+              // Vistas
+              suggestions.addAll(
+                schema.views
+                    .where((v) => upper.isEmpty || v.startsWith(upper))
+                    .map(
+                      (v) => CompletionItem(
+                        label: v,
+                        kind: CompletionItemKind.interfaceType,
+                        detail: 'VIEW',
+                        sortText: '3$v',
+                      ),
+                    ),
+              );
 
-          final suggestions = <CompletionItem>[];
-
-          // Extraer tablas del FROM en el texto completo
-          final fromMap = _extractFromTables(fullText);
-          for (final realTable in fromMap.values.toSet()) {
-            // Cargar columnas bajo demanda si no están en caché
-            final cols = schema.cachedColumns.containsKey(realTable)
-                ? schema.cachedColumns[realTable]!
-                : await SchemaService.instance.getColumns(realTable);
-
-            suggestions.addAll(cols
-                .where((c) => upper.isEmpty || c.name.startsWith(upper))
-                .map((c) => CompletionItem(
-                      label: c.name,
-                      kind: CompletionItemKind.field,
-                      detail: '${c.dataType} · $realTable',
-                      sortText: '1${c.name}',
-                    )));
-          }
-
-          // Tablas
-          suggestions.addAll(schema.tables
-              .where((t) => upper.isEmpty || t.startsWith(upper))
-              .map((t) => CompletionItem(
-                    label: t,
-                    kind: CompletionItemKind.classType,
-                    detail: 'TABLE',
-                    sortText: '2$t',
-                  )));
-
-          // Vistas
-          suggestions.addAll(schema.views
-              .where((v) => upper.isEmpty || v.startsWith(upper))
-              .map((v) => CompletionItem(
-                    label: v,
-                    kind: CompletionItemKind.interfaceType,
-                    detail: 'VIEW',
-                    sortText: '3$v',
-                  )));
-
-          // Objetos (procs, funcs, packages)
-          suggestions.addAll(schema.objects
-              .where((o) => upper.isEmpty || o.name.startsWith(upper))
-              .map((o) => CompletionItem(
-                    label: o.name,
-                    kind: o.type == 'FUNCTION'
-                        ? CompletionItemKind.functionType
-                        : o.type == 'PACKAGE'
+              // Objetos (procs, funcs, packages)
+              suggestions.addAll(
+                schema.objects
+                    .where((o) => upper.isEmpty || o.name.startsWith(upper))
+                    .map(
+                      (o) => CompletionItem(
+                        label: o.name,
+                        kind: o.type == 'FUNCTION'
+                            ? CompletionItemKind.functionType
+                            : o.type == 'PACKAGE'
                             ? CompletionItemKind.module
                             : CompletionItemKind.method,
-                    detail: o.type,
-                    sortText: '4${o.name}',
-                  )));
+                        detail: o.type,
+                        sortText: '4${o.name}',
+                      ),
+                    ),
+              );
 
-          return CompletionList(
-            suggestions: suggestions.take(50).toList(),
+              return CompletionList(suggestions: suggestions.take(50).toList());
+            },
           );
-        },
-      );
-    }).catchError((_) {}); // schema no crítico
+        })
+        .catchError((_) {}); // schema no crítico
   }
 
   /// Extrae { ALIAS_UPPER → TABLA_REAL_UPPER } del texto completo del documento.
@@ -511,10 +542,12 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     }
 
     // FROM ... hasta WHERE/GROUP/ORDER/HAVING o fin (multi-línea)
-    final fromBlock = RegExp(
-      r'FROM\s+([\s\S]*?)(?=\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|$)',
-      caseSensitive: false,
-    ).firstMatch(sql)?.group(1) ?? '';
+    final fromBlock =
+        RegExp(
+          r'FROM\s+([\s\S]*?)(?=\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|$)',
+          caseSensitive: false,
+        ).firstMatch(sql)?.group(1) ??
+        '';
 
     // Cada "tabla [AS] alias" separado por coma o espacio
     for (final m in RegExp(
@@ -524,8 +557,21 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       final candidate = m.group(2)!.toUpperCase();
       // Excluir palabras reservadas como alias
       const reserved = {
-        'ON', 'WHERE', 'SET', 'AND', 'OR', 'JOIN', 'LEFT', 'RIGHT',
-        'INNER', 'OUTER', 'FULL', 'CROSS', 'GROUP', 'ORDER', 'HAVING',
+        'ON',
+        'WHERE',
+        'SET',
+        'AND',
+        'OR',
+        'JOIN',
+        'LEFT',
+        'RIGHT',
+        'INNER',
+        'OUTER',
+        'FULL',
+        'CROSS',
+        'GROUP',
+        'ORDER',
+        'HAVING',
       };
       if (!reserved.contains(candidate)) {
         add(m.group(1)!, m.group(2));
@@ -555,6 +601,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   String _wordBefore(String line) {
     final match = RegExp(r'(\w+)$').firstMatch(line);
     return match?.group(1) ?? '';
+  }
+
+  void _onEditorThemeChanged() {
+    _ctrl?.setTheme(editorThemeStore.monacoTheme);
   }
 
   Future<void> _registerVariableCompletions() async {
@@ -614,10 +664,12 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   }
 
   void _onContentChanged(String code) {
-    _editorFullText = code; // mantener texto completo para el completion por FROM
+    _editorFullText =
+        code; // mantener texto completo para el completion por FROM
     final id = _activeProcId;
     if (id != null && !_modifiedProcs.contains(id)) {
       setState(() => _modifiedProcs.add(id));
+      widget.onDirtyChanged?.call(true);
     }
     _scheduleCheck(code);
   }
@@ -795,49 +847,49 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
             children: [
               MonacoEditor(
                 initialText: widget.procedimiento.deTexto,
-            options: EditorOptions(
-              language: _langFor(widget.procedimiento),
-              theme: oracleDarkTheme,
-              fontSize: _fontSize,
-              minimap: MonacoMinimapOptions(enabled: _minimap),
-              wordWrap: _wordWrap ? MonacoWordWrap.on : MonacoWordWrap.off,
-              lineNumbers: _lineNumbers
-                  ? MonacoLineNumbers.on
-                  : MonacoLineNumbers.off,
-              renderWhitespace: _renderWhitespace
-                  ? RenderWhitespace.all
-                  : RenderWhitespace.none,
-              tabSize: 2,
-              bracketPairColorization: _bracketPairColorization,
-              stickyScroll: MonacoStickyScroll(enabled: _stickyScroll),
-              folding: _folding,
-              readOnly: _readOnly,
-              smoothScrolling: _smoothScrolling,
-              mouseWheelZoom: _mouseWheelZoom,
-              formatOnPaste: _formatOnPaste,
-              quickSuggestions: _quickSuggestions,
-              parameterHints: _parameterHints,
-              hover: _hover,
-              links: _links,
-              occurrencesHighlight: _occurrencesHighlight,
-              contextMenu: _contextMenu,
-            ),
-            showStatusBar: true,
-            page: const MonacoPageConfig(
-              customCss:
-                  '.plsql-error-line { background: rgba(255,68,68,0.1) !important; }',
-            ),
-            contentDebounce: const Duration(milliseconds: 400),
-            onReady: _onReady,
-            onContentChanged: _onContentChanged,
-            onError: (err, _) => debugPrint('Monaco error: $err'),
-          ),
+                options: EditorOptions(
+                  language: _langFor(widget.procedimiento),
+                  theme: oracleDarkTheme,
+                  fontSize: _fontSize,
+                  minimap: MonacoMinimapOptions(enabled: _minimap),
+                  wordWrap: _wordWrap ? MonacoWordWrap.on : MonacoWordWrap.off,
+                  lineNumbers: _lineNumbers
+                      ? MonacoLineNumbers.on
+                      : MonacoLineNumbers.off,
+                  renderWhitespace: _renderWhitespace
+                      ? RenderWhitespace.all
+                      : RenderWhitespace.none,
+                  tabSize: 2,
+                  bracketPairColorization: _bracketPairColorization,
+                  stickyScroll: MonacoStickyScroll(enabled: _stickyScroll),
+                  folding: _folding,
+                  readOnly: _readOnly,
+                  smoothScrolling: _smoothScrolling,
+                  mouseWheelZoom: _mouseWheelZoom,
+                  formatOnPaste: _formatOnPaste,
+                  quickSuggestions: _quickSuggestions,
+                  parameterHints: _parameterHints,
+                  hover: _hover,
+                  links: _links,
+                  occurrencesHighlight: _occurrencesHighlight,
+                  contextMenu: _contextMenu,
+                ),
+                showStatusBar: true,
+                page: const MonacoPageConfig(
+                  customCss:
+                      '.plsql-error-line { background: rgba(255,68,68,0.1) !important; }',
+                ),
+                contentDebounce: const Duration(milliseconds: 400),
+                onReady: _onReady,
+                onContentChanged: _onContentChanged,
+                onError: (err, _) => debugPrint('Monaco error: $err'),
+              ),
 
-          // Overlay flotante — indicador de schema (esquina inferior izquierda)
-        ],
-      ),
-    ),
-    ],
+              // Overlay flotante — indicador de schema (esquina inferior izquierda)
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -1028,10 +1080,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
           child: Badge(
-            label: Text(
-              '${vars.length}',
-              style: const TextStyle(fontSize: 10),
-            ),
+            label: Text('${vars.length}', style: const TextStyle(fontSize: 10)),
             child: Icon(
               Icons.data_object,
               size: 16,
@@ -1044,14 +1093,14 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   }
 
   void _showVarsOverlay(List<VariableDinamica> vars) {
-    final box =
-        _varsButtonKey.currentContext?.findRenderObject() as RenderBox?;
+    final box = _varsButtonKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return;
     final anchor = box.localToGlobal(Offset(0, box.size.height + 4));
     final screenW = MediaQuery.sizeOf(context).width;
     const panelW = 300.0;
-    final left =
-        (anchor.dx + panelW > screenW) ? screenW - panelW - 8 : anchor.dx;
+    final left = (anchor.dx + panelW > screenW)
+        ? screenW - panelW - 8
+        : anchor.dx;
 
     showGeneralDialog<void>(
       context: context,
@@ -1562,12 +1611,12 @@ class _VarsMenuOverlayState extends State<_VarsMenuOverlay> {
       _filtered = q.isEmpty
           ? widget.vars
           : widget.vars
-              .where(
-                (v) =>
-                    v.cdVariable.toLowerCase().contains(q) ||
-                    v.deVariable.toLowerCase().contains(q),
-              )
-              .toList();
+                .where(
+                  (v) =>
+                      v.cdVariable.toLowerCase().contains(q) ||
+                      v.deVariable.toLowerCase().contains(q),
+                )
+                .toList();
     });
   }
 
@@ -1643,18 +1692,21 @@ class _VarsMenuOverlayState extends State<_VarsMenuOverlay> {
                               : cs.surfaceContainerLowest,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(6),
-                            borderSide:
-                                BorderSide(color: borderColor, width: 0.5),
+                            borderSide: BorderSide(
+                              color: borderColor,
+                              width: 0.5,
+                            ),
                           ),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(6),
-                            borderSide:
-                                BorderSide(color: borderColor, width: 0.5),
+                            borderSide: BorderSide(
+                              color: borderColor,
+                              width: 0.5,
+                            ),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(6),
-                            borderSide:
-                                BorderSide(color: cs.primary, width: 1),
+                            borderSide: BorderSide(color: cs.primary, width: 1),
                           ),
                         ),
                       ),

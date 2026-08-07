@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_monaco/flutter_monaco.dart';
 
+import '_editor_themes.dart';
+
 /// Abre un diálogo de pantalla completa con el diff de un procedimiento.
 Future<void> showProcedureDiff(
   BuildContext context, {
@@ -118,7 +120,7 @@ class _DiffDialogState extends State<_DiffDialog> {
                 ignoreTrimWhitespace: false,
               ),
               options: EditorOptions(
-                theme: isDark ? MonacoTheme.vsDark : MonacoTheme.vs,
+                theme: editorThemeStore.monacoTheme,
                 fontSize: 13,
                 minimap: const MonacoMinimapOptions(enabled: false),
                 lineNumbers: MonacoLineNumbers.on,

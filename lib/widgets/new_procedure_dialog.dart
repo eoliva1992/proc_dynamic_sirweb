@@ -6,7 +6,7 @@ import 'package:flutter_monaco/flutter_monaco.dart';
 import '../providers/procedimientos_provider.dart';
 import 'ambiente_selector.dart';
 import 'config_badge.dart';
-import '_editor_oracle_theme.dart';
+import '_editor_themes.dart';
 
 class NewProcedureDialog extends StatefulWidget {
   final String ambiente;
@@ -99,6 +99,7 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
     super.initState();
     _selectedAmbiente = widget.ambiente;
     _codigoCtrl.addListener(_syncFunctionName);
+    editorThemeStore.addListener(_onEditorThemeChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final u = procedimientosProvider.cdUsuario;
       if (u.isNotEmpty) _usuarioCtrl.text = u;
@@ -115,7 +116,12 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
   void dispose() {
     _codigoCtrl.dispose();
     _usuarioCtrl.dispose();
+    editorThemeStore.removeListener(_onEditorThemeChanged);
     super.dispose();
+  }
+
+  void _onEditorThemeChanged() {
+    _editorCtrl?.setTheme(editorThemeStore.monacoTheme);
   }
 
   void _onConfigChanged(String cfg) {
@@ -546,7 +552,7 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
                     language: _isJsConfig(_selectedConfig)
                         ? MonacoLanguage.javascript
                         : MonacoLanguage.sql,
-                    theme: oracleDarkTheme,
+                    theme: editorThemeStore.monacoTheme,
                     fontSize: 13,
                     lineNumbers: MonacoLineNumbers.on,
                     minimap: const MonacoMinimapOptions(enabled: false),
@@ -556,10 +562,8 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
                   ),
                   onReady: (ctrl) async {
                     _editorCtrl = ctrl;
-                    await ctrl.defineTheme(oracleDark);
-                    await ctrl.defineTheme(oracleLight);
-                    // Custom themes must be defined before setTheme can apply them
-                    await ctrl.setTheme(oracleDarkTheme);
+                    await EditorThemeStore.defineAllThemes(ctrl);
+                    await ctrl.setTheme(editorThemeStore.monacoTheme);
                     // Apply correct template/language if JS config was set before editor was ready
                     if (_isJsConfig(_selectedConfig)) {
                       await ctrl.document.setText(_jsTemplateFor());

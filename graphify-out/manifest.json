@@ -10,8 +10,8 @@
     "semantic_hash": ""
   },
   "lib/main.dart": {
-    "mtime": 1785877610.3399048,
-    "ast_hash": "79700abb6d49999463468fe3e33491f9",
+    "mtime": 1785992693.6236167,
+    "ast_hash": "e0413bd575fd8a729cadc4b20ef8f184",
     "semantic_hash": ""
   },
   "lib/models/configuracion_tipo.dart": {
@@ -30,8 +30,8 @@
     "semantic_hash": "64db44684de2764cd44452c2d56208ff"
   },
   "lib/providers/procedimientos_provider.dart": {
-    "mtime": 1785875948.7935534,
-    "ast_hash": "13cccb1960153807a2cdfa3767baffa7",
+    "mtime": 1785937711.6259215,
+    "ast_hash": "b0b2c4720bc3f05a344cf558c1d725dc",
     "semantic_hash": ""
   },
   "lib/providers/theme_provider.dart": {
@@ -40,8 +40,8 @@
     "semantic_hash": ""
   },
   "lib/screens/main_screen.dart": {
-    "mtime": 1785903605.0989752,
-    "ast_hash": "d005de8ebb2e61586e37283f0924c2f0",
+    "mtime": 1786025581.389793,
+    "ast_hash": "845a5f207c2a177d265cd0b07507a7a3",
     "semantic_hash": ""
   },
   "lib/services/sirweb_service.dart": {
@@ -55,8 +55,8 @@
     "semantic_hash": ""
   },
   "lib/widgets/code_editor_panel.dart": {
-    "mtime": 1785896549.3925166,
-    "ast_hash": "f7be4e62a700e0a4c827709c50c80584",
+    "mtime": 1786018428.7237124,
+    "ast_hash": "f6e89faa08e13a2876079aebde62d258",
     "semantic_hash": ""
   },
   "lib/widgets/config_badge.dart": {
@@ -65,8 +65,8 @@
     "semantic_hash": ""
   },
   "lib/widgets/new_procedure_dialog.dart": {
-    "mtime": 1785905743.713863,
-    "ast_hash": "f4c4e2253f9f11be8b950f4c25800adf",
+    "mtime": 1785934646.6958702,
+    "ast_hash": "f48e8b13aac8855448cfbe5ed4e6220a",
     "semantic_hash": ""
   },
   "lib/widgets/procedure_card.dart": {
@@ -75,8 +75,8 @@
     "semantic_hash": ""
   },
   "lib/widgets/procedure_list.dart": {
-    "mtime": 1785875948.8251064,
-    "ast_hash": "c1376d0c406e0f2696e2fe1139ba6bb1",
+    "mtime": 1785941519.3197649,
+    "ast_hash": "4f0d433ca80e1c088a601cb7a760853d",
     "semantic_hash": ""
   },
   "lib/widgets/search_bar_widget.dart": {
@@ -190,13 +190,13 @@
     "semantic_hash": ""
   },
   ".vscode/tasks.json": {
-    "mtime": 1785562964.9271252,
-    "ast_hash": "67d69d080b5b90a7eeab37a0ea115674",
+    "mtime": 1785994759.077134,
+    "ast_hash": "a292c58c328b82851bba864412d2d838",
     "semantic_hash": ""
   },
   "assets/plsql_checker.js": {
-    "mtime": 1785554967.9871225,
-    "ast_hash": "864aaa8826343116474720f7f1794e9e",
+    "mtime": 1785949903.313172,
+    "ast_hash": "1aceeaeaf05b3fc184d7b3108f0ef05e",
     "semantic_hash": ""
   },
   "lib/widgets/_editor_js_engine.dart": {
@@ -215,8 +215,8 @@
     "semantic_hash": ""
   },
   "lib/widgets/monaco_editor_widget.dart": {
-    "mtime": 1785621571.235988,
-    "ast_hash": "00222889cbd40a67c833f40d591f20c6",
+    "mtime": 1785997246.427961,
+    "ast_hash": "e2ad58e50e03b6fe3352af79cb207b85",
     "semantic_hash": ""
   },
   "tools/plsql_parser/build.ps1": {
@@ -230,8 +230,8 @@
     "semantic_hash": ""
   },
   "tools/plsql_parser/rollup.config.mjs": {
-    "mtime": 1785554853.7625499,
-    "ast_hash": "d128031a28c0461003ca9523901da4d9",
+    "mtime": 1785951445.7142005,
+    "ast_hash": "dafe6c02a72ee775bb3b19689e1eea91",
     "semantic_hash": ""
   },
   "tools/plsql_parser/src/checker.js": {
@@ -240,8 +240,8 @@
     "semantic_hash": ""
   },
   "assets/monaco_editor.html": {
-    "mtime": 1785556661.7448504,
-    "ast_hash": "61be00007db5fccf5e51f28a6cdf971c",
+    "mtime": 1785961941.2563312,
+    "ast_hash": "ff0d9bb7e42314ad4908c2e5942322a5",
     "semantic_hash": ""
   },
   "lib/main_test.dart": {
@@ -300,8 +300,8 @@
     "semantic_hash": ""
   },
   "lib/widgets/_editor_plsql_checker.dart": {
-    "mtime": 1785886709.2569208,
-    "ast_hash": "144054e6f1583f5be96a0913bb08e3e4",
+    "mtime": 1785949487.3715723,
+    "ast_hash": "261f49754f0dd4dc17f9b2886fd1742d",
     "semantic_hash": ""
   },
   "lib/widgets/_editor_plsql_completions.dart": {
@@ -310,8 +310,8 @@
     "semantic_hash": ""
   },
   "lib/widgets/app_tab.dart": {
-    "mtime": 1785877610.3399048,
-    "ast_hash": "1fb106b25040e8f8fda969caee257c94",
+    "mtime": 1785944685.440653,
+    "ast_hash": "22ae3074b5fa8b3ccc0761ad7f9eec5c",
     "semantic_hash": ""
   },
   "lib/widgets/procedure_diff_panel.dart": {
@@ -325,8 +325,63 @@
     "semantic_hash": ""
   },
   "lib/widgets/search_tab_view.dart": {
-    "mtime": 1785896549.3872697,
-    "ast_hash": "ab879c91ebdb53eaeb052798a6a07bed",
+    "mtime": 1785941519.3197649,
+    "ast_hash": "ba155b37d6766951cae5890cb9e86a07",
+    "semantic_hash": ""
+  },
+  "lib/models/schema_metadata.dart": {
+    "mtime": 1785961666.069311,
+    "ast_hash": "fbdbed908707b6c83dc65d4b80d601e0",
+    "semantic_hash": ""
+  },
+  "lib/services/schema_service.dart": {
+    "mtime": 1786026439.0955038,
+    "ast_hash": "c1d1eb9487f8a7992789a18d73727e85",
+    "semantic_hash": ""
+  },
+  "lib/services/schema_service_clean.dart": {
+    "mtime": 1785987610.3409567,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "lib/widgets/schema_browser_modal.dart": {
+    "mtime": 1786026439.0955038,
+    "ast_hash": "dd3c94c2e297160ef236fbd03e747435",
+    "semantic_hash": ""
+  },
+  "lib/widgets/schema_status_overlay.dart": {
+    "mtime": 1785994591.704422,
+    "ast_hash": "b290dac410d6c992832cbe4a09468e84",
+    "semantic_hash": ""
+  },
+  "tools/plsql_parser/generated/PlSqlLexer.js": {
+    "mtime": 1785949623.551726,
+    "ast_hash": "60d5b4789489ded2f655957b4a892ec5",
+    "semantic_hash": ""
+  },
+  "tools/plsql_parser/generated/PlSqlLexerBase.js": {
+    "mtime": 1785949615.8612397,
+    "ast_hash": "471db6027afb24c34f2a2de586144d27",
+    "semantic_hash": ""
+  },
+  "tools/plsql_parser/generated/PlSqlParser.js": {
+    "mtime": 1785949626.046355,
+    "ast_hash": "e9fb7eb431e95c93ededdb91820d8692",
+    "semantic_hash": ""
+  },
+  "tools/plsql_parser/generated/PlSqlParserBase.js": {
+    "mtime": 1785949616.0314941,
+    "ast_hash": "5cd99e17b638f4c7a9fd3586cd4c16ed",
+    "semantic_hash": ""
+  },
+  "tools/plsql_parser/generated/PlSqlParserListener.js": {
+    "mtime": 1785949626.1089067,
+    "ast_hash": "1780e29d5ad3e619ea4b952496fe7d01",
+    "semantic_hash": ""
+  },
+  "tools/plsql_parser/generated/PlSqlParserVisitor.js": {
+    "mtime": 1785949626.1213632,
+    "ast_hash": "473bc4997e515d2e20e12323b0412858",
     "semantic_hash": ""
   }
 }

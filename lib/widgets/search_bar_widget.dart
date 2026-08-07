@@ -41,6 +41,18 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
   }
 
   @override
+  void didUpdateWidget(SearchBarWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.tabState != oldWidget.tabState) {
+      setState(() {
+        _searchCtrl.text = widget.tabState.searchText;
+        _selectedConfig = widget.tabState.config;
+        _selectedEstado = widget.tabState.estado;
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _searchCtrl.dispose();
     super.dispose();
@@ -126,54 +138,77 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
         borderRadius: BorderRadius.circular(4),
         border: Border.all(color: cs.outline),
       ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String?>(
-          value: _selectedConfig,
-          hint: Text(
-            'Tipo',
-            style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
-          ),
-          dropdownColor: cs.surfaceContainerHigh,
-          isDense: true,
-          style: TextStyle(color: cs.onSurface, fontSize: 12),
-          icon: Icon(
-            Icons.arrow_drop_down,
-            color: cs.onSurfaceVariant,
-            size: 18,
-          ),
-          items: [
-            DropdownMenuItem<String?>(
-              value: null,
-              child: Text(
-                'Todos los tipos',
-                style: TextStyle(color: cs.onSurfaceVariant),
+      child: Stack(
+        alignment: Alignment.bottomCenter,
+        children: [
+          DropdownButtonHideUnderline(
+            child: DropdownButton<String?>(
+              value: _selectedConfig,
+              hint: Text(
+                'Tipo',
+                style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
               ),
-            ),
-            if (configs.isEmpty)
-              // Fallback si no cargaron aún
-              ...['D', 'J', 'A', 'G', 'S', 'C', 'F', 'T', 'V', 'O', 'I'].map(
-                (c) => DropdownMenuItem<String?>(
-                  value: c,
-                  child: Text(c, style: TextStyle(color: cs.onSurface)),
-                ),
-              )
-            else
-              ...configs.map(
-                (c) => DropdownMenuItem<String?>(
-                  value: c.cdModulo,
+              dropdownColor: cs.surfaceContainerHigh,
+              isDense: true,
+              style: TextStyle(color: cs.onSurface, fontSize: 12),
+              icon: Icon(
+                Icons.arrow_drop_down,
+                color: cs.onSurfaceVariant,
+                size: 18,
+              ),
+              items: [
+                DropdownMenuItem<String?>(
+                  value: null,
                   child: Text(
-                    '${c.cdModulo} — ${c.deArgumento}',
-                    style: TextStyle(color: cs.onSurface),
-                    overflow: TextOverflow.ellipsis,
+                    'Todos los tipos',
+                    style: TextStyle(color: cs.onSurfaceVariant),
                   ),
                 ),
-              ),
-          ],
-          onChanged: (v) {
-            setState(() => _selectedConfig = v);
-            widget.tabState.config = v;
-          },
-        ),
+                if (configs.isEmpty)
+                  // Fallback si no cargaron aún
+                  ...[
+                    'D',
+                    'J',
+                    'A',
+                    'G',
+                    'S',
+                    'C',
+                    'F',
+                    'T',
+                    'V',
+                    'O',
+                    'I',
+                  ].map(
+                    (c) => DropdownMenuItem<String?>(
+                      value: c,
+                      child: Text(c, style: TextStyle(color: cs.onSurface)),
+                    ),
+                  )
+                else
+                  ...configs.map(
+                    (c) => DropdownMenuItem<String?>(
+                      value: c.cdModulo,
+                      child: Text(
+                        '${c.cdModulo} — ${c.deArgumento}',
+                        style: TextStyle(color: cs.onSurface),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+              ],
+              onChanged: (v) {
+                setState(() => _selectedConfig = v);
+                widget.tabState.config = v;
+              },
+            ),
+          ),
+          if (configs.isEmpty)
+            const LinearProgressIndicator(
+              minHeight: 2,
+              color: Color(0xFF0078D4),
+              backgroundColor: Colors.transparent,
+            ),
+        ],
       ),
     );
   }

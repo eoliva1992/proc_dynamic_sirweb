@@ -1,115 +1,202 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/procedimiento.dart';
 import '../providers/procedimientos_provider.dart';
 import 'config_badge.dart';
 
-class ProcedureCard extends StatelessWidget {
+class ProcedureCard extends StatefulWidget {
   final Procedimiento procedimiento;
   final VoidCallback onTap;
+  final VoidCallback? onOpenInNewTab;
 
   const ProcedureCard({
     super.key,
     required this.procedimiento,
     required this.onTap,
+    this.onOpenInNewTab,
   });
+
+  @override
+  State<ProcedureCard> createState() => _ProcedureCardState();
+}
+
+class _ProcedureCardState extends State<ProcedureCard> {
+  bool _hovered = false;
+
+  String _relativeDate(String? raw) {
+    if (raw == null || raw.isEmpty) return '';
+    final dt = DateTime.tryParse(raw);
+    if (dt == null) return raw;
+    final diff = DateTime.now().difference(dt);
+    if (diff.inDays == 0) return 'hoy';
+    if (diff.inDays == 1) return 'ayer';
+    if (diff.inDays < 7) return 'hace ${diff.inDays} días';
+    if (diff.inDays < 30) return 'hace ${(diff.inDays / 7).floor()} sem.';
+    if (diff.inDays < 365) return 'hace ${(diff.inDays / 30).floor()} meses';
+    return 'hace ${(diff.inDays / 365).floor()} años';
+  }
+
+  void _showContextMenu(TapUpDetails details) {
+    final pos = details.globalPosition;
+    showMenu<_CardAction>(
+      context: context,
+      position: RelativeRect.fromLTRB(pos.dx, pos.dy, pos.dx + 1, pos.dy + 1),
+      items: [
+        PopupMenuItem(
+          value: _CardAction.openInNewTab,
+          enabled: widget.onOpenInNewTab != null,
+          child: const Row(
+            children: [
+              Icon(Icons.open_in_new, size: 14),
+              SizedBox(width: 8),
+              Text('Abrir en nueva pestaña', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: _CardAction.copyName,
+          child: Row(
+            children: [
+              Icon(Icons.content_copy, size: 14),
+              SizedBox(width: 8),
+              Text('Copiar nombre', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
+      ],
+    ).then((action) {
+      if (action == _CardAction.openInNewTab) widget.onOpenInNewTab?.call();
+      if (action == _CardAction.copyName) {
+        Clipboard.setData(
+          ClipboardData(text: widget.procedimiento.cdProcedimiento),
+        );
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-
-    final provider = procedimientosProvider;
-    final configDesc = provider.descriptionForConfig(
-      procedimiento.inConfiguracion,
+    final proc = widget.procedimiento;
+    final configDesc = procedimientosProvider.descriptionForConfig(
+      proc.inConfiguracion,
     );
+    final dateText = _relativeDate(proc.feModificacion);
 
-    return Card(
-      color: cs.surface,
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 120),
+      curve: Curves.easeOut,
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-      child: InkWell(
+      decoration: BoxDecoration(
+        color: _hovered ? cs.surfaceContainerHigh : cs.surface,
         borderRadius: BorderRadius.circular(6),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      procedimiento.cdProcedimiento,
-                      style: TextStyle(
-                        color: cs.onSurface,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
-                        fontFamily: 'Consolas',
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
+        boxShadow: _hovered
+            ? [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.08),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ]
+            : const [],
+      ),
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onSecondaryTapUp: _showContextMenu,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(6),
+            onTap: widget.onTap,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (procedimiento.feModificacion != null) ...[
-                          Icon(
-                            Icons.access_time,
-                            size: 11,
-                            color: cs.onSurfaceVariant,
-                          ),
-                          const SizedBox(width: 3),
-                          Text(
-                            procedimiento.feModificacion!,
-                            style: TextStyle(
-                              color: cs.onSurfaceVariant,
-                              fontSize: 11,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                        ],
-                        if (procedimiento.cdUsuario != null) ...[
-                          Icon(
-                            Icons.person_outline,
-                            size: 11,
-                            color: cs.onSurfaceVariant,
-                          ),
-                          const SizedBox(width: 3),
-                          Text(
-                            procedimiento.cdUsuario!,
-                            style: TextStyle(
-                              color: cs.onSurfaceVariant,
-                              fontSize: 11,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                        ],
-                        // Descripción de la configuración
                         Text(
-                          configDesc,
+                          proc.cdProcedimiento,
                           style: TextStyle(
-                            color: cs.onSurfaceVariant,
-                            fontSize: 11,
-                            fontStyle: FontStyle.italic,
+                            color: cs.onSurface,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                            fontFamily: 'Consolas',
                           ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            if (dateText.isNotEmpty) ...[
+                              Icon(
+                                Icons.access_time,
+                                size: 11,
+                                color: cs.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                dateText,
+                                style: TextStyle(
+                                  color: cs.onSurfaceVariant,
+                                  fontSize: 11,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            if (proc.cdUsuario != null) ...[
+                              Icon(
+                                Icons.person_outline,
+                                size: 11,
+                                color: cs.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                proc.cdUsuario!,
+                                style: TextStyle(
+                                  color: cs.onSurfaceVariant,
+                                  fontSize: 11,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            Text(
+                              configDesc,
+                              style: TextStyle(
+                                color: cs.onSurfaceVariant,
+                                fontSize: 11,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 8),
+                  ConfigBadge(config: proc.inConfiguracion, small: true),
+                  const SizedBox(width: 8),
+                  _VersionBadge(version: proc.version),
+                  const SizedBox(width: 8),
+                  _EstadoBadge(activo: proc.activo),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.chevron_right,
+                    color: cs.onSurfaceVariant,
+                    size: 18,
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              ConfigBadge(config: procedimiento.inConfiguracion, small: true),
-              const SizedBox(width: 8),
-              _VersionBadge(version: procedimiento.version),
-              const SizedBox(width: 8),
-              _EstadoBadge(activo: procedimiento.activo),
-              const SizedBox(width: 4),
-              Icon(Icons.chevron_right, color: cs.onSurfaceVariant, size: 18),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
 }
+
+enum _CardAction { openInNewTab, copyName }
 
 class _VersionBadge extends StatelessWidget {
   final int version;
