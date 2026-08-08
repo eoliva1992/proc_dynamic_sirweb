@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_monaco/flutter_monaco.dart';
 import '../models/procedimiento.dart';
 import '../services/sirweb_service.dart';
@@ -461,293 +462,356 @@ class _InlineDiffState extends State<_InlineDiff> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final srcColor = AmbienteSelector.colorForAmbiente(widget.sourceAmbiente);
     final tgtColor = AmbienteSelector.colorForAmbiente(widget.targetAmbiente);
-    return Column(
-      children: [
-        Container(
-          height: 36,
-          color: isDark ? cs.surfaceContainerHigh : cs.surfaceContainerLow,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Row(
-            children: [
-              Text(
-                widget.title,
-                style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+    return CallbackShortcuts(
+      bindings: {
+        SingleActivator(LogicalKeyboardKey.keyZ, control: true):
+            _history.isEmpty ? () {} : _undo,
+        SingleActivator(LogicalKeyboardKey.arrowUp, alt: true): () =>
+            _ctrl?.revealPreviousChange(),
+        SingleActivator(LogicalKeyboardKey.arrowDown, alt: true): () =>
+            _ctrl?.revealNextChange(),
+        SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
+            _applyOneToOriginal,
+        SingleActivator(LogicalKeyboardKey.arrowRight, alt: true):
+            _applyOneToModified,
+        SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true, shift: true):
+            _applyAllToOriginal,
+        SingleActivator(LogicalKeyboardKey.arrowRight, alt: true, shift: true):
+            _applyAllToModified,
+      },
+      child: Focus(
+        autofocus: false,
+        child: Column(
+          children: [
+            Container(
+              height: 36,
+              color: isDark ? cs.surfaceContainerHigh : cs.surfaceContainerLow,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: [
+                  Text(
+                    widget.title,
+                    style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                  ),
+                  const Spacer(),
+                  if (widget.onSaveOriginal != null)
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: const Size(0, 28),
+                        foregroundColor: srcColor,
+                        textStyle: const TextStyle(fontSize: 11),
+                      ),
+                      onPressed: _savingOriginal ? null : _handleSaveOriginal,
+                      icon: _savingOriginal
+                          ? SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                                color: srcColor,
+                              ),
+                            )
+                          : const Icon(Icons.save_outlined, size: 13),
+                      label: Text('Guardar ${widget.sourceAmbiente}'),
+                    ),
+                  if (widget.onSaveModified != null)
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: const Size(0, 28),
+                        foregroundColor: tgtColor,
+                        textStyle: const TextStyle(fontSize: 11),
+                      ),
+                      onPressed: _savingModified ? null : _handleSaveModified,
+                      icon: _savingModified
+                          ? SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                                color: tgtColor,
+                              ),
+                            )
+                          : const Icon(Icons.save_outlined, size: 13),
+                      label: Text('Guardar ${widget.targetAmbiente}'),
+                    ),
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: const Size(0, 28),
+                      textStyle: const TextStyle(fontSize: 11),
+                    ),
+                    icon: Icon(
+                      _sideBySide
+                          ? Icons.view_agenda_outlined
+                          : Icons.view_sidebar_outlined,
+                      size: 14,
+                    ),
+                    label: Text(
+                      _sideBySide ? 'Vista dividida' : 'Vista lineal',
+                    ),
+                    onPressed: _toggleLayout,
+                  ),
+                ],
               ),
-              const Spacer(),
-              if (widget.onSaveOriginal != null)
-                TextButton.icon(
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    minimumSize: const Size(0, 28),
-                    foregroundColor: srcColor,
-                    textStyle: const TextStyle(fontSize: 11),
-                  ),
-                  onPressed: _savingOriginal ? null : _handleSaveOriginal,
-                  icon: _savingOriginal
-                      ? SizedBox(
-                          width: 12,
-                          height: 12,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 1.5,
-                            color: srcColor,
-                          ),
-                        )
-                      : const Icon(Icons.save_outlined, size: 13),
-                  label: Text('Guardar ${widget.sourceAmbiente}'),
-                ),
-              if (widget.onSaveModified != null)
-                TextButton.icon(
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    minimumSize: const Size(0, 28),
-                    foregroundColor: tgtColor,
-                    textStyle: const TextStyle(fontSize: 11),
-                  ),
-                  onPressed: _savingModified ? null : _handleSaveModified,
-                  icon: _savingModified
-                      ? SizedBox(
-                          width: 12,
-                          height: 12,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 1.5,
-                            color: tgtColor,
-                          ),
-                        )
-                      : const Icon(Icons.save_outlined, size: 13),
-                  label: Text('Guardar ${widget.targetAmbiente}'),
-                ),
-              TextButton.icon(
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  minimumSize: const Size(0, 28),
-                  textStyle: const TextStyle(fontSize: 11),
-                ),
-                icon: Icon(
-                  _sideBySide
-                      ? Icons.view_agenda_outlined
-                      : Icons.view_sidebar_outlined,
-                  size: 14,
-                ),
-                label: Text(_sideBySide ? 'Vista dividida' : 'Vista lineal'),
-                onPressed: _toggleLayout,
-              ),
-            ],
-          ),
-        ),
-        // Column labels with bidirectional copy buttons
-        Container(
-          color: isDark ? cs.surfaceContainerHighest : cs.surfaceContainerLow,
-          child: Row(
-            children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    border: Border(
-                      left: BorderSide(color: srcColor, width: 3),
-                      right: BorderSide(color: cs.outlineVariant),
+            ),
+            // Column labels with bidirectional copy buttons
+            Container(
+              color: isDark
+                  ? cs.surfaceContainerHighest
+                  : cs.surfaceContainerLow,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          left: BorderSide(color: srcColor, width: 3),
+                          right: BorderSide(color: cs.outlineVariant),
+                        ),
+                      ),
+                      child: Text(
+                        'ORIGEN \u2014 ${widget.sourceAmbiente}',
+                        style: TextStyle(
+                          color: srcColor,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
                     ),
                   ),
-                  child: Text(
-                    'ORIGEN \u2014 ${widget.sourceAmbiente}',
-                    style: TextStyle(
-                      color: srcColor,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
+                  // Navigation + per-hunk + all + undo
+                  Container(
+                    width: 140,
+                    decoration: BoxDecoration(
+                      border: Border.symmetric(
+                        vertical: BorderSide(color: cs.outlineVariant),
+                      ),
                     ),
-                  ),
-                ),
-              ),
-              // Navigation + per-hunk + all + undo
-              Container(
-                width: 140,
-                decoration: BoxDecoration(
-                  border: Border.symmetric(
-                    vertical: BorderSide(color: cs.outlineVariant),
-                  ),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Tooltip(
-                          message: 'Cambio anterior',
-                          child: IconButton(
-                            icon: Icon(
-                              Icons.arrow_upward,
-                              size: 12,
-                              color: cs.onSurfaceVariant,
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            Tooltip(
+                              message: 'Cambio anterior  (Alt+↑)',
+                              child: IconButton(
+                                icon: Icon(
+                                  Icons.arrow_upward,
+                                  size: 12,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 18,
+                                  minHeight: 24,
+                                ),
+                                onPressed: () => _ctrl?.revealPreviousChange(),
+                              ),
                             ),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 18,
-                              minHeight: 24,
+                            Tooltip(
+                              message:
+                                  'Aplicar 1 cambio: DESTINO → ORIGEN  (Alt+←)',
+                              child: IconButton(
+                                icon: Icon(
+                                  Icons.chevron_left,
+                                  size: 18,
+                                  color: srcColor,
+                                ),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 18,
+                                  minHeight: 24,
+                                ),
+                                onPressed: _applyOneToOriginal,
+                              ),
                             ),
-                            onPressed: () => _ctrl?.revealPreviousChange(),
-                          ),
+                            Tooltip(
+                              message:
+                                  'Copiar TODO: DESTINO → ORIGEN  (Alt+Shift+←)',
+                              child: IconButton(
+                                icon: Icon(
+                                  Icons.keyboard_double_arrow_left,
+                                  size: 14,
+                                  color: srcColor,
+                                ),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 18,
+                                  minHeight: 24,
+                                ),
+                                onPressed: _applyAllToOriginal,
+                              ),
+                            ),
+                            Tooltip(
+                              message: _history.isEmpty
+                                  ? 'Nada que deshacer'
+                                  : 'Deshacer última copia (${_history.length})  Ctrl+Z',
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  IconButton(
+                                    icon: Icon(
+                                      Icons.undo,
+                                      size: 12,
+                                      color: _history.isEmpty
+                                          ? cs.onSurfaceVariant.withValues(
+                                              alpha: 0.3,
+                                            )
+                                          : Colors.amber.shade600,
+                                    ),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                      minWidth: 18,
+                                      minHeight: 24,
+                                    ),
+                                    onPressed: _history.isEmpty ? null : _undo,
+                                  ),
+                                  if (_history.isNotEmpty)
+                                    Positioned(
+                                      top: 2,
+                                      right: 0,
+                                      child: Container(
+                                        width: 10,
+                                        height: 10,
+                                        decoration: BoxDecoration(
+                                          color: Colors.amber.shade600,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Center(
+                                          child: Text(
+                                            '${_history.length}',
+                                            style: const TextStyle(
+                                              fontSize: 6,
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            Tooltip(
+                              message:
+                                  'Copiar TODO: ORIGEN → DESTINO  (Alt+Shift+→)',
+                              child: IconButton(
+                                icon: Icon(
+                                  Icons.keyboard_double_arrow_right,
+                                  size: 14,
+                                  color: tgtColor,
+                                ),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 18,
+                                  minHeight: 24,
+                                ),
+                                onPressed: _applyAllToModified,
+                              ),
+                            ),
+                            Tooltip(
+                              message:
+                                  'Aplicar 1 cambio: ORIGEN → DESTINO  (Alt+→)',
+                              child: IconButton(
+                                icon: Icon(
+                                  Icons.chevron_right,
+                                  size: 18,
+                                  color: tgtColor,
+                                ),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 18,
+                                  minHeight: 24,
+                                ),
+                                onPressed: _applyOneToModified,
+                              ),
+                            ),
+                            Tooltip(
+                              message: 'Siguiente cambio  (Alt+↓)',
+                              child: IconButton(
+                                icon: Icon(
+                                  Icons.arrow_downward,
+                                  size: 12,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 18,
+                                  minHeight: 24,
+                                ),
+                                onPressed: () => _ctrl?.revealNextChange(),
+                              ),
+                            ),
+                          ],
                         ),
-                        Tooltip(
-                          message: 'Aplicar 1 cambio: DESTINO → ORIGEN',
-                          child: IconButton(
-                            icon: Icon(
-                              Icons.chevron_left,
-                              size: 18,
-                              color: srcColor,
-                            ),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 18,
-                              minHeight: 24,
-                            ),
-                            onPressed: _applyOneToOriginal,
-                          ),
-                        ),
-                        Tooltip(
-                          message: 'Copiar TODO: DESTINO → ORIGEN',
-                          child: IconButton(
-                            icon: Icon(
-                              Icons.keyboard_double_arrow_left,
-                              size: 14,
-                              color: srcColor,
-                            ),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 18,
-                              minHeight: 24,
-                            ),
-                            onPressed: _applyAllToOriginal,
-                          ),
-                        ),
-                        Tooltip(
-                          message: 'Deshacer última copia',
-                          child: IconButton(
-                            icon: Icon(
-                              Icons.undo,
-                              size: 12,
-                              color: _history.isEmpty
-                                  ? cs.onSurfaceVariant.withValues(alpha: 0.3)
-                                  : cs.onSurfaceVariant,
-                            ),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 18,
-                              minHeight: 24,
-                            ),
-                            onPressed: _history.isEmpty ? null : _undo,
-                          ),
-                        ),
-                        Tooltip(
-                          message: 'Copiar TODO: ORIGEN → DESTINO',
-                          child: IconButton(
-                            icon: Icon(
-                              Icons.keyboard_double_arrow_right,
-                              size: 14,
-                              color: tgtColor,
-                            ),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 18,
-                              minHeight: 24,
-                            ),
-                            onPressed: _applyAllToModified,
-                          ),
-                        ),
-                        Tooltip(
-                          message: 'Aplicar 1 cambio: ORIGEN → DESTINO',
-                          child: IconButton(
-                            icon: Icon(
-                              Icons.chevron_right,
-                              size: 18,
-                              color: tgtColor,
-                            ),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 18,
-                              minHeight: 24,
-                            ),
-                            onPressed: _applyOneToModified,
-                          ),
-                        ),
-                        Tooltip(
-                          message: 'Siguiente cambio',
-                          child: IconButton(
-                            icon: Icon(
-                              Icons.arrow_downward,
-                              size: 12,
-                              color: cs.onSurfaceVariant,
-                            ),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 18,
-                              minHeight: 24,
-                            ),
-                            onPressed: () => _ctrl?.revealNextChange(),
+                        Text(
+                          '< > = 1 cambio  ·  << >> = todos',
+                          style: TextStyle(
+                            fontSize: 8,
+                            color: cs.onSurfaceVariant.withValues(alpha: 0.5),
                           ),
                         ),
                       ],
                     ),
-                    Text(
-                      '< > = 1 cambio  ·  << >> = todos',
-                      style: TextStyle(
-                        fontSize: 8,
-                        color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+                  ),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          left: BorderSide(color: tgtColor, width: 3),
+                        ),
+                      ),
+                      child: Text(
+                        'DESTINO \u2014 ${widget.targetAmbiente}',
+                        style: TextStyle(
+                          color: tgtColor,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    border: Border(left: BorderSide(color: tgtColor, width: 3)),
-                  ),
-                  child: Text(
-                    'DESTINO \u2014 ${widget.targetAmbiente}',
-                    style: TextStyle(
-                      color: tgtColor,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
+            ),
+            Expanded(
+              child: MonacoDiffEditor(
+                original: widget.original,
+                modified: widget.modified,
+                language: MonacoLanguage(widget.language),
+                diffOptions: MonacoDiffOptions(
+                  renderSideBySide: _sideBySide,
+                  ignoreTrimWhitespace: false,
+                  originalEditable: true,
+                  renderMarginRevertIcon: true,
                 ),
+                options: EditorOptions(
+                  theme: editorThemeStore.monacoTheme,
+                  fontSize: 13,
+                  minimap: const MonacoMinimapOptions(enabled: false),
+                  lineNumbers: MonacoLineNumbers.on,
+                  wordWrap: MonacoWordWrap.off,
+                  readOnly: false,
+                ),
+                onReady: (ctrl) => _ctrl = ctrl,
               ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: MonacoDiffEditor(
-            original: widget.original,
-            modified: widget.modified,
-            language: MonacoLanguage(widget.language),
-            diffOptions: MonacoDiffOptions(
-              renderSideBySide: _sideBySide,
-              ignoreTrimWhitespace: false,
-              originalEditable: true,
-              renderMarginRevertIcon: true,
             ),
-            options: EditorOptions(
-              theme: editorThemeStore.monacoTheme,
-              fontSize: 13,
-              minimap: const MonacoMinimapOptions(enabled: false),
-              lineNumbers: MonacoLineNumbers.on,
-              wordWrap: MonacoWordWrap.off,
-              readOnly: false,
-            ),
-            onReady: (ctrl) => _ctrl = ctrl,
-          ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }

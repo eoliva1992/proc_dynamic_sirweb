@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_monaco/flutter_monaco.dart';
 import '../models/procedimiento.dart';
 import '../services/backup_service.dart';
@@ -510,7 +511,42 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
           ? const Center(
               child: CircularProgressIndicator(color: Color(0xFF0078D4)),
             )
-          : _buildDiff(isDark, cs, srcColor, tgtColor),
+          : CallbackShortcuts(
+              bindings: {
+                SingleActivator(LogicalKeyboardKey.keyZ, control: true):
+                    _history.isEmpty ? () {} : _undo,
+                SingleActivator(
+                  LogicalKeyboardKey.arrowUp,
+                  alt: true,
+                ): _loadingTarget
+                    ? () {}
+                    : () => _ctrl?.revealPreviousChange(),
+                SingleActivator(LogicalKeyboardKey.arrowDown, alt: true):
+                    _loadingTarget ? () {} : () => _ctrl?.revealNextChange(),
+                SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
+                    _loadingTarget ? () {} : _applyOneToSource,
+                SingleActivator(LogicalKeyboardKey.arrowRight, alt: true):
+                    _loadingTarget ? () {} : _applyOneToTarget,
+                SingleActivator(
+                  LogicalKeyboardKey.arrowLeft,
+                  alt: true,
+                  shift: true,
+                ): _loadingTarget
+                    ? () {}
+                    : _applyAllToSource,
+                SingleActivator(
+                  LogicalKeyboardKey.arrowRight,
+                  alt: true,
+                  shift: true,
+                ): _loadingTarget
+                    ? () {}
+                    : _applyAllToTarget,
+              },
+              child: Focus(
+                autofocus: false,
+                child: _buildDiff(isDark, cs, srcColor, tgtColor),
+              ),
+            ),
     );
   }
 
@@ -589,7 +625,7 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
                         Tooltip(
-                          message: 'Cambio anterior',
+                          message: 'Cambio anterior  (Alt+↑)',
                           child: IconButton(
                             icon: Icon(
                               Icons.arrow_upward,
@@ -607,7 +643,8 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
                           ),
                         ),
                         Tooltip(
-                          message: 'Aplicar 1 cambio: DESTINO → ORIGEN',
+                          message:
+                              'Aplicar 1 cambio: DESTINO → ORIGEN  (Alt+←)',
                           child: IconButton(
                             icon: Icon(
                               Icons.chevron_left,
@@ -625,7 +662,8 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
                           ),
                         ),
                         Tooltip(
-                          message: 'Copiar TODO: DESTINO → ORIGEN',
+                          message:
+                              'Copiar TODO: DESTINO → ORIGEN  (Alt+Shift+←)',
                           child: IconButton(
                             icon: Icon(
                               Icons.keyboard_double_arrow_left,
@@ -643,27 +681,60 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
                           ),
                         ),
                         Tooltip(
-                          message: 'Deshacer última copia',
-                          child: IconButton(
-                            icon: Icon(
-                              Icons.undo,
-                              size: 12,
-                              color: _history.isEmpty
-                                  ? cs.onSurfaceVariant.withValues(alpha: 0.3)
-                                  : cs.onSurfaceVariant,
-                            ),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 18,
-                              minHeight: 24,
-                            ),
-                            onPressed: (_loadingTarget || _history.isEmpty)
-                                ? null
-                                : _undo,
+                          message: _history.isEmpty
+                              ? 'Nada que deshacer'
+                              : 'Deshacer última copia (${_history.length})  Ctrl+Z',
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              IconButton(
+                                icon: Icon(
+                                  Icons.undo,
+                                  size: 12,
+                                  color: _history.isEmpty
+                                      ? cs.onSurfaceVariant.withValues(
+                                          alpha: 0.3,
+                                        )
+                                      : Colors.amber.shade600,
+                                ),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 18,
+                                  minHeight: 24,
+                                ),
+                                onPressed: (_loadingTarget || _history.isEmpty)
+                                    ? null
+                                    : _undo,
+                              ),
+                              if (_history.isNotEmpty)
+                                Positioned(
+                                  top: 2,
+                                  right: 0,
+                                  child: Container(
+                                    width: 10,
+                                    height: 10,
+                                    decoration: BoxDecoration(
+                                      color: Colors.amber.shade600,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        '${_history.length}',
+                                        style: const TextStyle(
+                                          fontSize: 6,
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                         Tooltip(
-                          message: 'Copiar TODO: ORIGEN → DESTINO',
+                          message:
+                              'Copiar TODO: ORIGEN → DESTINO  (Alt+Shift+→)',
                           child: IconButton(
                             icon: Icon(
                               Icons.keyboard_double_arrow_right,
@@ -681,7 +752,8 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
                           ),
                         ),
                         Tooltip(
-                          message: 'Aplicar 1 cambio: ORIGEN → DESTINO',
+                          message:
+                              'Aplicar 1 cambio: ORIGEN → DESTINO  (Alt+→)',
                           child: IconButton(
                             icon: Icon(
                               Icons.chevron_right,
@@ -699,7 +771,7 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
                           ),
                         ),
                         Tooltip(
-                          message: 'Siguiente cambio',
+                          message: 'Siguiente cambio  (Alt+↓)',
                           child: IconButton(
                             icon: Icon(
                               Icons.arrow_downward,

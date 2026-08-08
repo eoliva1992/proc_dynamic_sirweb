@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import '../services/schema_service.dart';
 import '../widgets/ambiente_selector.dart';
 import '../widgets/object_source_page.dart';
+import '../widgets/schema_object_details_sheet.dart';
+import '../screens/schema_object_diff_page.dart';
 
 /// Abre el explorador de esquema con fondo semi-transparente.
 Future<void> showSchemaBrowser(
@@ -1224,6 +1226,19 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
                     ),
                   ),
                 ],
+                InkWell(
+                  onTap: () => showObjectDetails(
+                    context,
+                    name: node.label,
+                    type: node.detail == 'view' ? 'VIEW' : 'TABLE',
+                    ambiente: _currentAmbiente,
+                  ),
+                  borderRadius: BorderRadius.circular(4),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(Icons.info_outline, size: 13, color: subColor),
+                  ),
+                ),
                 const SizedBox(width: 2),
                 if (_loadingCols.contains(node.label))
                   const SizedBox(
@@ -1356,6 +1371,39 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
                       size: 13,
                       color: subColor,
                     ),
+                  ),
+                ),
+                InkWell(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => SchemaObjectDiffPage(
+                        objectName: node.label,
+                        objectType: _oracleType(node.detail),
+                        sourceAmbiente: _currentAmbiente,
+                      ),
+                    ),
+                  ),
+                  borderRadius: BorderRadius.circular(4),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.compare_arrows,
+                      size: 13,
+                      color: subColor,
+                    ),
+                  ),
+                ),
+                InkWell(
+                  onTap: () => showObjectDetails(
+                    context,
+                    name: node.label,
+                    type: _oracleType(node.detail),
+                    ambiente: _currentAmbiente,
+                  ),
+                  borderRadius: BorderRadius.circular(4),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(Icons.info_outline, size: 13, color: subColor),
                   ),
                 ),
                 const SizedBox(width: 2),

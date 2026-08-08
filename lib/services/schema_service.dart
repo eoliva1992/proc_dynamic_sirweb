@@ -358,6 +358,89 @@ class SchemaService {
     return (spec: data['spec'] as String? ?? '', body: data['body'] as String?);
   }
 
+  Future<
+    List<({String grantee, String privilege, bool grantable, String grantor})>
+  >
+  getObjectPrivileges(String objectName, {String? ambiente}) async {
+    final result = await _call('get_object_privileges', {
+      'objectName': objectName.toUpperCase(),
+      if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+    });
+    final rawList = result['data'] as List? ?? [];
+    return rawList
+        .cast<Map<String, dynamic>>()
+        .map(
+          (e) => (
+            grantee: e['grantee'] as String? ?? '',
+            privilege: e['privilege'] as String? ?? '',
+            grantable: switch (e['grantable']) {
+              true || 1 || 'YES' || 'Y' => true,
+              _ => false,
+            },
+            grantor: e['grantor'] as String? ?? '',
+          ),
+        )
+        .toList();
+  }
+
+  Future<List<({String name, String type, String owner})>> getObjectReferences(
+    String objectName, {
+    String? ambiente,
+  }) async {
+    final result = await _call('get_object_dependencies', {
+      'objectName': objectName.toUpperCase(),
+      if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+    });
+    final rawList = result['data'] as List? ?? [];
+    return rawList
+        .cast<Map<String, dynamic>>()
+        .map(
+          (e) => (
+            name: e['name'] as String? ?? '',
+            type: e['type'] as String? ?? '',
+            owner: e['owner'] as String? ?? '',
+          ),
+        )
+        .toList();
+  }
+
+  Future<List<({String name, String value})>> getObjectInfo(
+    String objectName,
+    String objectType, {
+    String? ambiente,
+  }) async {
+    final result = await _call('get_object_info', {
+      'objectName': objectName.toUpperCase(),
+      'objectType': objectType.toUpperCase(),
+      if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+    });
+    final rawList = (result['data'] is List)
+        ? result['data'] as List
+        : (result['data'] as Map<String, dynamic>?)?['properties'] as List? ??
+              [];
+    // Backend returns a list with one flat-map row — convert to name/value pairs
+    if (rawList.isNotEmpty && rawList.first is Map) {
+      final row = rawList.first as Map<String, dynamic>;
+      return row.entries
+          .map(
+            (e) => (
+              name: e.key.toUpperCase(),
+              value: e.value?.toString() ?? '(null)',
+            ),
+          )
+          .toList();
+    }
+    return rawList
+        .cast<Map<String, dynamic>>()
+        .map(
+          (e) => (
+            name: e['name'] as String? ?? '',
+            value: e['value']?.toString() ?? '',
+          ),
+        )
+        .toList();
+  }
+
   /// Fuerza recarga desde el servidor en la próxima llamada (para todos los ambientes).
   void clearCache() => _caches.clear();
 
