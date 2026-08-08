@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/procedimiento.dart';
 import '../providers/procedimientos_provider.dart';
+import '../services/favorites_service.dart';
 import 'config_badge.dart';
 
 class ProcedureCard extends StatefulWidget {
@@ -53,13 +54,23 @@ class _ProcedureCardState extends State<ProcedureCard> {
             ],
           ),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: _CardAction.copyName,
-          child: Row(
+          child: const Row(
             children: [
               Icon(Icons.content_copy, size: 14),
               SizedBox(width: 8),
               Text('Copiar nombre', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: _CardAction.copyAsCall,
+          child: const Row(
+            children: [
+              Icon(Icons.code, size: 14),
+              SizedBox(width: 8),
+              Text('Copiar como llamada', style: TextStyle(fontSize: 13)),
             ],
           ),
         ),
@@ -70,6 +81,12 @@ class _ProcedureCardState extends State<ProcedureCard> {
         Clipboard.setData(
           ClipboardData(text: widget.procedimiento.cdProcedimiento),
         );
+      }
+      if (action == _CardAction.copyAsCall) {
+        final name = widget.procedimiento.cdProcedimiento;
+        final isJs = widget.procedimiento.inConfiguracion == 'J';
+        final call = isJs ? '$name();' : 'BEGIN\n  $name;\nEND;';
+        Clipboard.setData(ClipboardData(text: call));
       }
     });
   }
@@ -181,6 +198,8 @@ class _ProcedureCardState extends State<ProcedureCard> {
                   const SizedBox(width: 8),
                   _EstadoBadge(activo: proc.activo),
                   const SizedBox(width: 4),
+                  _FavStar(procId: proc.cdProcedimiento),
+                  const SizedBox(width: 2),
                   Icon(
                     Icons.chevron_right,
                     color: cs.onSurfaceVariant,
@@ -196,7 +215,38 @@ class _ProcedureCardState extends State<ProcedureCard> {
   }
 }
 
-enum _CardAction { openInNewTab, copyName }
+class _FavStar extends StatelessWidget {
+  final String procId;
+  const _FavStar({required this.procId});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder(
+      valueListenable: FavoritesService.listenable,
+      builder: (_, favs, _) {
+        final isFav = favs.contains(procId);
+        return GestureDetector(
+          onTap: () => FavoritesService.toggle(procId),
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: Icon(
+              isFav ? Icons.star_rounded : Icons.star_border_rounded,
+              size: 16,
+              color: isFav
+                  ? Colors.amber.shade600
+                  : Theme.of(
+                      context,
+                    ).colorScheme.onSurfaceVariant.withValues(alpha: 0.35),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+enum _CardAction { openInNewTab, copyName, copyAsCall }
 
 class _VersionBadge extends StatelessWidget {
   final int version;

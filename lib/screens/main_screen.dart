@@ -6,6 +6,8 @@ import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:mobx/mobx.dart' show reaction, ReactionDisposer;
 import '../models/procedimiento.dart';
 import '../providers/procedimientos_provider.dart';
+import '../services/backup_service.dart';
+import '../services/sirweb_service.dart';
 import '../widgets/ambiente_selector.dart';
 import '../widgets/app_tab.dart';
 import '../widgets/code_editor_panel.dart';
@@ -14,7 +16,10 @@ import '../widgets/_editor_themes.dart';
 import '../widgets/new_procedure_dialog.dart';
 import '../widgets/schema_browser_modal.dart';
 import '../widgets/schema_status_overlay.dart';
+import '../widgets/app_toast.dart';
 import '../widgets/search_tab_view.dart';
+import 'env_diff_page.dart';
+import 'transfer_dialog.dart';
 
 part '_usuario_button.dart';
 
@@ -87,15 +92,9 @@ class _MainScreenState extends State<MainScreen> {
             _tabs[targetIndex].procedimiento = null;
             _tabs[targetIndex].loading = false;
           });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                procCode != null ? '$procCode no existe en $amb' : error,
-              ),
-              backgroundColor: Colors.red.shade700,
-              behavior: SnackBarBehavior.floating,
-              duration: const Duration(seconds: 4),
-            ),
+          AppToast.error(
+            procCode != null ? '$procCode no existe en $amb' : error,
+            duration: const Duration(seconds: 4),
           );
           return;
         }
@@ -124,35 +123,67 @@ class _MainScreenState extends State<MainScreen> {
   void _goBackToSearch() {
     final tab = _tabs[_activeTab];
     if (tab.isDirty) {
-      showDialog<bool>(
+      showDialog<String>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Salir del editor'),
-          content: const Text(
-            'Hay cambios sin guardar. ¿Salir de todas formas?',
-          ),
+          title: const Text('Cambios sin guardar'),
+          content: const Text('¿Qué querés hacer con los cambios?'),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
+              onPressed: () => Navigator.of(ctx).pop('cancel'),
               child: const Text('Cancelar'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.orange.shade700,
+              ),
+              onPressed: () => Navigator.of(ctx).pop('discard'),
+              child: const Text('Descartar'),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange.shade700,
+                backgroundColor: const Color(0xFF0078D4),
                 foregroundColor: Colors.white,
               ),
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Salir sin guardar'),
+              onPressed: () => Navigator.of(ctx).pop('save'),
+              child: const Text('Guardar y salir'),
             ),
           ],
         ),
-      ).then((confirmed) {
-        if (confirmed == true) _doGoBackToSearch();
+      ).then((action) async {
+        if (action == 'discard') {
+          _doGoBackToSearch();
+        } else if (action == 'save') {
+          final proc = tab.procedimiento;
+          if (proc == null) {
+            _doGoBackToSearch();
+            return;
+          }
+          // Save via provider using current in-memory text (best effort)
+          _syncingActiveTab = true;
+          procedimientosProvider.setAmbiente(tab.ambiente);
+          procedimientosProvider.setProcedimientoActual(proc);
+          _syncingActiveTab = false;
+          // Read current editor text via a fresh fetch — fall back to proc text
+          final ok = await procedimientosProvider.guardar(
+            deTexto: proc.deTexto,
+          );
+          if (!mounted) return;
+          if (ok) {
+            _doGoBackToSearch();
+          } else {
+            AppToast.error(procedimientosProvider.error ?? 'Error al guardar');
+          }
+        }
       });
       return;
     }
     _doGoBackToSearch();
   }
+
+  // Returns the editor's current text holder (used by save-and-exit flow)
+  // ignore: unused_element
+  dynamic _editorKeyFor(AppTab tab) => null;
 
   void _doGoBackToSearch() {
     setState(() {
@@ -162,6 +193,44 @@ class _MainScreenState extends State<MainScreen> {
       tab.isDirty = false;
     });
     procedimientosProvider.setProcedimientoActual(null);
+  }
+
+  Future<void> _saveTabProcedure(AppTab tab, String code) async {
+    final proc = tab.procedimiento;
+    if (proc == null) return;
+    // Require a registered user before saving
+    if (procedimientosProvider.cdUsuario.trim().isEmpty) {
+      if (!mounted) return;
+      _showUsuarioDialog(
+        context,
+        onSaved: () => unawaited(_saveTabProcedure(tab, code)),
+      );
+      throw Exception('Usuario requerido');
+    }
+    // Sync provider to this tab's context
+    _syncingActiveTab = true;
+    procedimientosProvider.setAmbiente(tab.ambiente);
+    procedimientosProvider.setProcedimientoActual(proc);
+    _syncingActiveTab = false;
+
+    final ok = await procedimientosProvider.guardar(deTexto: code);
+    if (!mounted) return;
+    if (!ok) {
+      final err = procedimientosProvider.error ?? 'Error al guardar';
+      AppToast.error(err);
+      throw Exception(err);
+    }
+    // Update cached proc with latest version from provider
+    setState(() {
+      tab.procedimiento =
+          procedimientosProvider.procedimientoActual ??
+          proc.copyWith(deTexto: code);
+      tab.isDirty = false;
+    });
+    AppToast.success(
+      procedimientosProvider.mensaje ?? 'Guardado correctamente',
+      duration: const Duration(seconds: 2),
+    );
   }
 
   void _activateTab(int index) {
@@ -177,32 +246,55 @@ class _MainScreenState extends State<MainScreen> {
 
   void _closeTab(int index) {
     if (_tabs.length <= 1) return;
-    final inEditor = _tabs[index].procedimiento != null;
-    if (_tabs[index].isDirty && inEditor) {
-      showDialog<bool>(
+    final tab = _tabs[index];
+    final inEditor = tab.procedimiento != null;
+    if (tab.isDirty && inEditor) {
+      showDialog<String>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Cerrar pestaña'),
-          content: const Text(
-            'Hay cambios sin guardar. ¿Cerrar de todos modos?',
+          title: const Text('Cambios sin guardar'),
+          content: Text(
+            '${tab.procedimiento!.cdProcedimiento} tiene cambios sin guardar.',
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
+              onPressed: () => Navigator.of(ctx).pop('cancel'),
               child: const Text('Cancelar'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red.shade700),
+              onPressed: () => Navigator.of(ctx).pop('discard'),
+              child: const Text('Descartar y cerrar'),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red.shade700,
+                backgroundColor: const Color(0xFF0078D4),
                 foregroundColor: Colors.white,
               ),
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Cerrar sin guardar'),
+              onPressed: () => Navigator.of(ctx).pop('save'),
+              child: const Text('Guardar y cerrar'),
             ),
           ],
         ),
-      ).then((confirmed) {
-        if (confirmed == true) _doCloseTab(index);
+      ).then((action) async {
+        if (action == 'discard') {
+          _doCloseTab(index);
+        } else if (action == 'save') {
+          final proc = tab.procedimiento!;
+          _syncingActiveTab = true;
+          procedimientosProvider.setAmbiente(tab.ambiente);
+          procedimientosProvider.setProcedimientoActual(proc);
+          _syncingActiveTab = false;
+          final ok = await procedimientosProvider.guardar(
+            deTexto: proc.deTexto,
+          );
+          if (!mounted) return;
+          if (ok) {
+            _doCloseTab(index);
+          } else {
+            AppToast.error(procedimientosProvider.error ?? 'Error al guardar');
+          }
+        }
       });
       return;
     }
@@ -237,32 +329,55 @@ class _MainScreenState extends State<MainScreen> {
 
   void _onTabAmbienteChanged(AppTab tab, String newAmbiente) {
     if (tab.isDirty && tab.procedimiento != null) {
-      showDialog<bool>(
+      showDialog<String>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Cambiar ambiente'),
-          content: const Text(
-            'Hay cambios sin guardar. ¿Cambiar de ambiente de todas formas?',
+          content: Text(
+            '${tab.procedimiento!.cdProcedimiento} tiene cambios sin guardar.',
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
+              onPressed: () => Navigator.of(ctx).pop('cancel'),
               child: const Text('Cancelar'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.orange.shade700,
+              ),
+              onPressed: () => Navigator.of(ctx).pop('discard'),
+              child: const Text('Descartar'),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange.shade700,
+                backgroundColor: const Color(0xFF0078D4),
                 foregroundColor: Colors.white,
               ),
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Cambiar sin guardar'),
+              onPressed: () => Navigator.of(ctx).pop('save'),
+              child: const Text('Guardar y cambiar'),
             ),
           ],
         ),
-      ).then((confirmed) {
-        if (confirmed == true) {
+      ).then((action) async {
+        if (action == 'discard') {
           tab.isDirty = false;
           _doTabAmbienteChanged(tab, newAmbiente);
+        } else if (action == 'save') {
+          final proc = tab.procedimiento!;
+          _syncingActiveTab = true;
+          procedimientosProvider.setAmbiente(tab.ambiente);
+          procedimientosProvider.setProcedimientoActual(proc);
+          _syncingActiveTab = false;
+          final ok = await procedimientosProvider.guardar(
+            deTexto: proc.deTexto,
+          );
+          if (!mounted) return;
+          if (ok) {
+            tab.isDirty = false;
+            _doTabAmbienteChanged(tab, newAmbiente);
+          } else {
+            AppToast.error(procedimientosProvider.error ?? 'Error al guardar');
+          }
         }
       });
       return;
@@ -332,14 +447,9 @@ class _MainScreenState extends State<MainScreen> {
           builder: (_) => NewProcedureDialog(ambiente: ambiente),
         );
     if (result != null && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            procedimientosProvider.mensaje ?? 'Creado correctamente',
-          ),
-          backgroundColor: Colors.green.shade800,
-          duration: const Duration(seconds: 3),
-        ),
+      AppToast.success(
+        procedimientosProvider.mensaje ?? 'Creado correctamente',
+        duration: const Duration(seconds: 3),
       );
       // Open the new procedure in a fresh tab
       final stub = Procedimiento(
@@ -363,6 +473,84 @@ class _MainScreenState extends State<MainScreen> {
 
   void _showSchemaBrowser(BuildContext context) {
     showSchemaBrowser(context, ambiente: _tabs[_activeTab].ambiente);
+  }
+
+  void _showShortcutsHelp(BuildContext context) {
+    showDialog(context: context, builder: (_) => const _ShortcutsDialog());
+  }
+
+  Future<void> _toggleProcStatus(AppTab tab) async {
+    final proc = tab.procedimiento;
+    if (proc == null) return;
+    if (procedimientosProvider.cdUsuario.trim().isEmpty) {
+      if (!mounted) return;
+      _showUsuarioDialog(
+        context,
+        onSaved: () => unawaited(_toggleProcStatus(tab)),
+      );
+      return;
+    }
+    // Confirmation before changing status
+    final newStatus = !proc.activo;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          newStatus ? 'Activar procedimiento' : 'Desactivar procedimiento',
+        ),
+        content: Text(
+          '¿Desea ${newStatus ? 'activar' : 'desactivar'} '
+          '${proc.cdProcedimiento} en ${tab.ambiente}?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: newStatus
+                  ? Colors.green.shade700
+                  : Colors.red.shade700,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(newStatus ? 'Activar' : 'Desactivar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    // Use SirwebService directly to avoid provider state sync issues
+    try {
+      final svc = SirwebService();
+      if (newStatus) {
+        await svc.activarProcedimiento(
+          cdProcedimiento: proc.cdProcedimiento,
+          cdUsuario: procedimientosProvider.cdUsuario,
+          ambiente: tab.ambiente,
+        );
+      } else {
+        await svc.desactivarProcedimiento(
+          cdProcedimiento: proc.cdProcedimiento,
+          cdUsuario: procedimientosProvider.cdUsuario,
+          ambiente: tab.ambiente,
+        );
+      }
+      if (!mounted) return;
+      setState(() {
+        tab.procedimiento = proc.copyWith(
+          stProcedimiento: newStatus ? '1' : '0',
+        );
+      });
+      AppToast.success(
+        newStatus ? 'Procedimiento activado' : 'Procedimiento desactivado',
+        duration: const Duration(seconds: 2),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      AppToast.error(e.toString().replaceFirst('Exception: ', ''));
+    }
   }
 
   void _showUsuarioDialog(BuildContext context, {VoidCallback? onSaved}) {
@@ -625,6 +813,8 @@ class _MainScreenState extends State<MainScreen> {
           shift: true,
         ): () =>
             _cycleTab(-1),
+        const SingleActivator(LogicalKeyboardKey.f1): () =>
+            _showShortcutsHelp(context),
       },
       child: Focus(
         autofocus: true,
@@ -702,15 +892,9 @@ class _MainScreenState extends State<MainScreen> {
             newTab.loading = false;
           });
           if (result == null && err != null && context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  '${proc.cdProcedimiento} no existe en ${newTab.ambiente}',
-                ),
-                backgroundColor: Colors.red.shade700,
-                behavior: SnackBarBehavior.floating,
-                duration: const Duration(seconds: 4),
-              ),
+            AppToast.error(
+              '${proc.cdProcedimiento} no existe en ${newTab.ambiente}',
+              duration: const Duration(seconds: 4),
             );
           }
         },
@@ -731,15 +915,9 @@ class _MainScreenState extends State<MainScreen> {
             tab.loading = false;
           });
           if (result == null && err != null) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  '${proc.cdProcedimiento} no existe en ${tab.ambiente}',
-                ),
-                backgroundColor: Colors.red.shade700,
-                behavior: SnackBarBehavior.floating,
-                duration: const Duration(seconds: 4),
-              ),
+            AppToast.error(
+              '${proc.cdProcedimiento} no existe en ${tab.ambiente}',
+              duration: const Duration(seconds: 4),
             );
           }
         },
@@ -786,9 +964,12 @@ class _MainScreenState extends State<MainScreen> {
             child: CodeEditorPanel(
               key: ValueKey('editor_${tab.tabId}'),
               procedimiento: tab.procedimiento!,
+              ambiente: tab.ambiente,
               onDirtyChanged: (dirty) {
                 if (tab.isDirty != dirty) setState(() => tab.isDirty = dirty);
               },
+              onSave: (code) => _saveTabProcedure(tab, code),
+              onCodeChanged: (code) => tab.currentEditorCode = code,
             ),
           ),
       ],
@@ -848,6 +1029,58 @@ class _MainScreenState extends State<MainScreen> {
                 fontWeight: FontWeight.w600,
               ),
             ),
+            const SizedBox(width: 6),
+            // version badge
+            Tooltip(
+              message: 'Versión guardada: ${tab.procedimiento!.version}',
+              child: Text(
+                'v${tab.procedimiento!.version}',
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Color(0xFF569CD6),
+                  fontFamily: 'Consolas',
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            // active/inactive toggle
+            Tooltip(
+              message: tab.procedimiento!.activo
+                  ? 'Activo — clic para desactivar'
+                  : 'Inactivo — clic para activar',
+              child: InkWell(
+                onTap: () => _toggleProcStatus(tab),
+                borderRadius: BorderRadius.circular(4),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: tab.procedimiento!.activo
+                        ? Colors.green.withValues(alpha: 0.12)
+                        : Colors.red.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: tab.procedimiento!.activo
+                          ? Colors.green.shade700
+                          : Colors.red.shade700,
+                      width: 0.5,
+                    ),
+                  ),
+                  child: Text(
+                    tab.procedimiento!.activo ? 'Activo' : 'Inactivo',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: tab.procedimiento!.activo
+                          ? Colors.green.shade400
+                          : Colors.red.shade400,
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ],
           const Spacer(),
           AmbienteSelector(
@@ -889,9 +1122,181 @@ class _MainScreenState extends State<MainScreen> {
             ),
           ),
           const SizedBox(width: 4),
+          if (tab.procedimiento != null) _buildActionsMenu(tab),
+          const SizedBox(width: 4),
         ],
       ),
     );
+  }
+
+  // ── ⋮ Acciones menu ────────────────────────────────────────────────────────
+
+  Widget _buildActionsMenu(AppTab tab) {
+    final cs = Theme.of(context).colorScheme;
+    return PopupMenuButton<_EditorAction>(
+      tooltip: 'Más acciones',
+      padding: EdgeInsets.zero,
+      icon: Icon(Icons.more_vert, size: 16, color: cs.onSurfaceVariant),
+      onSelected: (action) => _handleEditorAction(action, tab),
+      itemBuilder: (_) => [
+        const PopupMenuItem(
+          value: _EditorAction.transfer,
+          child: _MenuRow(
+            icon: Icons.send_rounded,
+            label: 'Transferir a ambiente…',
+          ),
+        ),
+        const PopupMenuItem(
+          value: _EditorAction.compare,
+          child: _MenuRow(
+            icon: Icons.compare_arrows,
+            label: 'Comparar con ambiente…',
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: _EditorAction.backup,
+          child: _MenuRow(
+            icon: Icons.save_alt,
+            label: 'Exportar backup (.sql)',
+          ),
+        ),
+        const PopupMenuItem(
+          value: _EditorAction.restore,
+          child: _MenuRow(
+            icon: Icons.restore,
+            label: 'Restaurar desde backup…',
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _handleEditorAction(_EditorAction action, AppTab tab) async {
+    final proc = tab.procedimiento;
+    if (proc == null) return;
+
+    switch (action) {
+      case _EditorAction.transfer:
+        if (procedimientosProvider.cdUsuario.trim().isEmpty) {
+          _showUsuarioDialog(
+            context,
+            onSaved: () => unawaited(_handleEditorAction(action, tab)),
+          );
+          return;
+        }
+        await showDialog<void>(
+          context: context,
+          builder: (_) => TransferDialog(
+            sourceProc: proc,
+            sourceCode: tab.currentEditorCode ?? proc.deTexto,
+            sourceAmbiente: tab.ambiente,
+            cdUsuario: procedimientosProvider.cdUsuario,
+          ),
+        );
+
+      case _EditorAction.compare:
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => EnvDiffPage(
+              sourceProc: proc,
+              sourceAmbiente: tab.ambiente,
+              cdUsuario: procedimientosProvider.cdUsuario,
+              currentSourceCode: tab.currentEditorCode ?? proc.deTexto,
+            ),
+          ),
+        );
+
+      case _EditorAction.backup:
+        if (procedimientosProvider.cdUsuario.trim().isEmpty) {
+          _showUsuarioDialog(
+            context,
+            onSaved: () => unawaited(_handleEditorAction(action, tab)),
+          );
+          return;
+        }
+        final saved = await BackupService.exportar(
+          proc,
+          tab.ambiente,
+          procedimientosProvider.cdUsuario,
+        );
+        if (saved && mounted)
+          AppToast.success('Backup exportado correctamente');
+
+      case _EditorAction.restore:
+        await _restoreFromBackup(tab);
+    }
+  }
+
+  Future<void> _restoreFromBackup(AppTab tab) async {
+    final data = await BackupService.importar();
+    if (data == null || !mounted) return;
+
+    if (data.cdProcedimiento != tab.procedimiento!.cdProcedimiento) {
+      AppToast.warning(
+        'El backup es de ${data.cdProcedimiento} pero el editor tiene ${tab.procedimiento!.cdProcedimiento}',
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Restaurar desde backup'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Procedimiento: ${data.cdProcedimiento}'),
+            Text('Ambiente backup: ${data.ambiente}'),
+            Text('Versión: ${data.version}'),
+            const SizedBox(height: 8),
+            const Text(
+              'El código del editor será reemplazado por el del backup.\n'
+              '¿Desea continuar?',
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Restaurar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    if (procedimientosProvider.cdUsuario.trim().isEmpty) {
+      _showUsuarioDialog(
+        context,
+        onSaved: () => unawaited(_restoreFromBackup(tab)),
+      );
+      return;
+    }
+
+    _syncingActiveTab = true;
+    procedimientosProvider.setAmbiente(tab.ambiente);
+    procedimientosProvider.setProcedimientoActual(tab.procedimiento);
+    _syncingActiveTab = false;
+
+    final ok = await procedimientosProvider.guardar(deTexto: data.deTexto);
+    if (!mounted) return;
+    if (ok) {
+      setState(() {
+        tab.procedimiento =
+            procedimientosProvider.procedimientoActual ??
+            tab.procedimiento!.copyWith(deTexto: data.deTexto);
+        tab.isDirty = false;
+      });
+      AppToast.success('Backup restaurado correctamente');
+    } else {
+      AppToast.error(procedimientosProvider.error ?? 'Error al restaurar');
+    }
   }
 
   AppBar _buildAppBar(BuildContext context) {
@@ -1276,5 +1681,162 @@ class _TabFadeInState extends State<_TabFadeIn>
   @override
   Widget build(BuildContext context) {
     return FadeTransition(opacity: _ctrl, child: widget.child);
+  }
+}
+
+class _ShortcutsDialog extends StatelessWidget {
+  const _ShortcutsDialog();
+
+  static const _shortcuts = [
+    ('Ctrl + S', 'Guardar procedimiento'),
+    ('Ctrl + T', 'Nueva pestaña de búsqueda'),
+    ('Ctrl + W', 'Cerrar pestaña activa'),
+    ('Ctrl + Tab', 'Siguiente pestaña'),
+    ('Ctrl + Shift + Tab', 'Pestaña anterior'),
+    ('Ctrl + =', 'Aumentar tamaño de fuente'),
+    ('Ctrl + −', 'Reducir tamaño de fuente'),
+    ('Shift + Alt + F', 'Formatear documento'),
+    ('F1', 'Mostrar atajos de teclado'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? cs.surfaceContainerHigh
+                    : cs.surfaceContainerLow,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(12),
+                ),
+                border: Border(bottom: BorderSide(color: cs.outlineVariant)),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.keyboard_alt_outlined,
+                    size: 18,
+                    color: cs.primary,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Atajos de teclado',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: cs.onSurface,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close, size: 16),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    color: cs.onSurfaceVariant,
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Column(
+                  children: [
+                    for (final (keys, desc) in _shortcuts)
+                      _ShortcutRow(keys: keys, description: desc),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(0, 0, 16, 12),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cerrar'),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ShortcutRow extends StatelessWidget {
+  final String keys;
+  final String description;
+  const _ShortcutRow({required this.keys, required this.description});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              description,
+              style: TextStyle(fontSize: 13, color: cs.onSurface),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: cs.outlineVariant),
+            ),
+            child: Text(
+              keys,
+              style: TextStyle(
+                fontSize: 11,
+                fontFamily: 'Consolas',
+                fontWeight: FontWeight.w600,
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+enum _EditorAction { transfer, compare, backup, restore }
+
+class _MenuRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _MenuRow({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 15,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+        const SizedBox(width: 10),
+        Text(label, style: const TextStyle(fontSize: 13)),
+      ],
+    );
   }
 }

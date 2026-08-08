@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'app_toast.dart';
 
 class AmbienteSelector extends StatelessWidget {
   final String value;
@@ -47,6 +48,12 @@ class AmbienteSelector extends StatelessWidget {
       ).then((confirmed) {
         if (confirmed == true) onChanged(newValue);
       });
+    } else if (newValue == 'QA' || newValue == 'Replica') {
+      onChanged(newValue);
+      AppToast.warning(
+        '$newValue — los cambios pueden afectar datos compartidos',
+        duration: const Duration(seconds: 4),
+      );
     } else {
       onChanged(newValue);
     }

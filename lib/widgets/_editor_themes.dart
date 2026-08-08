@@ -101,6 +101,41 @@ const kEditorThemes = <EditorThemeMeta>[
     category: 'Populares',
     isDark: true,
   ),
+  (
+    id: 'github-dark',
+    name: 'GitHub Dark',
+    swatch: Color(0xFF0D1117),
+    category: 'GitHub',
+    isDark: true,
+  ),
+  (
+    id: 'github-light',
+    name: 'GitHub Light',
+    swatch: Color(0xFFFFFFFF),
+    category: 'GitHub',
+    isDark: false,
+  ),
+  (
+    id: 'nord',
+    name: 'Nord',
+    swatch: Color(0xFF2E3440),
+    category: 'Populares',
+    isDark: true,
+  ),
+  (
+    id: 'tokyo-night',
+    name: 'Tokyo Night',
+    swatch: Color(0xFF1A1B26),
+    category: 'Populares',
+    isDark: true,
+  ),
+  (
+    id: 'catppuccin-mocha',
+    name: 'Catppuccin Mocha',
+    swatch: Color(0xFF1E1E2E),
+    category: 'Populares',
+    isDark: true,
+  ),
 ];
 
 // ── Unified theme store ──────────────────────────────────────────────────────
@@ -153,6 +188,11 @@ class EditorThemeStore extends ChangeNotifier {
     await ctrl.defineTheme(solarizedDarkDef);
     await ctrl.defineTheme(solarizedLightDef);
     await ctrl.defineTheme(oneDarkDef);
+    await ctrl.defineTheme(githubDarkDef);
+    await ctrl.defineTheme(githubLightDef);
+    await ctrl.defineTheme(nordDef);
+    await ctrl.defineTheme(tokyoNightDef);
+    await ctrl.defineTheme(catppuccinMochaDef);
   }
 }
 
@@ -310,5 +350,159 @@ const oneDarkDef = MonacoThemeDefinition(
     'editorBracketMatch.background': '#528BFF33',
     'editorBracketMatch.border': '#528BFF',
     'editorIndentGuide.background1': '#3B4048',
+  },
+);
+
+const githubDarkDef = MonacoThemeDefinition(
+  id: 'github-dark',
+  base: MonacoBaseTheme.vsDark,
+  rules: [
+    MonacoThemeRule(token: 'keyword', foreground: 'FF7B72', fontStyle: 'bold'),
+    MonacoThemeRule(
+      token: 'comment',
+      foreground: '8B949E',
+      fontStyle: 'italic',
+    ),
+    MonacoThemeRule(token: 'string', foreground: 'A5D6FF'),
+    MonacoThemeRule(token: 'number', foreground: '79C0FF'),
+    MonacoThemeRule(token: 'identifier', foreground: 'D2A8FF'),
+    MonacoThemeRule(token: 'operator', foreground: 'FF7B72'),
+    MonacoThemeRule(token: 'delimiter', foreground: 'C9D1D9'),
+  ],
+  colors: {
+    'editor.background': '#0D1117',
+    'editor.foreground': '#C9D1D9',
+    'editorLineNumber.foreground': '#6E7681',
+    'editorLineNumber.activeForeground': '#C9D1D9',
+    'editor.lineHighlightBackground': '#161B22',
+    'editor.selectionBackground': '#388BFD3D',
+    'editorCursor.foreground': '#C9D1D9',
+    'editor.inactiveSelectionBackground': '#388BFD26',
+    'editorBracketMatch.background': '#388BFD33',
+    'editorBracketMatch.border': '#388BFD',
+    'editorIndentGuide.background1': '#21262D',
+  },
+);
+
+const githubLightDef = MonacoThemeDefinition(
+  id: 'github-light',
+  base: MonacoBaseTheme.vs,
+  rules: [
+    MonacoThemeRule(token: 'keyword', foreground: 'CF222E', fontStyle: 'bold'),
+    MonacoThemeRule(
+      token: 'comment',
+      foreground: '6E7781',
+      fontStyle: 'italic',
+    ),
+    MonacoThemeRule(token: 'string', foreground: '0A3069'),
+    MonacoThemeRule(token: 'number', foreground: '0550AE'),
+    MonacoThemeRule(token: 'identifier', foreground: '8250DF'),
+    MonacoThemeRule(token: 'operator', foreground: 'CF222E'),
+    MonacoThemeRule(token: 'delimiter', foreground: '24292F'),
+  ],
+  colors: {
+    'editor.background': '#FFFFFF',
+    'editor.foreground': '#24292F',
+    'editorLineNumber.foreground': '#57606A',
+    'editorLineNumber.activeForeground': '#24292F',
+    'editor.lineHighlightBackground': '#F6F8FA',
+    'editor.selectionBackground': '#0969DA3D',
+    'editorCursor.foreground': '#24292F',
+    'editorBracketMatch.background': '#0969DA33',
+    'editorBracketMatch.border': '#0969DA',
+    'editorIndentGuide.background1': '#D0D7DE',
+  },
+);
+
+const nordDef = MonacoThemeDefinition(
+  id: 'nord',
+  base: MonacoBaseTheme.vsDark,
+  rules: [
+    MonacoThemeRule(token: 'keyword', foreground: '81A1C1', fontStyle: 'bold'),
+    MonacoThemeRule(
+      token: 'comment',
+      foreground: '616E88',
+      fontStyle: 'italic',
+    ),
+    MonacoThemeRule(token: 'string', foreground: 'A3BE8C'),
+    MonacoThemeRule(token: 'number', foreground: 'B48EAD'),
+    MonacoThemeRule(token: 'identifier', foreground: '88C0D0'),
+    MonacoThemeRule(token: 'operator', foreground: '81A1C1'),
+    MonacoThemeRule(token: 'delimiter', foreground: 'D8DEE9'),
+  ],
+  colors: {
+    'editor.background': '#2E3440',
+    'editor.foreground': '#D8DEE9',
+    'editorLineNumber.foreground': '#616E88',
+    'editorLineNumber.activeForeground': '#D8DEE9',
+    'editor.lineHighlightBackground': '#3B4252',
+    'editor.selectionBackground': '#434C5E',
+    'editorCursor.foreground': '#D8DEE9',
+    'editor.inactiveSelectionBackground': '#434C5E80',
+    'editorBracketMatch.background': '#88C0D033',
+    'editorBracketMatch.border': '#88C0D0',
+    'editorIndentGuide.background1': '#434C5E',
+  },
+);
+
+const tokyoNightDef = MonacoThemeDefinition(
+  id: 'tokyo-night',
+  base: MonacoBaseTheme.vsDark,
+  rules: [
+    MonacoThemeRule(token: 'keyword', foreground: 'BB9AF7', fontStyle: 'bold'),
+    MonacoThemeRule(
+      token: 'comment',
+      foreground: '565F89',
+      fontStyle: 'italic',
+    ),
+    MonacoThemeRule(token: 'string', foreground: '9ECE6A'),
+    MonacoThemeRule(token: 'number', foreground: 'FF9E64'),
+    MonacoThemeRule(token: 'identifier', foreground: '7AA2F7'),
+    MonacoThemeRule(token: 'operator', foreground: '89DDFF'),
+    MonacoThemeRule(token: 'delimiter', foreground: 'A9B1D6'),
+  ],
+  colors: {
+    'editor.background': '#1A1B26',
+    'editor.foreground': '#A9B1D6',
+    'editorLineNumber.foreground': '#565F89',
+    'editorLineNumber.activeForeground': '#C0CAF5',
+    'editor.lineHighlightBackground': '#1F2335',
+    'editor.selectionBackground': '#364A7080',
+    'editorCursor.foreground': '#C0CAF5',
+    'editor.inactiveSelectionBackground': '#364A7040',
+    'editorBracketMatch.background': '#7AA2F733',
+    'editorBracketMatch.border': '#7AA2F7',
+    'editorIndentGuide.background1': '#3B4261',
+  },
+);
+
+const catppuccinMochaDef = MonacoThemeDefinition(
+  id: 'catppuccin-mocha',
+  base: MonacoBaseTheme.vsDark,
+  rules: [
+    MonacoThemeRule(token: 'keyword', foreground: 'CBA6F7', fontStyle: 'bold'),
+    MonacoThemeRule(
+      token: 'comment',
+      foreground: '6C7086',
+      fontStyle: 'italic',
+    ),
+    MonacoThemeRule(token: 'string', foreground: 'A6E3A1'),
+    MonacoThemeRule(token: 'number', foreground: 'FAB387'),
+    MonacoThemeRule(token: 'identifier', foreground: '89B4FA'),
+    MonacoThemeRule(token: 'operator', foreground: '89DCEB'),
+    MonacoThemeRule(token: 'delimiter', foreground: 'CDD6F4'),
+  ],
+  colors: {
+    'editor.background': '#1E1E2E',
+    'editor.foreground': '#CDD6F4',
+    'editorLineNumber.foreground': '#6C7086',
+    'editorLineNumber.activeForeground': '#CDD6F4',
+    'editor.lineHighlightBackground': '#2A2B3C',
+    'editor.selectionBackground': '#89B4FA40',
+    'editorCursor.foreground': '#F5E0DC',
+    'editor.inactiveSelectionBackground': '#89B4FA26',
+    'editorBracketMatch.background': '#CBA6F733',
+    'editorBracketMatch.border': '#CBA6F7',
+    'editorIndentGuide.background1': '#313244',
   },
 );

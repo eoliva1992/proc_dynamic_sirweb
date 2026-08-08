@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/schema_service.dart';
@@ -103,6 +105,7 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
   // key = parent node id (e.g. 'tbl_TABLE'), only shown when !hasFilter && children > 10
   final _childSearch = <String, String>{};
   final _childSearchCtrls = <String, TextEditingController>{};
+  final _childSearchDebounces = <String, Timer>{};
   String _filter = '';
 
   @override
@@ -140,6 +143,9 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
     _searchCtrl.dispose();
     for (final c in _childSearchCtrls.values) {
       c.dispose();
+    }
+    for (final t in _childSearchDebounces.values) {
+      t.cancel();
     }
     super.dispose();
   }
@@ -1449,7 +1455,14 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
           final c = TextEditingController(text: _childSearch[key] ?? '');
           c.addListener(() {
             final t = c.text.toLowerCase();
-            if (_childSearch[key] != t) setState(() => _childSearch[key] = t);
+            if (_childSearch[key] == t) return;
+            _childSearchDebounces[key]?.cancel();
+            _childSearchDebounces[key] = Timer(
+              const Duration(milliseconds: 300),
+              () {
+                if (mounted) setState(() => _childSearch[key] = t);
+              },
+            );
           });
           return c;
         });

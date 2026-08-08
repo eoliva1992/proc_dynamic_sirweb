@@ -38,6 +38,7 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
     _searchCtrl.addListener(
       () => widget.tabState.searchText = _searchCtrl.text,
     );
+    widget.tabState.loadHistory();
   }
 
   @override
@@ -77,21 +78,120 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
         return Container(
           color: cs.surfaceContainerLow,
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(child: _buildSearchField(cs)),
+                  const SizedBox(width: 8),
+                  _buildFavoritesButton(provider),
+                  const SizedBox(width: 8),
+                  _buildConfigFilter(provider, cs),
+                  const SizedBox(width: 8),
+                  _buildEstadoFilter(cs),
+                  const SizedBox(width: 8),
+                  _buildBuscarButton(),
+                  const SizedBox(width: 8),
+                  AmbienteSelector(
+                    value: widget.ambiente,
+                    onChanged: widget.onAmbienteChanged,
+                  ),
+                  if (widget.onNewProcedure != null) ..._buildNewProcButton(),
+                ],
+              ),
+              _buildHistoryRow(provider),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildFavoritesButton(ProcedimientosProvider _) {
+    return ListenableBuilder(
+      listenable: widget.tabState,
+      builder: (_, _) {
+        final active = widget.tabState.showFavoritesOnly;
+        return Tooltip(
+          message: active ? 'Mostrando favoritos' : 'Filtrar por favoritos',
+          child: InkWell(
+            onTap: widget.tabState.toggleFavorites,
+            borderRadius: BorderRadius.circular(4),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              height: 38,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                color: active
+                    ? Colors.amber.shade600.withValues(alpha: 0.15)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: active
+                      ? Colors.amber.shade600
+                      : Theme.of(context).colorScheme.outline,
+                ),
+              ),
+              child: Icon(
+                active ? Icons.star_rounded : Icons.star_border_rounded,
+                size: 18,
+                color: active
+                    ? Colors.amber.shade600
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildHistoryRow(ProcedimientosProvider _) {
+    return ListenableBuilder(
+      listenable: widget.tabState,
+      builder: (_, _) {
+        final hist = widget.tabState.history;
+        if (hist.isEmpty) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(top: 6),
           child: Row(
             children: [
-              Expanded(child: _buildSearchField(cs)),
-              const SizedBox(width: 8),
-              _buildConfigFilter(provider, cs),
-              const SizedBox(width: 8),
-              _buildEstadoFilter(cs),
-              const SizedBox(width: 8),
-              _buildBuscarButton(),
-              const SizedBox(width: 8),
-              AmbienteSelector(
-                value: widget.ambiente,
-                onChanged: widget.onAmbienteChanged,
+              Icon(
+                Icons.history,
+                size: 13,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
-              if (widget.onNewProcedure != null) ..._buildNewProcButton(),
+              const SizedBox(width: 6),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final q in hist)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: _HistoryChip(
+                            query: q,
+                            onTap: () {
+                              _searchCtrl.text = q;
+                              setState(() {});
+                              widget.tabState.buscar(
+                                busqueda: q,
+                                cfg: _selectedConfig,
+                                est: _selectedEstado,
+                                ambiente: procedimientosProvider.ambiente,
+                              );
+                            },
+                            onRemove: () =>
+                                widget.tabState.removeFromHistory(q),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         );
@@ -106,7 +206,7 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
         controller: _searchCtrl,
         style: TextStyle(color: cs.onSurface, fontSize: 13),
         decoration: InputDecoration(
-          hintText: 'Buscar por código o contenido del procedimiento…',
+          hintText: 'Buscar por código o contenido… (↵ Enter para buscar)',
           prefixIcon: const Icon(Icons.search, size: 18),
           suffixIcon: _searchCtrl.text.isNotEmpty
               ? IconButton(
@@ -289,5 +389,49 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
         ),
       ),
     ];
+  }
+}
+
+class _HistoryChip extends StatelessWidget {
+  final String query;
+  final VoidCallback onTap;
+  final VoidCallback onRemove;
+
+  const _HistoryChip({
+    required this.query,
+    required this.onTap,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(8, 3, 4, 3),
+        decoration: BoxDecoration(
+          color: cs.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: cs.outlineVariant),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              query,
+              style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+            ),
+            const SizedBox(width: 2),
+            InkWell(
+              onTap: onRemove,
+              borderRadius: BorderRadius.circular(8),
+              child: Icon(Icons.close, size: 12, color: cs.onSurfaceVariant),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

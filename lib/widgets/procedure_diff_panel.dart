@@ -100,10 +100,12 @@ class _DiffDialogState extends State<_DiffDialog> {
                     textStyle: const TextStyle(fontSize: 11),
                   ),
                   icon: Icon(
-                    _sideBySide ? Icons.view_compact_alt : Icons.view_sidebar,
+                    _sideBySide
+                        ? Icons.view_agenda_outlined
+                        : Icons.view_sidebar_outlined,
                     size: 14,
                   ),
-                  label: Text(_sideBySide ? 'Inline' : 'Side by side'),
+                  label: Text(_sideBySide ? 'Vista dividida' : 'Vista lineal'),
                   onPressed: _toggleLayout,
                 ),
               ],

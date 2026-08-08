@@ -207,7 +207,8 @@ class SchemaService {
         _caches[env] = _caches[env]!.copyWithColumns(table, cols);
       }
       return cols;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('SchemaService.getColumns($tableName): $e');
       return [];
     }
   }
@@ -234,7 +235,8 @@ class SchemaService {
           )
           .where((a) => a.name.isNotEmpty)
           .toList();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('SchemaService.getObjectArguments($objectName): $e');
       return [];
     }
   }
@@ -260,7 +262,8 @@ class SchemaService {
           )
           .where((a) => a.name.isNotEmpty)
           .toList();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('SchemaService.getTypeAttributes($typeName): $e');
       return [];
     }
   }
@@ -299,7 +302,8 @@ class SchemaService {
           arguments: args,
         );
       }).toList();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('SchemaService.getPackageSubprograms($packageName): $e');
       return [];
     }
   }
@@ -391,8 +395,9 @@ class SchemaService {
       if (raw == null) return [];
       return (raw as List)
           .map((e) {
-            if (e is String)
+            if (e is String) {
               return (name: e.toUpperCase(), type: type, owner: '');
+            }
             final m = e as Map<String, dynamic>;
             return (
               name: (m['name'] as String? ?? '').toUpperCase(),

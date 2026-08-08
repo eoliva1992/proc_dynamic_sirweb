@@ -16,6 +16,7 @@ class AppTab {
 
   String ambiente;
   bool isDirty = false;
+  String? currentEditorCode;
 
   AppTab({String? ambiente})
     : tabId = _counter++,

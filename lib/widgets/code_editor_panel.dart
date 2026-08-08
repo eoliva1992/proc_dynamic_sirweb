@@ -16,15 +16,24 @@ import '_editor_themes.dart';
 import '_editor_plsql_checker.dart';
 import '_editor_plsql_completions.dart';
 import 'procedure_diff_panel.dart';
+import '../services/editor_draft_service.dart';
+
+enum _SaveStatus { idle, saving, saved, error }
 
 class CodeEditorPanel extends StatefulWidget {
   final Procedimiento procedimiento;
+  final String ambiente;
   final ValueChanged<bool>? onDirtyChanged;
+  final Future<void> Function(String code)? onSave;
+  final ValueChanged<String>? onCodeChanged;
 
   const CodeEditorPanel({
     super.key,
     required this.procedimiento,
+    required this.ambiente,
     this.onDirtyChanged,
+    this.onSave,
+    this.onCodeChanged,
   });
 
   @override
@@ -76,6 +85,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   final Map<String, List<PlSqlIssue>> _issuesPerProc = {};
   MonacoActionRegistration? _zoomInAction;
   MonacoActionRegistration? _zoomOutAction;
+  MonacoActionRegistration? _saveAction;
+  Timer? _saveTimer;
+  Timer? _draftDebounce;
+  _SaveStatus _saveStatus = _SaveStatus.idle;
+  final Map<String, bool> _draftVisible = {}; // procId → show restore banner
   final GlobalKey _varsButtonKey = GlobalKey();
 
   bool get _isActiveJs {
@@ -121,6 +135,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _errorDecos?.dispose();
     _zoomInAction?.dispose();
     _zoomOutAction?.dispose();
+    _saveAction?.dispose();
+    _saveTimer?.cancel();
+    _draftDebounce?.cancel();
     super.dispose();
   }
 
@@ -135,13 +152,27 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
     // Abrir el procedimiento actual como documento con URI estable
     final proc = widget.procedimiento;
+    final draft = await EditorDraftService.load(
+      proc.cdProcedimiento,
+      widget.ambiente,
+    );
+    final hasDraft = draft != null && draft != proc.deTexto;
     final doc = await ctrl.openDocument(
-      text: proc.deTexto,
+      text: hasDraft ? draft : proc.deTexto,
       language: _langFor(proc),
       uri: _uriFor(proc),
     );
     _docs[proc.cdProcedimiento] = doc;
     await ctrl.activateDocument(doc);
+    // Report initial text so currentEditorCode is set before first keystroke
+    widget.onCodeChanged?.call(hasDraft ? draft : proc.deTexto);
+    if (hasDraft && mounted) {
+      setState(() {
+        _modifiedProcs.add(proc.cdProcedimiento);
+        _draftVisible[proc.cdProcedimiento] = true;
+      });
+      widget.onDirtyChanged?.call(true);
+    }
 
     // Completions PL/SQL (activas para SQL y lenguaje custom 'plsql')
     _completionReg = await ctrl.registerStaticCompletions(
@@ -200,6 +231,17 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       },
     );
 
+    _saveAction = await ctrl.addAction(
+      MonacoActionDescriptor(
+        id: MonacoAction('custom.save'),
+        label: 'Guardar procedimiento',
+        keybindings: [MonacoKeybinding(ctrlCmd: true, key: MonacoKey.keyS)],
+      ),
+      () async {
+        unawaited(_saveCurrentDocument());
+      },
+    );
+
     if (mounted) setState(() {});
 
     // Inyectar el bundle ANTLR4 en V8/Chromium (no en QuickJS) para detección real de sintaxis
@@ -236,8 +278,13 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     }
 
     if (!_docs.containsKey(proc.cdProcedimiento)) {
+      final draft = await EditorDraftService.load(
+        proc.cdProcedimiento,
+        widget.ambiente,
+      );
+      final hasDraft = draft != null && draft != proc.deTexto;
       final doc = await ctrl.openDocument(
-        text: proc.deTexto,
+        text: hasDraft ? draft : proc.deTexto,
         language: _langFor(proc),
         uri: _uriFor(proc),
       );
@@ -249,11 +296,21 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           )) {
             _openProcs.add(proc);
           }
+          if (hasDraft) {
+            _modifiedProcs.add(proc.cdProcedimiento);
+            _draftVisible[proc.cdProcedimiento] = true;
+          }
         });
+        if (hasDraft) widget.onDirtyChanged?.call(true);
       }
     }
 
     await ctrl.activateDocument(_docs[proc.cdProcedimiento]!);
+    // Report active document text so currentEditorCode reflects the switched-to proc
+    if (mounted) {
+      final text = await ctrl.document.getText();
+      widget.onCodeChanged?.call(text);
+    }
     if (mounted) setState(() => _activeProcId = proc.cdProcedimiento);
     // inConfiguracion puede diferir del procedimiento anterior — actualizar completions
     _registerVariableCompletions();
@@ -632,6 +689,50 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     );
   }
 
+  // ── Guardar ────────────────────────────────────────────────────────────
+
+  Future<void> _saveCurrentDocument() async {
+    final onSave = widget.onSave;
+    if (onSave == null || _saveStatus == _SaveStatus.saving) return;
+    final ctrl = _ctrl;
+    if (ctrl == null) return;
+    final code = await ctrl.document.getText();
+    if (!mounted) return;
+    setState(() => _saveStatus = _SaveStatus.saving);
+    _saveTimer?.cancel();
+    try {
+      await onSave(code);
+      if (!mounted) return;
+      // Update deTexto in the open procs list so diff shows correct baseline
+      final id = _activeProcId;
+      if (id != null) {
+        final idx = _openProcs.indexWhere((p) => p.cdProcedimiento == id);
+        if (idx != -1) {
+          setState(
+            () => _openProcs[idx] = _openProcs[idx].copyWith(deTexto: code),
+          );
+        }
+        setState(() {
+          _modifiedProcs.remove(id);
+          _draftVisible.remove(id);
+        });
+        _draftDebounce?.cancel();
+        unawaited(EditorDraftService.clear(id, widget.ambiente));
+      }
+      widget.onDirtyChanged?.call(false);
+      setState(() => _saveStatus = _SaveStatus.saved);
+      _saveTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) setState(() => _saveStatus = _SaveStatus.idle);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _saveStatus = _SaveStatus.error);
+      _saveTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _saveStatus = _SaveStatus.idle);
+      });
+    }
+  }
+
   // ── Diff ───────────────────────────────────────────────────────────────
 
   Future<void> _openDiff() async {
@@ -666,12 +767,43 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   void _onContentChanged(String code) {
     _editorFullText =
         code; // mantener texto completo para el completion por FROM
+    widget.onCodeChanged?.call(code);
     final id = _activeProcId;
     if (id != null && !_modifiedProcs.contains(id)) {
       setState(() => _modifiedProcs.add(id));
       widget.onDirtyChanged?.call(true);
     }
     _scheduleCheck(code);
+    _scheduleDraftSave(id, code);
+  }
+
+  void _scheduleDraftSave(String? id, String code) {
+    if (id == null) return;
+    _draftDebounce?.cancel();
+    _draftDebounce = Timer(const Duration(milliseconds: 1500), () {
+      EditorDraftService.save(id, widget.ambiente, code);
+    });
+  }
+
+  Future<void> _discardDraft(String procId) async {
+    final ctrl = _ctrl;
+    if (ctrl == null) return;
+    final proc = _openProcs.firstWhere(
+      (p) => p.cdProcedimiento == procId,
+      orElse: () => widget.procedimiento,
+    );
+    final doc = _docs[procId];
+    if (doc != null) {
+      await doc.setText(proc.deTexto);
+    }
+    _draftDebounce?.cancel();
+    await EditorDraftService.clear(procId, widget.ambiente);
+    if (!mounted) return;
+    setState(() {
+      _draftVisible.remove(procId);
+      _modifiedProcs.remove(procId);
+    });
+    widget.onDirtyChanged?.call(false);
   }
 
   void _resetAllOptions() {
@@ -839,6 +971,58 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                   ),
                 )
               : const SizedBox.shrink(key: ValueKey('noreadonly')),
+        ),
+
+        // Draft restore banner
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          transitionBuilder: (child, animation) => SizeTransition(
+            sizeFactor: animation,
+            alignment: Alignment.topCenter,
+            child: FadeTransition(opacity: animation, child: child),
+          ),
+          child: _draftVisible[_activeProcId] == true
+              ? Container(
+                  key: const ValueKey('draft'),
+                  width: double.infinity,
+                  color: const Color(0xFF0078D4).withValues(alpha: 0.10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 5,
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.restore_rounded,
+                        size: 13,
+                        color: Color(0xFF0078D4),
+                      ),
+                      const SizedBox(width: 6),
+                      const Expanded(
+                        child: Text(
+                          'Borrador sin guardar restaurado',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF0078D4),
+                          ),
+                        ),
+                      ),
+                      InkWell(
+                        onTap: () => _discardDraft(_activeProcId!),
+                        child: const Text(
+                          'Descartar',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF0078D4),
+                            fontWeight: FontWeight.w600,
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : const SizedBox.shrink(key: ValueKey('nodraft')),
         ),
 
         // Editor Monaco + overlay de schema
@@ -1048,10 +1232,16 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           const Spacer(),
           // ── Badge de errores ──────────────────────────────────────────────
           _buildErrorBadge(cs),
-          // ── Acciones ─────────────────────────────────────────────────────
+          const SizedBox(width: 4),
+          SizedBox(
+            height: 18,
+            child: VerticalDivider(color: cs.outlineVariant, width: 12),
+          ),
+          // ── Guardar / Acciones ───────────────────────────────────────────
+          _buildSaveBtn(cs),
           _ToolBtn(
             icon: Icons.compare_arrows,
-            tooltip: 'Ver diff vs. versión guardada',
+            tooltip: 'Ver diff vs. versión guardada (sin guardar)',
             onPressed: _openDiff,
           ),
           _ToolBtn(
@@ -1060,6 +1250,113 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
             onPressed: () => _ctrl?.executeAction(MonacoAction.formatDocument),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSaveBtn(ColorScheme cs) {
+    return switch (_saveStatus) {
+      _SaveStatus.saving => const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+        child: SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(
+            strokeWidth: 1.5,
+            color: Color(0xFF0078D4),
+          ),
+        ),
+      ),
+      _SaveStatus.saved => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.check_circle_outline,
+              size: 14,
+              color: Colors.green[600],
+            ),
+            const SizedBox(width: 4),
+            Text(
+              'Guardado',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.green[600],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+      _SaveStatus.error => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline, size: 14, color: Colors.red[400]),
+            const SizedBox(width: 4),
+            Text(
+              'Error',
+              style: TextStyle(fontSize: 11, color: Colors.red[400]),
+            ),
+          ],
+        ),
+      ),
+      _SaveStatus.idle => _buildSaveBtnIdle(cs),
+    };
+  }
+
+  Widget _buildSaveBtnIdle(ColorScheme cs) {
+    final isDirty = _modifiedProcs.contains(_activeProcId);
+    final canSave = widget.onSave != null;
+    return Tooltip(
+      message: 'Guardar (Ctrl+S)',
+      waitDuration: _kTooltipWait,
+      preferBelow: false,
+      decoration: _kTooltipDecoration,
+      textStyle: _kTooltipTextStyle,
+      child: InkWell(
+        onTap: canSave ? _saveCurrentDocument : null,
+        borderRadius: BorderRadius.circular(4),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          decoration: BoxDecoration(
+            color: isDirty
+                ? const Color(0xFF0078D4).withValues(alpha: 0.12)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+            border: isDirty
+                ? Border.all(
+                    color: const Color(0xFF0078D4).withValues(alpha: 0.4),
+                  )
+                : null,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.save_outlined,
+                size: 15,
+                color: isDirty
+                    ? const Color(0xFF0078D4)
+                    : cs.onSurfaceVariant.withValues(alpha: 0.4),
+              ),
+              if (isDirty) ...[
+                const SizedBox(width: 4),
+                const Text(
+                  'Guardar',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF0078D4),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

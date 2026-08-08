@@ -8,6 +8,7 @@ import '../services/schema_service.dart';
 import '_editor_plsql_checker.dart';
 import '_editor_plsql_completions.dart';
 import '_editor_themes.dart';
+import 'app_toast.dart';
 import 'status_card.dart';
 
 class ObjectSourcePage extends StatefulWidget {
@@ -75,12 +76,9 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
         : _specText;
     if (text.isEmpty) return;
     Clipboard.setData(ClipboardData(text: text));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Fuente copiado al portapapeles'),
-        duration: Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-      ),
+    AppToast.info(
+      'Fuente copiado al portapapeles',
+      duration: const Duration(seconds: 2),
     );
   }
 
@@ -122,31 +120,16 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
         ], owner: 'oracle-compile');
       }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              errors.isEmpty
-                  ? '${widget.name} compilado exitosamente ✓'
-                  : '${widget.name}: ${errors.length} error(es) de compilación',
-            ),
-            backgroundColor: errors.isEmpty
-                ? Colors.green.shade700
-                : Colors.red.shade700,
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 3),
-          ),
-        );
+        if (errors.isEmpty) {
+          AppToast.success('${widget.name} compilado exitosamente');
+        } else {
+          AppToast.error(
+            '${widget.name}: ${errors.length} error(es) de compilación',
+          );
+        }
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red.shade700,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+      if (mounted) AppToast.error('Error: $e');
     } finally {
       if (mounted) setState(() => _compiling = false);
     }
