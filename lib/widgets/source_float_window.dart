@@ -24,6 +24,19 @@ const _kTypeIcons = {
   'TYPE': Icons.data_object_outlined,
 };
 
+// Tracks live child source-viewer processes so they can be killed on main-window close.
+final _childProcesses = <Process>{};
+
+/// Kills every child source-viewer window spawned by this session.
+void closeAllSourceWindows() {
+  for (final p in _childProcesses) {
+    try {
+      p.kill();
+    } catch (_) {}
+  }
+  _childProcesses.clear();
+}
+
 /// Abre el código fuente en una ventana OS separada (Windows desktop).
 /// En web/otros platforms, abre un overlay interno.
 void openSourceWindow(
@@ -33,9 +46,19 @@ void openSourceWindow(
   required String ambiente,
 }) {
   if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-    _openNewProcess(context, name: name, objectType: objectType, ambiente: ambiente);
+    _openNewProcess(
+      context,
+      name: name,
+      objectType: objectType,
+      ambiente: ambiente,
+    );
   } else {
-    _openOverlay(context, name: name, objectType: objectType, ambiente: ambiente);
+    _openOverlay(
+      context,
+      name: name,
+      objectType: objectType,
+      ambiente: ambiente,
+    );
   }
 }
 
@@ -46,15 +69,21 @@ void _openNewProcess(
   required String ambiente,
 }) {
   try {
-    Process.start(
-      Platform.resolvedExecutable,
-      ['--source=$name::$objectType::$ambiente'],
-      mode: ProcessStartMode.detached,
-    );
+    // inheritStdio: child shares parent's console handles — avoids pipe-buffer deadlock in debug mode.
+    Process.start(Platform.resolvedExecutable, [
+      '--source=$name::$objectType::$ambiente',
+    ], mode: ProcessStartMode.inheritStdio).then((process) {
+      _childProcesses.add(process);
+      process.exitCode.then((_) => _childProcesses.remove(process));
+    });
   } catch (e) {
     AppToast.error('No se pudo abrir la ventana: $e');
-    // Fallback to overlay if process spawn fails
-    _openOverlay(context, name: name, objectType: objectType, ambiente: ambiente);
+    _openOverlay(
+      context,
+      name: name,
+      objectType: objectType,
+      ambiente: ambiente,
+    );
   }
 }
 

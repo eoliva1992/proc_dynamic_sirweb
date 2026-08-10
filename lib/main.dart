@@ -18,15 +18,14 @@ Future<void> main(List<String> args) async {
     final params = sourceArg.substring('--source='.length).split('::');
     if (params.length >= 3) {
       await windowManager.ensureInitialized();
-      WindowOptions opts = WindowOptions(
+      final WindowOptions opts = WindowOptions(
         size: const Size(920, 680),
         center: true,
-        title: '${params[0]} — ${params[1]}',
+        title: '${params[0]} \u2014 ${params[1]}',
         minimumSize: const Size(480, 320),
-        backgroundColor: Colors.transparent,
         skipTaskbar: false,
       );
-      await windowManager.waitUntilReadyToShow(opts, () async {
+      windowManager.waitUntilReadyToShow(opts, () async {
         await windowManager.show();
         await windowManager.focus();
       });

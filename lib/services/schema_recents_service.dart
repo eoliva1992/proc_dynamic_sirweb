@@ -57,6 +57,24 @@ class SchemaRecentsService {
     return all.where((r) => r.ambiente == ambiente).toList();
   }
 
+  Future<void> removeRecent(SchemaObjectRef ref) async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = _load(prefs, _kRecents);
+    list.removeWhere((r) => r.name == ref.name && r.ambiente == ref.ambiente);
+    await _save(prefs, _kRecents, list);
+  }
+
+  Future<void> clearRecents({String? ambiente}) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (ambiente == null) {
+      await prefs.remove(_kRecents);
+    } else {
+      final all = _load(prefs, _kRecents);
+      all.removeWhere((r) => r.ambiente == ambiente);
+      await _save(prefs, _kRecents, all);
+    }
+  }
+
   Future<void> addFavorite(SchemaObjectRef ref) async {
     final prefs = await SharedPreferences.getInstance();
     final list = _load(prefs, _kFavorites);

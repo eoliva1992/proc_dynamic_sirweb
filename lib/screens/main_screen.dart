@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:mobx/mobx.dart' show reaction, ReactionDisposer;
+import 'package:window_manager/window_manager.dart';
 import '../models/procedimiento.dart';
 import '../providers/procedimientos_provider.dart';
 import '../services/backup_service.dart';
@@ -19,6 +20,7 @@ import '../widgets/schema_sidebar.dart';
 import '../widgets/schema_status_overlay.dart';
 import '../widgets/app_toast.dart';
 import '../widgets/search_tab_view.dart';
+import '../widgets/source_float_window.dart';
 import 'env_diff_page.dart';
 import 'transfer_dialog.dart';
 
@@ -34,7 +36,7 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class _MainScreenState extends State<MainScreen> with WindowListener {
   final List<AppTab> _tabs = [AppTab()];
   int _activeTab = 0;
   int? _loadingTabIndex;
@@ -67,6 +69,8 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+    windowManager.addListener(this);
+    windowManager.setPreventClose(true);
     HardwareKeyboard.instance.addHandler(_handleGlobalKey);
     _markTabLive(0);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -134,12 +138,19 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   void dispose() {
+    windowManager.removeListener(this);
     HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
     _tabReaction();
     for (final tab in _tabs) {
       tab.searchState.dispose();
     }
     super.dispose();
+  }
+
+  @override
+  void onWindowClose() async {
+    closeAllSourceWindows();
+    await windowManager.destroy();
   }
 
   // Global shortcut handler — fires even when Monaco/WebView2 has focus

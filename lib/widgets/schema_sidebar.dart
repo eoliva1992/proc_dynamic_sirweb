@@ -360,75 +360,48 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
 
   Widget _buildFilterChips(bool isDark) {
     final types = ['TABLE', 'VIEW', 'PROCEDURE', 'FUNCTION', 'PACKAGE', 'TYPE'];
-    return SizedBox(
-      height: 34,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(8, 3, 8, 3),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: types.map((t) {
           final active = _activeFilters.contains(t);
-          final color = _kTypeColors[t] ?? Colors.grey;
+          final color = _kTypeColors[t]!;
           final icon = _kTypeIcons[t]!;
-          return Padding(
-            padding: const EdgeInsets.only(right: 5),
-            child: Tooltip(
-              message: _kTypeLabels[t] ?? t,
-              child: GestureDetector(
-                onTap: () => setState(() {
-                  if (active) {
-                    _activeFilters.remove(t);
-                  } else {
-                    _activeFilters.add(t);
-                  }
-                }),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 140),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
+          return Tooltip(
+            message: _kTypeLabels[t]!,
+            child: GestureDetector(
+              onTap: () => setState(() {
+                if (active) {
+                  _activeFilters.remove(t);
+                } else {
+                  _activeFilters.add(t);
+                }
+              }),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 130),
+                width: 32,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: active
+                      ? color.withValues(alpha: 0.16)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
                     color: active
-                        ? color.withValues(alpha: 0.16)
+                        ? color.withValues(alpha: 0.8)
                         : (isDark
-                              ? const Color(0xFF2A2A2A)
-                              : const Color(0xFFF0F2F5)),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: active
-                          ? color.withValues(alpha: 0.7)
-                          : (isDark
-                                ? const Color(0xFF3A3A3A)
-                                : const Color(0xFFDDE2EA)),
-                      width: active ? 1.2 : 0.8,
-                    ),
+                              ? const Color(0xFF3A3A3A)
+                              : const Color(0xFFDDE2EA)),
+                    width: active ? 1.4 : 0.8,
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        icon,
-                        size: 11,
-                        color: active
-                            ? color
-                            : (isDark ? Colors.white38 : Colors.black38),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        _kTypeLabels[t] ?? t,
-                        style: TextStyle(
-                          fontSize: 9.5,
-                          fontWeight: active
-                              ? FontWeight.w700
-                              : FontWeight.w500,
-                          color: active
-                              ? color
-                              : (isDark ? Colors.white54 : Colors.black45),
-                          letterSpacing: 0.1,
-                        ),
-                      ),
-                    ],
-                  ),
+                ),
+                child: Icon(
+                  icon,
+                  size: 14,
+                  color: active
+                      ? color
+                      : (isDark ? Colors.white38 : Colors.black38),
                 ),
               ),
             ),
@@ -490,14 +463,16 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
             Icons.star_rounded,
             const Color(0xFFF4C430),
             isDark,
+            isFavoriteSection: true,
           ),
         if (_filter.isEmpty && _recents.isNotEmpty)
           ..._buildSavedSection(
             'RECIENTES',
             _recents,
             Icons.history,
-            Colors.grey,
+            const Color(0xFF0078D4),
             isDark,
+            isFavoriteSection: false,
           ),
         ..._buildSchemaTree(meta, isDark),
       ],
@@ -507,64 +482,137 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
   List<Widget> _buildSavedSection(
     String title,
     List<SchemaObjectRef> items,
-    IconData icon,
-    Color color,
-    bool isDark,
-  ) {
+    IconData sectionIcon,
+    Color sectionColor,
+    bool isDark, {
+    required bool isFavoriteSection,
+  }) {
+    const maxShow = 5;
+    final shown = items.take(maxShow).toList();
     return [
-      SliverToBoxAdapter(child: _sectionHeader(title, icon, color, isDark)),
+      SliverToBoxAdapter(
+        child: _savedSectionHeader(
+          title,
+          sectionIcon,
+          sectionColor,
+          isDark,
+          count: items.length,
+          onClear: isFavoriteSection
+              ? null
+              : () async {
+                  await SchemaRecentsService.instance.clearRecents(
+                    ambiente: widget.ambiente,
+                  );
+                  _loadSaved();
+                },
+        ),
+      ),
       SliverList(
         delegate: SliverChildBuilderDelegate(
-          (_, i) => _buildSavedRow(items[i], isDark),
-          childCount: items.length.clamp(0, 5),
+          (_, i) => _buildSavedCard(
+            shown[i],
+            isDark,
+            isFavoriteSection: isFavoriteSection,
+          ),
+          childCount: shown.length,
         ),
       ),
     ];
   }
 
-  Widget _sectionHeader(String title, IconData icon, Color color, bool isDark) {
-    final divider = isDark ? const Color(0xFF2D2D2D) : const Color(0xFFF0F2F5);
+  Widget _savedSectionHeader(
+    String title,
+    IconData icon,
+    Color color,
+    bool isDark, {
+    required int count,
+    VoidCallback? onClear,
+  }) {
+    final divBg = isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA);
+    final divLine = isDark ? const Color(0xFF3A3A3A) : const Color(0xFFE8E8E8);
     return Container(
-      margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.fromLTRB(10, 5, 10, 4),
+      padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF252526) : const Color(0xFFF8F9FA),
+        color: divBg,
         border: Border(
-          top: BorderSide(color: divider),
-          bottom: BorderSide(color: divider),
+          top: BorderSide(color: divLine),
+          bottom: BorderSide(color: divLine),
         ),
       ),
       child: Row(
         children: [
-          Icon(icon, size: 11, color: color),
+          Icon(icon, size: 12, color: color),
           const SizedBox(width: 5),
           Text(
             title,
             style: TextStyle(
               fontSize: 9.5,
               fontWeight: FontWeight.w700,
-              letterSpacing: 0.9,
+              letterSpacing: 0.8,
               color: isDark ? Colors.white38 : Colors.black38,
             ),
           ),
+          const SizedBox(width: 5),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+          ),
+          const Spacer(),
+          if (onClear != null)
+            Tooltip(
+              message: 'Limpiar recientes',
+              child: InkWell(
+                onTap: onClear,
+                borderRadius: BorderRadius.circular(4),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    Icons.delete_sweep_outlined,
+                    size: 13,
+                    color: isDark ? Colors.white24 : Colors.black26,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildSavedRow(SchemaObjectRef ref, bool isDark) {
+  Widget _buildSavedCard(
+    SchemaObjectRef ref,
+    bool isDark, {
+    required bool isFavoriteSection,
+  }) {
     final color = _kTypeColors[ref.type] ?? Colors.grey;
     final typeIcon = _kTypeIcons[ref.type] ?? Icons.storage_outlined;
     final isFav = _isFavorite(ref.name);
-    return _SidebarRow(
-      icon: typeIcon,
+    return _SavedCard(
+      ref: ref,
       color: color,
-      name: ref.name,
-      type: ref.type,
+      typeIcon: typeIcon,
       isDark: isDark,
       isFavorite: isFav,
+      isFavoriteSection: isFavoriteSection,
       onTap: () => _openObject(ref.name, ref.type, ref.owner),
       onFavoriteToggle: () => _toggleFavorite(ref),
+      onRemove: isFavoriteSection
+          ? null
+          : () async {
+              await SchemaRecentsService.instance.removeRecent(ref);
+              _loadSaved();
+            },
     );
   }
 
@@ -608,7 +656,7 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
           : names.where((n) => n.toLowerCase().contains(_filter)).toList();
       if (filtered.isEmpty) continue;
 
-      final isCollapsed = _collapsed[type] ?? false;
+      final isCollapsed = _collapsed[type] ?? true; // collapsed by default
       result.add(
         SliverToBoxAdapter(
           child: _buildTypeSection(type, filtered.length, isCollapsed, isDark),
@@ -740,6 +788,137 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
     } catch (_) {
       if (mounted) setState(() => _metaLoaded = true);
     }
+  }
+}
+
+// ── Tarjeta de reciente / favorito ───────────────────────────────────────────
+
+class _SavedCard extends StatefulWidget {
+  final SchemaObjectRef ref;
+  final Color color;
+  final IconData typeIcon;
+  final bool isDark;
+  final bool isFavorite;
+  final bool isFavoriteSection;
+  final VoidCallback onTap;
+  final VoidCallback onFavoriteToggle;
+  final VoidCallback? onRemove;
+
+  const _SavedCard({
+    required this.ref,
+    required this.color,
+    required this.typeIcon,
+    required this.isDark,
+    required this.isFavorite,
+    required this.isFavoriteSection,
+    required this.onTap,
+    required this.onFavoriteToggle,
+    this.onRemove,
+  });
+
+  @override
+  State<_SavedCard> createState() => _SavedCardState();
+}
+
+class _SavedCardState extends State<_SavedCard> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = _hovered
+        ? (widget.isDark ? const Color(0xFF2A2A2A) : const Color(0xFFEFF4FF))
+        : (widget.isDark ? const Color(0xFF232323) : const Color(0xFFFAFAFB));
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Material(
+        color: bg,
+        child: InkWell(
+          onTap: widget.onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Row(
+              children: [
+                // Type icon badge
+                Container(
+                  width: 26,
+                  height: 26,
+                  decoration: BoxDecoration(
+                    color: widget.color.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: Icon(widget.typeIcon, size: 13, color: widget.color),
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        widget.ref.name,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontFamily: 'Consolas',
+                          fontWeight: FontWeight.w600,
+                          color: widget.isDark
+                              ? const Color(0xFFD4D4D4)
+                              : Colors.black87,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        _kTypeLabels[widget.ref.type] ?? widget.ref.type,
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          color: widget.color,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_hovered) ...[
+                  // Toggle favorite star
+                  GestureDetector(
+                    onTap: widget.onFavoriteToggle,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 3),
+                      child: Icon(
+                        widget.isFavorite
+                            ? Icons.star_rounded
+                            : Icons.star_border_rounded,
+                        size: 15,
+                        color: widget.isFavorite
+                            ? const Color(0xFFF4C430)
+                            : (widget.isDark ? Colors.white38 : Colors.black38),
+                      ),
+                    ),
+                  ),
+                  // Remove from recents (not shown for favorites section)
+                  if (widget.onRemove != null)
+                    GestureDetector(
+                      onTap: widget.onRemove,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: Icon(
+                          Icons.close,
+                          size: 13,
+                          color: widget.isDark
+                              ? Colors.white24
+                              : Colors.black26,
+                        ),
+                      ),
+                    ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
