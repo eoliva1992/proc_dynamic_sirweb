@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_monaco/flutter_monaco.dart';
 
 /// A single PL/SQL syntax issue found by the manual checker.
@@ -8,13 +10,142 @@ class PlSqlIssue {
   final String message;
   final MarkerSeverity severity;
 
+  /// 'PL/SQL' for local syntax, 'Oracle' for server compile errors
+  final String source;
+
   const PlSqlIssue({
     required this.line,
     required this.col,
     required this.endCol,
     required this.message,
     this.severity = MarkerSeverity.error,
+    this.source = 'PL/SQL',
   });
+}
+
+/// Parses Oracle compilation errors returned by the server.
+///
+/// Handles three formats:
+///  - Structured list: [{LINE, POSITION/col, TEXT/message, ATTRIBUTE}]
+///  - Oracle text: "5/10   PLS-00201: identifier must be declared"
+///  - Single message with no line info (shown at line 1)
+List<PlSqlIssue> parseOracleCompileErrors(dynamic data) {
+  if (data == null) return [];
+
+  // Structured array from server
+  if (data is List) {
+    final issues = <PlSqlIssue>[];
+    for (final item in data) {
+      if (item is Map) {
+        final line = ((item['LINE'] ?? item['line'] ?? 1) as num).toInt();
+        final col =
+            ((item['POSITION'] ?? item['position'] ?? item['col'] ?? 1) as num)
+                .toInt();
+        final msg =
+            (item['TEXT'] ??
+                    item['text'] ??
+                    item['message'] ??
+                    item['msg'] ??
+                    '')
+                .toString();
+        final attr = (item['ATTRIBUTE'] ?? item['attribute'] ?? 'ERROR')
+            .toString();
+        if (msg.trim().isEmpty) continue;
+        issues.add(
+          PlSqlIssue(
+            line: line,
+            col: col,
+            endCol: col + 1,
+            message: msg.trim(),
+            severity: attr.toUpperCase() == 'WARNING'
+                ? MarkerSeverity.warning
+                : MarkerSeverity.error,
+            source: 'Oracle',
+          ),
+        );
+      } else if (item is String && item.isNotEmpty) {
+        // El servidor devolvió el texto de error como string directo
+        issues.addAll(parseOracleCompileErrors(item));
+      }
+    }
+    return issues;
+  }
+
+  // Text format: "LINE/COL   ERROR TEXT" (Oracle standard)
+  if (data is String && data.isNotEmpty) {
+    final issues = <PlSqlIssue>[];
+
+    // Primero: intentar extraer un JSON array embedded en el mensaje
+    final jsonArrayMatch = RegExp(r'\[[\s\S]+\]').firstMatch(data);
+    if (jsonArrayMatch != null) {
+      try {
+        final decoded = jsonDecode(jsonArrayMatch.group(0)!);
+        if (decoded is List && decoded.isNotEmpty) {
+          final fromJson = parseOracleCompileErrors(decoded);
+          if (fromJson.isNotEmpty) return fromJson;
+        }
+      } catch (_) {}
+    }
+
+    // Pattern 1: "5/10  PLS-00201: message"
+    final lineColPattern = RegExp(r'^(\d+)/(\d+)\s+(.+)$', multiLine: true);
+    for (final m in lineColPattern.allMatches(data)) {
+      issues.add(
+        PlSqlIssue(
+          line: int.parse(m.group(1)!),
+          col: int.parse(m.group(2)!),
+          endCol: int.parse(m.group(2)!) + 1,
+          message: m.group(3)!.trim(),
+          source: 'Oracle',
+        ),
+      );
+    }
+    if (issues.isNotEmpty) return issues;
+
+    // Pattern 2: "... (line N, col M)" or "... at line N column M"
+    final lineAtPattern = RegExp(
+      r'(.+?)\s+(?:at\s+)?(?:line|línea)\s+(\d+)(?:[,\s]+(?:col(?:umn)?|columna)\s+(\d+))?',
+      caseSensitive: false,
+      multiLine: true,
+    );
+    for (final m in lineAtPattern.allMatches(data)) {
+      final msg = m.group(1)!.trim();
+      if (!msg.contains('PLS-') && !msg.contains('ORA-')) continue;
+      final line = int.parse(m.group(2)!);
+      final col = int.tryParse(m.group(3) ?? '') ?? 1;
+      issues.add(
+        PlSqlIssue(
+          line: line,
+          col: col,
+          endCol: col + 1,
+          message: msg,
+          source: 'Oracle',
+        ),
+      );
+    }
+    if (issues.isNotEmpty) return issues;
+
+    // Fallback: una issue por cada línea que contenga PLS-/ORA- (no unirlas)
+    var lineNum = 1;
+    for (final ln in data.split('\n')) {
+      final t = ln.trim();
+      if (t.contains('PLS-') || t.contains('ORA-') || t.contains('PL/SQL')) {
+        issues.add(
+          PlSqlIssue(
+            line: lineNum,
+            col: 1,
+            endCol: 2,
+            message: t,
+            source: 'Oracle',
+          ),
+        );
+      }
+      lineNum++;
+    }
+    if (issues.isNotEmpty) return issues;
+  }
+
+  return [];
 }
 
 /// Basic structural PL/SQL checker used as fallback when the ANTLR bundle

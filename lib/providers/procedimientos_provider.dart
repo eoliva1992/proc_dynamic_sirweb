@@ -23,6 +23,7 @@ abstract class _ProcedimientosProvider with Store {
   String? _lastEstado = '1';
   bool _configuracionesCargadas = false;
   bool _variablesCargadas = false;
+  Map<String, String> _configMap = {};
 
   @observable
   String ambiente = 'Desa';
@@ -54,6 +55,9 @@ abstract class _ProcedimientosProvider with Store {
   @observable
   String? mensaje;
 
+  // No observable — solo se lee sincrónicamente después de guardar()
+  List<dynamic> lastCompileErrors = [];
+
   @observable
   int pagina = 1;
 
@@ -72,12 +76,8 @@ abstract class _ProcedimientosProvider with Store {
   @computed
   bool get haResultados => resultados.isNotEmpty;
 
-  String descriptionForConfig(String cdModulo) {
-    final match = configuraciones
-        .where((c) => c.cdModulo == cdModulo)
-        .firstOrNull;
-    return match?.deArgumento ?? cdModulo;
-  }
+  String descriptionForConfig(String cdModulo) =>
+      _configMap[cdModulo] ?? cdModulo;
 
   @action
   Future<void> cargarConfiguraciones() async {
@@ -86,6 +86,7 @@ abstract class _ProcedimientosProvider with Store {
       final result = await _service.obtenerConfiguraciones();
       runInAction(() {
         configuraciones = ObservableList.of(result);
+        _configMap = {for (final c in result) c.cdModulo: c.deArgumento};
         _configuracionesCargadas = true;
       });
     } catch (_) {}
@@ -164,8 +165,8 @@ abstract class _ProcedimientosProvider with Store {
   @action
   Future<void> cargarMas() async {
     if (!tieneSiguiente || cargandoMas || cargando) return;
-    pagina++;
     cargandoMas = true;
+    final nextPage = pagina + 1;
     error = null;
     try {
       final resultado = await _service.listarProcedimientos(
@@ -173,9 +174,10 @@ abstract class _ProcedimientosProvider with Store {
         configuracion: _lastConfig,
         estado: _lastEstado,
         ambiente: ambiente,
-        pagina: pagina,
+        pagina: nextPage,
       );
       runInAction(() {
+        pagina = nextPage;
         resultados = ObservableList.of([...resultados, ...resultado.items]);
         tieneSiguiente = resultado.tieneSiguiente;
         tienePrevio = resultado.tienePrevio;
@@ -183,7 +185,6 @@ abstract class _ProcedimientosProvider with Store {
       });
     } catch (e) {
       runInAction(() {
-        pagina--;
         error = e.toString().replaceFirst('Exception: ', '');
         cargandoMas = false;
       });
@@ -258,13 +259,23 @@ abstract class _ProcedimientosProvider with Store {
     error = null;
     mensaje = null;
     try {
-      await _service.actualizarProcedimiento(
+      final compileErrors = await _service.actualizarProcedimiento(
         cdProcedimiento: procedimientoActual!.cdProcedimiento,
         deTexto: deTexto,
         cdUsuario: cdUsuario,
-        inConfiguracion: inConfiguracion,
+        inConfiguracion:
+            inConfiguracion ?? procedimientoActual!.inConfiguracion,
         ambiente: ambiente,
       );
+      lastCompileErrors = compileErrors;
+      if (compileErrors.isNotEmpty) {
+        // Compiló pero con errores — el procedimiento queda inválido
+        runInAction(() {
+          error = '${compileErrors.length} error(es) de compilación Oracle';
+          cargando = false;
+        });
+        return false;
+      }
       runInAction(() {
         procedimientoActual = procedimientoActual!.copyWith(
           deTexto: deTexto,
@@ -278,6 +289,7 @@ abstract class _ProcedimientosProvider with Store {
       });
       return true;
     } catch (e) {
+      lastCompileErrors = [];
       runInAction(() {
         error = e.toString().replaceFirst('Exception: ', '');
         cargando = false;
@@ -288,6 +300,51 @@ abstract class _ProcedimientosProvider with Store {
 
   Future<bool> activar() => _toggleEstado(activar: true);
   Future<bool> desactivar() => _toggleEstado(activar: false);
+
+  Future<bool> compilar({required String deTexto}) async {
+    if (procedimientoActual == null) return false;
+    if (cdUsuario.trim().isEmpty) {
+      error = 'Ingresa tu usuario antes de compilar.';
+      return false;
+    }
+    cargando = true;
+    error = null;
+    mensaje = null;
+    try {
+      final compileErrors = await _service.compilarProcedimiento(
+        cdProcedimiento: procedimientoActual!.cdProcedimiento,
+        deTexto: deTexto,
+        cdUsuario: cdUsuario,
+        inConfiguracion: procedimientoActual!.inConfiguracion,
+        ambiente: ambiente,
+      );
+      lastCompileErrors = compileErrors;
+      if (compileErrors.isNotEmpty) {
+        runInAction(() {
+          error = '${compileErrors.length} error(es) de compilación Oracle';
+          cargando = false;
+        });
+        return false;
+      }
+      // Compiló exitosamente → el servidor guardó el procedimiento; sincronizar versión
+      runInAction(() {
+        procedimientoActual = procedimientoActual!.copyWith(
+          deTexto: deTexto,
+          version: procedimientoActual!.version + 1,
+        );
+        mensaje = 'Compilado correctamente. Versión ${procedimientoActual!.version}';
+        cargando = false;
+      });
+      return true;
+    } catch (e) {
+      lastCompileErrors = [];
+      runInAction(() {
+        error = e.toString().replaceFirst('Exception: ', '');
+        cargando = false;
+      });
+      return false;
+    }
+  }
 
   @action
   Future<bool> _toggleEstado({required bool activar}) async {

@@ -22,6 +22,9 @@ import 'env_diff_page.dart';
 import 'transfer_dialog.dart';
 
 part '_usuario_button.dart';
+part '_main_tab_bar.dart';
+part '_screen_transitions.dart';
+part '_shortcuts_dialog.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -59,9 +62,22 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+    HardwareKeyboard.instance.addHandler(_handleGlobalKey);
     _markTabLive(0);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       procedimientosProvider.cargarConfiguraciones();
+    });
+    // Prompt for user on first launch if not set
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && procedimientosProvider.cdUsuario.isEmpty) {
+        AppToast.warningWithAction(
+          'Sin usuario configurado',
+          actionLabel: 'Configurar →',
+          onAction: () {
+            if (mounted) _showUsuarioDialog(context);
+          },
+        );
+      }
     });
     _tabReaction = reaction(
       (_) => (
@@ -113,11 +129,44 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
     _tabReaction();
     for (final tab in _tabs) {
       tab.searchState.dispose();
     }
     super.dispose();
+  }
+
+  // Global shortcut handler — fires even when Monaco/WebView2 has focus
+  bool _handleGlobalKey(KeyEvent event) {
+    if (event is! KeyDownEvent || !mounted) return false;
+    final kb = HardwareKeyboard.instance;
+    final ctrl = kb.isControlPressed;
+    final shift = kb.isShiftPressed;
+    if (!ctrl && !shift && event.logicalKey == LogicalKeyboardKey.f1) {
+      _showShortcutsHelp(context);
+      return true;
+    }
+    if (ctrl && !shift) {
+      switch (event.logicalKey) {
+        case LogicalKeyboardKey.keyT:
+          _addSearchTab();
+          return true;
+        case LogicalKeyboardKey.keyW:
+          _closeTab(_activeTab);
+          return true;
+        case LogicalKeyboardKey.tab:
+          _cycleTab(1);
+          return true;
+        default:
+          break;
+      }
+    }
+    if (ctrl && shift && event.logicalKey == LogicalKeyboardKey.tab) {
+      _cycleTab(-1);
+      return true;
+    }
+    return false;
   }
 
   void _goBackToSearch() {
@@ -195,6 +244,47 @@ class _MainScreenState extends State<MainScreen> {
     procedimientosProvider.setProcedimientoActual(null);
   }
 
+  Future<void> _compileTabProcedure(AppTab tab, String code) async {
+    final proc = tab.procedimiento;
+    if (proc == null) return;
+    if (procedimientosProvider.cdUsuario.trim().isEmpty) {
+      if (!mounted) return;
+      _showUsuarioDialog(
+        context,
+        onSaved: () => unawaited(_compileTabProcedure(tab, code)),
+      );
+      throw Exception('Usuario requerido');
+    }
+    _syncingActiveTab = true;
+    procedimientosProvider.setAmbiente(tab.ambiente);
+    procedimientosProvider.setProcedimientoActual(proc);
+    _syncingActiveTab = false;
+
+    final ok = await procedimientosProvider.compilar(deTexto: code);
+    if (!mounted) return;
+    final compileErrors = procedimientosProvider.lastCompileErrors;
+    if (!ok && compileErrors.isNotEmpty) {
+      // Compilación con errores — el editor los mostrará en el panel
+      return;
+    }
+    if (!ok) {
+      final err = procedimientosProvider.error ?? 'Error al compilar';
+      AppToast.error(err);
+      throw Exception(err);
+    }
+    // Compiló OK — actualizar tab con la nueva versión guardada en el servidor
+    setState(() {
+      tab.procedimiento =
+          procedimientosProvider.procedimientoActual ??
+          proc.copyWith(deTexto: code);
+      tab.isDirty = false;
+    });
+    AppToast.success(
+      procedimientosProvider.mensaje ?? 'Compilado correctamente',
+      duration: const Duration(seconds: 2),
+    );
+  }
+
   Future<void> _saveTabProcedure(AppTab tab, String code) async {
     final proc = tab.procedimiento;
     if (proc == null) return;
@@ -216,6 +306,15 @@ class _MainScreenState extends State<MainScreen> {
     final ok = await procedimientosProvider.guardar(deTexto: code);
     if (!mounted) return;
     if (!ok) {
+      final compileErrors = procedimientosProvider.lastCompileErrors;
+      if (compileErrors.isNotEmpty) {
+        // Compilación con errores — el editor los mostrará; no lanzar excepción
+        AppToast.warning(
+          '${compileErrors.length} error(es) de compilación Oracle',
+          duration: const Duration(seconds: 4),
+        );
+        return; // _saveCurrentDocument leerá lastCompileErrors en el success path
+      }
       final err = procedimientosProvider.error ?? 'Error al guardar';
       AppToast.error(err);
       throw Exception(err);
@@ -479,6 +578,18 @@ class _MainScreenState extends State<MainScreen> {
     showDialog(context: context, builder: (_) => const _ShortcutsDialog());
   }
 
+  String _relativeDate(String raw) {
+    final dt = DateTime.tryParse(raw);
+    if (dt == null) return raw;
+    final diff = DateTime.now().difference(dt);
+    if (diff.inDays == 0) return 'hoy';
+    if (diff.inDays == 1) return 'ayer';
+    if (diff.inDays < 7) return 'hace ${diff.inDays} días';
+    if (diff.inDays < 30) return 'hace ${(diff.inDays / 7).floor()} sem.';
+    if (diff.inDays < 365) return 'hace ${(diff.inDays / 30).floor()} meses';
+    return 'hace ${(diff.inDays / 365).floor()} años';
+  }
+
   Future<void> _toggleProcStatus(AppTab tab) async {
     final proc = tab.procedimiento;
     if (proc == null) return;
@@ -543,6 +654,8 @@ class _MainScreenState extends State<MainScreen> {
           stProcedimiento: newStatus ? '1' : '0',
         );
       });
+      // Sync new status into the search results cache so the card updates immediately
+      tab.searchState.updateResult(tab.procedimiento!);
       AppToast.success(
         newStatus ? 'Procedimiento activado' : 'Procedimiento desactivado',
         duration: const Duration(seconds: 2),
@@ -923,56 +1036,83 @@ class _MainScreenState extends State<MainScreen> {
         },
       );
     }
-    return Column(
-      key: ValueKey('e_${tab.tabId}'),
-      children: [
-        _buildEditorNav(tab),
-        if (tab.ambiente == 'Prod')
-          Container(
-            width: double.infinity,
-            color: Colors.red.shade900.withValues(alpha: 0.85),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.warning_amber_rounded,
-                  size: 13,
-                  color: Colors.orange.shade300,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  'PRODUCCIÓN — Los cambios afectan datos reales',
-                  style: TextStyle(
-                    color: Colors.orange.shade200,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.3,
+    return _EditorFadeIn(
+      // Remount con nuevo fade cada vez que se carga un procedimiento distinto
+      key: ValueKey('e_${tab.tabId}_${tab.procedimiento?.cdProcedimiento}'),
+      child: Column(
+        key: ValueKey('e_${tab.tabId}'),
+        children: [
+          _buildEditorNav(tab),
+          if (tab.ambiente == 'Prod')
+            Container(
+              width: double.infinity,
+              color: Colors.red.shade900.withValues(alpha: 0.85),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    size: 13,
+                    color: Colors.orange.shade300,
                   ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'PRODUCCIÓN — Los cambios afectan datos reales',
+                    style: TextStyle(
+                      color: Colors.orange.shade200,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (tab.loading)
+            Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Color(0xFF0078D4),
+                      ),
+                    ),
+                    if (tab.procedimiento != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        'Cargando ${tab.procedimiento!.cdProcedimiento}…',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-              ],
+              ),
+            )
+          else
+            Expanded(
+              child: CodeEditorPanel(
+                key: ValueKey('editor_${tab.tabId}'),
+                procedimiento: tab.procedimiento!,
+                ambiente: tab.ambiente,
+                onDirtyChanged: (dirty) {
+                  if (tab.isDirty != dirty) setState(() => tab.isDirty = dirty);
+                },
+                onSave: (code) => _saveTabProcedure(tab, code),
+                onCompile: (code) => _compileTabProcedure(tab, code),
+                onCodeChanged: (code) => tab.currentEditorCode = code,
+              ),
             ),
-          ),
-        if (tab.loading)
-          const Expanded(
-            child: Center(
-              child: CircularProgressIndicator(color: Color(0xFF0078D4)),
-            ),
-          )
-        else
-          Expanded(
-            child: CodeEditorPanel(
-              key: ValueKey('editor_${tab.tabId}'),
-              procedimiento: tab.procedimiento!,
-              ambiente: tab.ambiente,
-              onDirtyChanged: (dirty) {
-                if (tab.isDirty != dirty) setState(() => tab.isDirty = dirty);
-              },
-              onSave: (code) => _saveTabProcedure(tab, code),
-              onCodeChanged: (code) => tab.currentEditorCode = code,
-            ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -1021,6 +1161,18 @@ class _MainScreenState extends State<MainScreen> {
               small: true,
             ),
             const SizedBox(width: 6),
+            if (tab.isDirty)
+              Tooltip(
+                message: 'Cambios sin guardar — Ctrl+S para guardar',
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: Icon(
+                    Icons.circle,
+                    size: 7,
+                    color: Colors.orange.shade400,
+                  ),
+                ),
+              ),
             Text(
               tab.procedimiento!.cdProcedimiento,
               style: TextStyle(
@@ -1030,9 +1182,15 @@ class _MainScreenState extends State<MainScreen> {
               ),
             ),
             const SizedBox(width: 6),
-            // version badge
+            // version badge with rich tooltip
             Tooltip(
-              message: 'Versión guardada: ${tab.procedimiento!.version}',
+              message: [
+                'Versión guardada: ${tab.procedimiento!.version}',
+                if (tab.procedimiento!.feModificacion != null)
+                  _relativeDate(tab.procedimiento!.feModificacion!),
+                if (tab.procedimiento!.cdUsuario != null)
+                  tab.procedimiento!.cdUsuario!,
+              ].join(' · '),
               child: Text(
                 'v${tab.procedimiento!.version}',
                 style: const TextStyle(
@@ -1083,6 +1241,35 @@ class _MainScreenState extends State<MainScreen> {
             ),
           ],
           const Spacer(),
+          // Active user indicator
+          Observer(
+            builder: (_) {
+              final user = procedimientosProvider.cdUsuario;
+              if (user.isEmpty) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.person_outline,
+                      size: 12,
+                      color: mutedColor.withValues(alpha: 0.6),
+                    ),
+                    const SizedBox(width: 3),
+                    Text(
+                      user,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: mutedColor.withValues(alpha: 0.6),
+                        fontFamily: 'Consolas',
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
           AmbienteSelector(
             value: tab.ambiente,
             onChanged: (v) => _onTabAmbienteChanged(tab, v),
@@ -1144,6 +1331,7 @@ class _MainScreenState extends State<MainScreen> {
           child: _MenuRow(
             icon: Icons.send_rounded,
             label: 'Transferir a ambiente…',
+            subtitle: 'Copia el código a otro servidor',
           ),
         ),
         const PopupMenuItem(
@@ -1151,6 +1339,7 @@ class _MainScreenState extends State<MainScreen> {
           child: _MenuRow(
             icon: Icons.compare_arrows,
             label: 'Comparar con ambiente…',
+            subtitle: 'Diff del código entre ambientes',
           ),
         ),
         const PopupMenuDivider(),
@@ -1159,6 +1348,7 @@ class _MainScreenState extends State<MainScreen> {
           child: _MenuRow(
             icon: Icons.save_alt,
             label: 'Exportar backup (.sql)',
+            subtitle: 'Guarda el código actual en disco',
           ),
         ),
         const PopupMenuItem(
@@ -1166,6 +1356,7 @@ class _MainScreenState extends State<MainScreen> {
           child: _MenuRow(
             icon: Icons.restore,
             label: 'Restaurar desde backup…',
+            subtitle: 'Reemplaza el código con un .sql guardado',
           ),
         ),
       ],
@@ -1220,8 +1411,9 @@ class _MainScreenState extends State<MainScreen> {
           tab.ambiente,
           procedimientosProvider.cdUsuario,
         );
-        if (saved && mounted)
+        if (saved && mounted) {
           AppToast.success('Backup exportado correctamente');
+        }
 
       case _EditorAction.restore:
         await _restoreFromBackup(tab);
@@ -1247,13 +1439,89 @@ class _MainScreenState extends State<MainScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Procedimiento: ${data.cdProcedimiento}'),
-            Text('Ambiente backup: ${data.ambiente}'),
-            Text('Versión: ${data.version}'),
-            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Theme.of(ctx).colorScheme.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: Theme.of(ctx).colorScheme.outlineVariant,
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.source_rounded,
+                    size: 18,
+                    color: Color(0xFF569CD6),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          data.cdProcedimiento,
+                          style: const TextStyle(
+                            fontFamily: 'Consolas',
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AmbienteSelector.colorForAmbiente(
+                                  data.ambiente,
+                                ).withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(3),
+                                border: Border.all(
+                                  color: AmbienteSelector.colorForAmbiente(
+                                    data.ambiente,
+                                  ),
+                                  width: 0.8,
+                                ),
+                              ),
+                              child: Text(
+                                data.ambiente,
+                                style: TextStyle(
+                                  color: AmbienteSelector.colorForAmbiente(
+                                    data.ambiente,
+                                  ),
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'v${data.version}',
+                              style: const TextStyle(
+                                color: Color(0xFF569CD6),
+                                fontSize: 11,
+                                fontFamily: 'Consolas',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
             const Text(
-              'El código del editor será reemplazado por el del backup.\n'
-              '¿Desea continuar?',
+              'El código del editor será reemplazado por el del backup. ¿Continuar?',
+              style: TextStyle(fontSize: 13),
             ),
           ],
         ),
@@ -1305,6 +1573,17 @@ class _MainScreenState extends State<MainScreen> {
       title: const Text(
         'Procedimientos Dinámicos',
         style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+      ),
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(1),
+        child: Container(
+          height: 1,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF003B6F), Color(0xFF0078D4), Color(0xFF003B6F)],
+            ),
+          ),
+        ),
       ),
       actions: [
         Tooltip(
@@ -1407,413 +1686,16 @@ class _MainScreenState extends State<MainScreen> {
             );
           },
         ),
+        Tooltip(
+          message: 'Atajos de teclado (F1)',
+          child: IconButton(
+            onPressed: () => _showShortcutsHelp(context),
+            icon: const Icon(Icons.help_outline_rounded),
+            color: Colors.white70,
+          ),
+        ),
         const SizedBox(width: 8),
       ],
-    );
-  }
-}
-
-class _MainTabBar extends StatefulWidget {
-  final List<AppTab> tabs;
-  final int activeTab;
-  final ValueChanged<int> onActivate;
-  final ValueChanged<int> onClose;
-  final VoidCallback onAdd;
-  final void Function(int oldIndex, int newIndex) onReorder;
-
-  const _MainTabBar({
-    required this.tabs,
-    required this.activeTab,
-    required this.onActivate,
-    required this.onClose,
-    required this.onAdd,
-    required this.onReorder,
-  });
-
-  @override
-  State<_MainTabBar> createState() => _MainTabBarState();
-}
-
-class _MainTabBarState extends State<_MainTabBar> {
-  late List<AppTab> _tabs;
-  late int _activeTab;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabs = widget.tabs;
-    _activeTab = widget.activeTab;
-  }
-
-  @override
-  void didUpdateWidget(_MainTabBar old) {
-    super.didUpdateWidget(old);
-    _tabs = widget.tabs;
-    _activeTab = widget.activeTab;
-  }
-
-  void _handleReorder(int oldIndex, int newIndex) {
-    final clamped = newIndex.clamp(0, _tabs.length - 1);
-    // Update local state immediately for a seamless visual
-    setState(() {
-      final tab = _tabs.removeAt(oldIndex);
-      _tabs.insert(clamped, tab);
-      if (_activeTab == oldIndex) {
-        _activeTab = clamped;
-      } else if (_activeTab > oldIndex && _activeTab <= clamped) {
-        _activeTab--;
-      } else if (_activeTab < oldIndex && _activeTab >= clamped) {
-        _activeTab++;
-      }
-    });
-    widget.onReorder(oldIndex, clamped);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final divider = cs.outlineVariant;
-
-    return Container(
-      height: 35,
-      color: cs.surfaceContainer,
-      child: ReorderableListView.builder(
-        scrollDirection: Axis.horizontal,
-        buildDefaultDragHandles: false,
-        // +1 for the non-draggable add button appended after the last tab
-        itemCount: _tabs.length + 1,
-        itemBuilder: (ctx, i) {
-          if (i == _tabs.length) {
-            return InkWell(
-              key: const ValueKey('_add_tab_'),
-              onTap: widget.onAdd,
-              child: SizedBox(
-                width: 32,
-                height: 35,
-                child: Icon(Icons.add, size: 16, color: cs.onSurfaceVariant),
-              ),
-            );
-          }
-          return ReorderableDragStartListener(
-            key: ValueKey(_tabs[i].tabId),
-            index: i,
-            child: _buildTabItem(i, isDark, divider, cs),
-          );
-        },
-        onReorderItem: (oldIndex, newIndex) {
-          if (oldIndex >= _tabs.length) return;
-          _handleReorder(oldIndex, newIndex);
-        },
-      ),
-    );
-  }
-
-  Widget _buildTabItem(int index, bool isDark, Color divider, ColorScheme cs) {
-    final tab = _tabs[index];
-    final isActive = index == _activeTab;
-    final activeBg = isDark ? cs.surfaceContainerLow : cs.surface;
-    final inactiveBg = cs.surfaceContainerHigh;
-    final activeText = cs.onSurface;
-    final inactiveText = cs.onSurfaceVariant;
-    const accent = Color(0xFF0078D4);
-
-    final inEditor = tab.loading || tab.procedimiento != null;
-    final icon = inEditor
-        ? (tab.procedimiento?.inConfiguracion == 'J'
-              ? Icons.code
-              : Icons.storage)
-        : Icons.search;
-    final label = tab.procedimiento?.cdProcedimiento ?? 'Buscar';
-
-    return Container(
-      height: 35,
-      constraints: const BoxConstraints(minWidth: 80, maxWidth: 180),
-      decoration: BoxDecoration(
-        color: isActive ? activeBg : inactiveBg,
-        border: Border(
-          top: BorderSide(
-            color: isActive ? accent : Colors.transparent,
-            width: 2,
-          ),
-          right: BorderSide(color: divider),
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(
-            child: InkWell(
-              onTap: () => widget.onActivate(index),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 0, 4, 0),
-                child: Row(
-                  children: [
-                    if (tab.loading)
-                      const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 1.5,
-                          color: Color(0xFF0078D4),
-                        ),
-                      )
-                    else
-                      Icon(
-                        icon,
-                        size: 14,
-                        color: isActive ? activeText : inactiveText,
-                      ),
-                    const SizedBox(width: 5),
-                    Expanded(
-                      child: Text(
-                        label,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isActive ? activeText : inactiveText,
-                        ),
-                      ),
-                    ),
-                    if (tab.isDirty && tab.procedimiento != null)
-                      Container(
-                        width: 6,
-                        height: 6,
-                        margin: const EdgeInsets.only(right: 2),
-                        decoration: const BoxDecoration(
-                          color: Colors.orange,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          _buildAmbienteBadge(tab),
-          if (_tabs.length > 1)
-            InkWell(
-              onTap: () => widget.onClose(index),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 5,
-                  vertical: 11,
-                ),
-                child: Icon(
-                  Icons.close,
-                  size: 12,
-                  color: isActive ? activeText : inactiveText,
-                ),
-              ),
-            )
-          else
-            const SizedBox(width: 8),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAmbienteBadge(AppTab tab) {
-    final color = AmbienteSelector.colorForAmbiente(tab.ambiente);
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 3, vertical: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(3),
-        border: Border.all(color: color, width: 0.8),
-      ),
-      child: Text(
-        tab.ambiente,
-        style: TextStyle(
-          color: color,
-          fontSize: 9,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 0.3,
-        ),
-      ),
-    );
-  }
-}
-
-// Fades in a tab when it becomes active; subsequent activations start at 0.7
-// to avoid the "content cleared" visual artifact on returning to a known tab.
-class _TabFadeIn extends StatefulWidget {
-  final Widget child;
-  const _TabFadeIn({required super.key, required this.child});
-
-  @override
-  State<_TabFadeIn> createState() => _TabFadeInState();
-}
-
-class _TabFadeInState extends State<_TabFadeIn>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  bool _wasTickerEnabled = false;
-  bool _hasBeenActiveOnce = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 180),
-    );
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final enabled = TickerMode.valuesOf(context).enabled;
-    if (enabled && !_wasTickerEnabled) {
-      _ctrl.forward(from: _hasBeenActiveOnce ? 0.7 : 0.0);
-      _hasBeenActiveOnce = true;
-    }
-    _wasTickerEnabled = enabled;
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FadeTransition(opacity: _ctrl, child: widget.child);
-  }
-}
-
-class _ShortcutsDialog extends StatelessWidget {
-  const _ShortcutsDialog();
-
-  static const _shortcuts = [
-    ('Ctrl + S', 'Guardar procedimiento'),
-    ('Ctrl + T', 'Nueva pestaña de búsqueda'),
-    ('Ctrl + W', 'Cerrar pestaña activa'),
-    ('Ctrl + Tab', 'Siguiente pestaña'),
-    ('Ctrl + Shift + Tab', 'Pestaña anterior'),
-    ('Ctrl + =', 'Aumentar tamaño de fuente'),
-    ('Ctrl + −', 'Reducir tamaño de fuente'),
-    ('Shift + Alt + F', 'Formatear documento'),
-    ('F1', 'Mostrar atajos de teclado'),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: SizedBox(
-        width: 420,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              decoration: BoxDecoration(
-                color: isDark
-                    ? cs.surfaceContainerHigh
-                    : cs.surfaceContainerLow,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(12),
-                ),
-                border: Border(bottom: BorderSide(color: cs.outlineVariant)),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.keyboard_alt_outlined,
-                    size: 18,
-                    color: cs.primary,
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    'Atajos de teclado',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: cs.onSurface,
-                    ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close, size: 16),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    color: cs.onSurfaceVariant,
-                  ),
-                ],
-              ),
-            ),
-            Flexible(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Column(
-                  children: [
-                    for (final (keys, desc) in _shortcuts)
-                      _ShortcutRow(keys: keys, description: desc),
-                  ],
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(0, 0, 16, 12),
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cerrar'),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ShortcutRow extends StatelessWidget {
-  final String keys;
-  final String description;
-  const _ShortcutRow({required this.keys, required this.description});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              description,
-              style: TextStyle(fontSize: 13, color: cs.onSurface),
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: cs.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: cs.outlineVariant),
-            ),
-            child: Text(
-              keys,
-              style: TextStyle(
-                fontSize: 11,
-                fontFamily: 'Consolas',
-                fontWeight: FontWeight.w600,
-                color: cs.onSurfaceVariant,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -1823,19 +1705,31 @@ enum _EditorAction { transfer, compare, backup, restore }
 class _MenuRow extends StatelessWidget {
   final IconData icon;
   final String label;
-  const _MenuRow({required this.icon, required this.label});
+  final String? subtitle;
+  const _MenuRow({required this.icon, required this.label, this.subtitle});
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Row(
       children: [
-        Icon(
-          icon,
-          size: 15,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
+        Icon(icon, size: 15, color: cs.onSurfaceVariant),
         const SizedBox(width: 10),
-        Text(label, style: const TextStyle(fontSize: 13)),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label, style: const TextStyle(fontSize: 13)),
+            if (subtitle != null)
+              Text(
+                subtitle!,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+          ],
+        ),
       ],
     );
   }

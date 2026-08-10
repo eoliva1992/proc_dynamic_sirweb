@@ -1,24 +1,11 @@
 import 'package:flutter/material.dart';
+import '../providers/procedimientos_provider.dart';
 
 class ConfigBadge extends StatelessWidget {
   final String config;
   final bool small;
 
   const ConfigBadge({super.key, required this.config, this.small = false});
-
-  static const _labels = {
-    'D': 'Delphi',
-    'J': 'JavaScript',
-    'A': 'Acción',
-    'G': 'Global',
-    'S': 'Siniestro',
-    'C': 'Cotización',
-    'F': 'Financiero',
-    'T': 'Técnico',
-    'V': 'Vigencia',
-    'O': 'Otro',
-    'I': 'Integración',
-  };
 
   static Color colorForConfig(String config) =>
       _colors[config] ?? const Color(0xFF95A5A6);
@@ -62,10 +49,15 @@ class ConfigBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _colors[config] ?? const Color(0xFF95A5A6);
-    final description = _labels[config] ?? config;
+    // Prefer server-loaded description; falls back to the code itself when not yet loaded
+    final description = procedimientosProvider.descriptionForConfig(config);
 
     if (small) {
-      return _letterBadge(color, 11);
+      return Tooltip(
+        message: description,
+        preferBelow: false,
+        child: _letterBadge(color, 11),
+      );
     }
 
     return Row(

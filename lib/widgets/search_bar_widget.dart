@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import '../providers/procedimientos_provider.dart';
 import 'ambiente_selector.dart';
@@ -26,6 +27,8 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
   late final TextEditingController _searchCtrl;
   late String? _selectedConfig;
   late String? _selectedEstado;
+  final FocusNode _searchFocus = FocusNode();
+  bool _filtersExpanded = false;
 
   static const _estados = {'1': 'Activos', '0': 'Inactivos', '': 'Todos'};
 
@@ -35,10 +38,15 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
     _searchCtrl = TextEditingController(text: widget.tabState.searchText);
     _selectedConfig = widget.tabState.config;
     _selectedEstado = widget.tabState.estado;
+    _filtersExpanded =
+        _selectedConfig != null || (_selectedEstado ?? '1') != '1';
     _searchCtrl.addListener(
       () => widget.tabState.searchText = _searchCtrl.text,
     );
     widget.tabState.loadHistory();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchFocus.requestFocus();
+    });
   }
 
   @override
@@ -49,6 +57,8 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
         _searchCtrl.text = widget.tabState.searchText;
         _selectedConfig = widget.tabState.config;
         _selectedEstado = widget.tabState.estado;
+        _filtersExpanded =
+            _selectedConfig != null || (_selectedEstado ?? '1') != '1';
       });
     }
   }
@@ -56,6 +66,7 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
   @override
   void dispose() {
     _searchCtrl.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -68,44 +79,141 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
     );
   }
 
+  bool get _hasActiveFilters =>
+      _selectedConfig != null || _selectedEstado != '1';
+
+  void _clearFilters() {
+    setState(() {
+      _selectedConfig = null;
+      _selectedEstado = '1';
+    });
+    widget.tabState.config = null;
+    widget.tabState.estado = '1';
+    if (widget.tabState.hasSearched) _buscar();
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
-    return Observer(
-      builder: (context) {
-        final provider = procedimientosProvider;
-        return Container(
-          color: cs.surfaceContainerLow,
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(child: _buildSearchField(cs)),
-                  const SizedBox(width: 8),
-                  _buildFavoritesButton(provider),
-                  const SizedBox(width: 8),
-                  _buildConfigFilter(provider, cs),
-                  const SizedBox(width: 8),
-                  _buildEstadoFilter(cs),
-                  const SizedBox(width: 8),
-                  _buildBuscarButton(),
-                  const SizedBox(width: 8),
-                  AmbienteSelector(
-                    value: widget.ambiente,
-                    onChanged: widget.onAmbienteChanged,
-                  ),
-                  if (widget.onNewProcedure != null) ..._buildNewProcButton(),
-                ],
+    return ListenableBuilder(
+      listenable: widget.tabState,
+      builder: (context, child) => Observer(
+        builder: (context) {
+          final provider = procedimientosProvider;
+          final hasSearched = widget.tabState.hasSearched;
+          // Sync filter local state when mutated externally (e.g., clear from results panel)
+          final stateConfig = widget.tabState.config;
+          final stateEstado = widget.tabState.estado ?? '1';
+          if (_selectedConfig != stateConfig) _selectedConfig = stateConfig;
+          if (_selectedEstado != stateEstado) _selectedEstado = stateEstado;
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 250),
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerLow,
+              border: Border(
+                bottom: BorderSide(
+                  color: hasSearched
+                      ? const Color(0xFF0078D4).withValues(alpha: 0.6)
+                      : cs.outlineVariant.withValues(alpha: 0.4),
+                  width: hasSearched ? 2 : 1,
+                ),
               ),
-              _buildHistoryRow(provider),
-            ],
+            ),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: _buildSearchField(cs)),
+                    const SizedBox(width: 8),
+                    _buildFavoritesButton(provider),
+                    const SizedBox(width: 8),
+                    _buildFiltersToggle(cs),
+                    const SizedBox(width: 8),
+                    _buildBuscarButton(),
+                    const SizedBox(width: 8),
+                    AmbienteSelector(
+                      value: widget.ambiente,
+                      onChanged: (v) {
+                        widget.onAmbienteChanged(v);
+                        // Re-ejecutar búsqueda en el nuevo ambiente
+                        if (widget.tabState.hasSearched) {
+                          WidgetsBinding.instance.addPostFrameCallback(
+                            (_) => _buscar(),
+                          );
+                        }
+                      },
+                    ),
+                    if (widget.onNewProcedure != null) ..._buildNewProcButton(),
+                  ],
+                ),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeInOut,
+                  child: _filtersExpanded
+                      ? Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Row(
+                            children: [
+                              _buildConfigFilter(provider, cs),
+                              const SizedBox(width: 8),
+                              _buildEstadoFilter(cs),
+                              if (_hasActiveFilters)
+                                ..._buildClearFiltersButton(cs),
+                            ],
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+                _buildHistoryRow(provider),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildFiltersToggle(ColorScheme cs) {
+    final count =
+        (_selectedConfig != null ? 1 : 0) + (_selectedEstado != '1' ? 1 : 0);
+    return Tooltip(
+      message: _filtersExpanded ? 'Ocultar filtros' : 'Mostrar filtros',
+      child: Badge(
+        isLabelVisible: count > 0,
+        label: Text('$count', style: const TextStyle(fontSize: 9)),
+        backgroundColor: const Color(0xFF0078D4),
+        child: InkWell(
+          onTap: () => setState(() => _filtersExpanded = !_filtersExpanded),
+          borderRadius: BorderRadius.circular(4),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            height: 38,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: _filtersExpanded || count > 0
+                  ? const Color(0xFF0078D4).withValues(alpha: 0.1)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(
+                color: _filtersExpanded || count > 0
+                    ? const Color(0xFF0078D4)
+                    : cs.outline,
+              ),
+            ),
+            child: Icon(
+              Icons.tune_rounded,
+              size: 18,
+              color: _filtersExpanded || count > 0
+                  ? const Color(0xFF0078D4)
+                  : cs.onSurfaceVariant,
+            ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
@@ -200,29 +308,40 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
   }
 
   Widget _buildSearchField(ColorScheme cs) {
-    return SizedBox(
-      height: 38,
-      child: TextField(
-        controller: _searchCtrl,
-        style: TextStyle(color: cs.onSurface, fontSize: 13),
-        decoration: InputDecoration(
-          hintText: 'Buscar por código o contenido… (↵ Enter para buscar)',
-          prefixIcon: const Icon(Icons.search, size: 18),
-          suffixIcon: _searchCtrl.text.isNotEmpty
-              ? IconButton(
-                  icon: const Icon(Icons.clear, size: 16),
-                  onPressed: () {
-                    _searchCtrl.clear();
-                    setState(() {});
-                  },
-                )
-              : null,
+    return Focus(
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.arrowDown) {
+          FocusScope.of(context).nextFocus();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: SizedBox(
+        height: 38,
+        child: TextField(
+          controller: _searchCtrl,
+          focusNode: _searchFocus,
+          style: TextStyle(color: cs.onSurface, fontSize: 13),
+          decoration: InputDecoration(
+            hintText: 'Buscar por código o contenido… (↵ Enter para buscar)',
+            prefixIcon: const Icon(Icons.search, size: 18),
+            suffixIcon: _searchCtrl.text.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear, size: 16),
+                    onPressed: () {
+                      _searchCtrl.clear();
+                      setState(() {});
+                    },
+                  )
+                : null,
+          ),
+          onChanged: (v) {
+            widget.tabState.searchText = v;
+            setState(() {});
+          },
+          onSubmitted: (_) => _buscar(),
         ),
-        onChanged: (v) {
-          widget.tabState.searchText = v;
-          setState(() {});
-        },
-        onSubmitted: (_) => _buscar(),
       ),
     );
   }
@@ -299,6 +418,7 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
               onChanged: (v) {
                 setState(() => _selectedConfig = v);
                 widget.tabState.config = v;
+                if (widget.tabState.hasSearched) _buscar();
               },
             ),
           ),
@@ -344,6 +464,7 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
           onChanged: (v) {
             setState(() => _selectedEstado = v);
             widget.tabState.estado = v;
+            if (widget.tabState.hasSearched) _buscar();
           },
         ),
       ),
@@ -365,6 +486,42 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
         ),
       ),
     );
+  }
+
+  List<Widget> _buildClearFiltersButton(ColorScheme cs) {
+    return [
+      const SizedBox(width: 6),
+      Tooltip(
+        message: 'Limpiar filtros',
+        child: InkWell(
+          onTap: _clearFilters,
+          borderRadius: BorderRadius.circular(4),
+          child: Container(
+            height: 38,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: cs.outline),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.filter_alt_off_rounded,
+                  size: 15,
+                  color: cs.onSurfaceVariant,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  'Limpiar',
+                  style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ];
   }
 
   List<Widget> _buildNewProcButton() {
@@ -392,7 +549,7 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
   }
 }
 
-class _HistoryChip extends StatelessWidget {
+class _HistoryChip extends StatefulWidget {
   final String query;
   final VoidCallback onTap;
   final VoidCallback onRemove;
@@ -404,32 +561,51 @@ class _HistoryChip extends StatelessWidget {
   });
 
   @override
+  State<_HistoryChip> createState() => _HistoryChipState();
+}
+
+class _HistoryChipState extends State<_HistoryChip> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(8, 3, 4, 3),
-        decoration: BoxDecoration(
-          color: cs.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: cs.outlineVariant),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              query,
-              style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          padding: const EdgeInsets.fromLTRB(8, 3, 4, 3),
+          decoration: BoxDecoration(
+            color: _hovered
+                ? cs.surfaceContainerHighest
+                : cs.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: _hovered ? cs.outline : cs.outlineVariant,
             ),
-            const SizedBox(width: 2),
-            InkWell(
-              onTap: onRemove,
-              borderRadius: BorderRadius.circular(8),
-              child: Icon(Icons.close, size: 12, color: cs.onSurfaceVariant),
-            ),
-          ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                widget.query,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _hovered ? cs.onSurface : cs.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(width: 2),
+              InkWell(
+                onTap: widget.onRemove,
+                borderRadius: BorderRadius.circular(8),
+                child: Icon(Icons.close, size: 12, color: cs.onSurfaceVariant),
+              ),
+            ],
+          ),
         ),
       ),
     );

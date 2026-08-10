@@ -17,14 +17,21 @@ import '_editor_plsql_checker.dart';
 import '_editor_plsql_completions.dart';
 import 'procedure_diff_panel.dart';
 import '../services/editor_draft_service.dart';
+import 'app_toast.dart';
+
+part '_editor_toolbar_widgets.dart';
+part '_editor_variables_overlay.dart';
 
 enum _SaveStatus { idle, saving, saved, error }
+
+enum _CompileStatus { idle, compiling, ok, error }
 
 class CodeEditorPanel extends StatefulWidget {
   final Procedimiento procedimiento;
   final String ambiente;
   final ValueChanged<bool>? onDirtyChanged;
   final Future<void> Function(String code)? onSave;
+  final Future<void> Function(String code)? onCompile;
   final ValueChanged<String>? onCodeChanged;
 
   const CodeEditorPanel({
@@ -33,6 +40,7 @@ class CodeEditorPanel extends StatefulWidget {
     required this.ambiente,
     this.onDirtyChanged,
     this.onSave,
+    this.onCompile,
     this.onCodeChanged,
   });
 
@@ -41,6 +49,26 @@ class CodeEditorPanel extends StatefulWidget {
 }
 
 class _CodeEditorPanelState extends State<CodeEditorPanel> {
+  // Compiled once — reused on every completion keystroke and FROM-clause parse
+  static final _reDotPrefix = RegExp(r'(\w+)\.$');
+  static final _reWordEnd = RegExp(r'(\w+)$');
+  static final _reFromBlock = RegExp(
+    r'FROM\s+([\s\S]*?)(?=\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|$)',
+    caseSensitive: false,
+  );
+  static final _reAliasBlock = RegExp(
+    r'\b(\w+)\s+(?:AS\s+)?(\w+)\b',
+    caseSensitive: false,
+  );
+  static final _reFromSimple = RegExp(
+    r'\bFROM\s+(\w+)(?:\s*,|\s*$|\s+(?:WHERE|GROUP|ORDER|HAVING|JOIN))',
+    caseSensitive: false,
+  );
+  static final _reJoin = RegExp(
+    r'\bJOIN\s+(\w+)(?:\s+AS\s+|\s+)(\w+)?',
+    caseSensitive: false,
+  );
+
   bool _ready = false;
   MonacoController? _ctrl;
   Timer? _debounce;
@@ -83,12 +111,17 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   final Set<String> _modifiedProcs = {};
   final Map<String, int> _errorCounts = {};
   final Map<String, List<PlSqlIssue>> _issuesPerProc = {};
+  final Map<String, List<PlSqlIssue>> _compileErrorsPerProc = {};
   MonacoActionRegistration? _zoomInAction;
   MonacoActionRegistration? _zoomOutAction;
   MonacoActionRegistration? _saveAction;
+  MonacoActionRegistration? _compileAction;
   Timer? _saveTimer;
   Timer? _draftDebounce;
   _SaveStatus _saveStatus = _SaveStatus.idle;
+  _CompileStatus _compileStatus = _CompileStatus.idle;
+  String? _lastSaveError;
+  bool _showProblemsPanel = false;
   final Map<String, bool> _draftVisible = {}; // procId → show restore banner
   final GlobalKey _varsButtonKey = GlobalKey();
 
@@ -122,6 +155,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         widget.procedimiento.cdProcedimiento) {
       _switchToProc(widget.procedimiento);
     }
+    if (old.ambiente != widget.ambiente) {
+      AppToast.info('Ambiente cambiado a ${widget.ambiente}');
+    }
   }
 
   @override
@@ -136,6 +172,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _zoomInAction?.dispose();
     _zoomOutAction?.dispose();
     _saveAction?.dispose();
+    _compileAction?.dispose();
     _saveTimer?.cancel();
     _draftDebounce?.cancel();
     super.dispose();
@@ -239,6 +276,17 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       ),
       () async {
         unawaited(_saveCurrentDocument());
+      },
+    );
+
+    _compileAction = await ctrl.addAction(
+      MonacoActionDescriptor(
+        id: MonacoAction('custom.compile'),
+        label: 'Compilar procedimiento (Oracle)',
+        keybindings: [MonacoKeybinding(key: MonacoKey.f5)],
+      ),
+      () async {
+        unawaited(_compileCurrentDocument());
       },
     );
 
@@ -382,16 +430,22 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     if (mounted) {
       setState(() {
         final id = _activeProcId ?? '';
-        _errorCounts[id] = issues
-            .where((e) => e.severity == MarkerSeverity.error)
-            .length;
+        final compileErrors = _compileErrorsPerProc[id] ?? [];
         _issuesPerProc[id] = issues;
+        // Mantener el total combinado sintaxis + Oracle al actualizar
+        _errorCounts[id] = [
+          ...issues,
+          ...compileErrors,
+        ].where((e) => e.severity == MarkerSeverity.error).length;
       });
     }
 
-    // Markers — squiggles rojos en el texto
+    // Markers — squiggles rojos en el texto (sintaxis + errores de compilación Oracle)
     await ctrl.document.setMarkers([
-      for (final e in issues)
+      for (final e in [
+        ...issues,
+        ...(_compileErrorsPerProc[_activeProcId ?? ''] ?? []),
+      ])
         MarkerData(
           range: Range(
             startLine: e.line,
@@ -401,7 +455,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           ),
           message: e.message,
           severity: e.severity,
-          source: 'PL/SQL',
+          source: e.source,
         ),
     ], owner: 'plsql-checker');
 
@@ -478,7 +532,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
               // ── Caso 1: "ALIAS." o "TABLA." → columnas de esa tabla ──────────
               if (trigger == '.' || line.endsWith('.')) {
-                final dotMatch = RegExp(r'(\w+)\.$').firstMatch(line);
+                final dotMatch = _reDotPrefix.firstMatch(line);
                 if (dotMatch != null) {
                   final tableRef = dotMatch.group(1)!.toUpperCase();
                   // Resolver alias en el texto completo del documento
@@ -599,18 +653,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     }
 
     // FROM ... hasta WHERE/GROUP/ORDER/HAVING o fin (multi-línea)
-    final fromBlock =
-        RegExp(
-          r'FROM\s+([\s\S]*?)(?=\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|$)',
-          caseSensitive: false,
-        ).firstMatch(sql)?.group(1) ??
-        '';
+    final fromBlock = _reFromBlock.firstMatch(sql)?.group(1) ?? '';
 
     // Cada "tabla [AS] alias" separado por coma o espacio
-    for (final m in RegExp(
-      r'\b(\w+)\s+(?:AS\s+)?(\w+)\b',
-      caseSensitive: false,
-    ).allMatches(fromBlock)) {
+    for (final m in _reAliasBlock.allMatches(fromBlock)) {
       final candidate = m.group(2)!.toUpperCase();
       // Excluir palabras reservadas como alias
       const reserved = {
@@ -636,18 +682,12 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     }
 
     // Solo nombre sin alias
-    for (final m in RegExp(
-      r'\bFROM\s+(\w+)(?:\s*,|\s*$|\s+(?:WHERE|GROUP|ORDER|HAVING|JOIN))',
-      caseSensitive: false,
-    ).allMatches(sql)) {
+    for (final m in _reFromSimple.allMatches(sql)) {
       add(m.group(1)!, null);
     }
 
     // JOINs: JOIN tabla [AS] alias
-    for (final m in RegExp(
-      r'\bJOIN\s+(\w+)(?:\s+AS\s+|\s+)(\w+)?',
-      caseSensitive: false,
-    ).allMatches(sql)) {
+    for (final m in _reJoin.allMatches(sql)) {
       add(m.group(1)!, m.group(2));
     }
 
@@ -656,7 +696,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
   /// Devuelve la palabra que está escribiendo el usuario al final de la línea.
   String _wordBefore(String line) {
-    final match = RegExp(r'(\w+)$').firstMatch(line);
+    final match = _reWordEnd.firstMatch(line);
     return match?.group(1) ?? '';
   }
 
@@ -720,17 +760,216 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         unawaited(EditorDraftService.clear(id, widget.ambiente));
       }
       widget.onDirtyChanged?.call(false);
+      // Apply Oracle compile errors returned by the server as Monaco markers
+      final rawCompileErrors = procedimientosProvider.lastCompileErrors;
+      final procId = _activeProcId ?? '';
+      if (rawCompileErrors.isNotEmpty && mounted) {
+        final compileIssues = parseOracleCompileErrors(rawCompileErrors);
+        setState(() {
+          _compileErrorsPerProc[procId] = compileIssues;
+          _errorCounts[procId] =
+              ((_issuesPerProc[procId] ?? []) + compileIssues)
+                  .where((e) => e.severity == MarkerSeverity.error)
+                  .length;
+        });
+        final syntaxIssues = _issuesPerProc[procId] ?? [];
+        final ctrl = _ctrl;
+        if (ctrl != null) {
+          await ctrl.document.setMarkers([
+            for (final e in [...syntaxIssues, ...compileIssues])
+              MarkerData(
+                range: Range(
+                  startLine: e.line,
+                  startColumn: e.col,
+                  endLine: e.line,
+                  endColumn: e.endCol,
+                ),
+                message: e.message,
+                severity: e.severity,
+                source: e.source,
+              ),
+          ], owner: 'plsql-checker');
+        }
+        AppToast.warning(
+          '${compileIssues.length} error${compileIssues.length == 1 ? '' : 'es'} de compilación Oracle',
+        );
+        if (mounted) setState(() => _showProblemsPanel = true);
+      } else if (mounted && _compileErrorsPerProc.containsKey(procId)) {
+        // Clear previous compile errors on a now-clean save
+        setState(() => _compileErrorsPerProc.remove(procId));
+        final ctrl = _ctrl;
+        final syntaxIssues = _issuesPerProc[procId] ?? [];
+        if (ctrl != null) {
+          await ctrl.document.setMarkers([
+            for (final e in syntaxIssues)
+              MarkerData(
+                range: Range(
+                  startLine: e.line,
+                  startColumn: e.col,
+                  endLine: e.line,
+                  endColumn: e.endCol,
+                ),
+                message: e.message,
+                severity: e.severity,
+                source: e.source,
+              ),
+          ], owner: 'plsql-checker');
+        }
+      }
       setState(() => _saveStatus = _SaveStatus.saved);
       _saveTimer = Timer(const Duration(seconds: 2), () {
         if (mounted) setState(() => _saveStatus = _SaveStatus.idle);
       });
-    } catch (_) {
+    } catch (e) {
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      debugPrint('[CodeEditorPanel] Error al guardar: $msg');
       if (!mounted) return;
-      setState(() => _saveStatus = _SaveStatus.error);
+      // Intentar parsear como errores Oracle estructurados; si no, crear uno genérico
+      final procId = _activeProcId ?? '';
+      final parsed = parseOracleCompileErrors(msg);
+      final serverErrors = parsed.isNotEmpty
+          ? parsed
+          : [
+              PlSqlIssue(
+                line: 1,
+                col: 1,
+                endCol: 2,
+                message: msg,
+                source: 'Oracle',
+              ),
+            ];
+      setState(() {
+        _saveStatus = _SaveStatus.error;
+        _lastSaveError = msg;
+        _compileErrorsPerProc[procId] = serverErrors;
+        _errorCounts[procId] = ((_issuesPerProc[procId] ?? []) + serverErrors)
+            .where((e) => e.severity == MarkerSeverity.error)
+            .length;
+        _showProblemsPanel = true;
+      });
+      // Aplicar squiggles y decoraciones en Monaco para ver los errores en el código
+      final editorCtrl = _ctrl;
+      if (editorCtrl != null) {
+        final syntaxIssues = _issuesPerProc[procId] ?? [];
+        await editorCtrl.document.setMarkers([
+          for (final e in [...syntaxIssues, ...serverErrors])
+            MarkerData(
+              range: Range(
+                startLine: e.line,
+                startColumn: e.col,
+                endLine: e.line,
+                endColumn: e.endCol,
+              ),
+              message: e.message,
+              severity: e.severity,
+              source: e.source,
+            ),
+        ], owner: 'plsql-checker');
+        await _errorDecos?.set([
+          for (final e in serverErrors)
+            DecorationOptions.line(
+              range: Range.lines(e.line, e.line),
+              className: 'plsql-error-line',
+              additionalOptions: {
+                'overviewRuler': {'color': '#FF4444', 'position': 4},
+                'minimap': {'color': '#FF4444', 'position': 1},
+              },
+            ),
+        ]);
+      }
       _saveTimer = Timer(const Duration(seconds: 3), () {
         if (mounted) setState(() => _saveStatus = _SaveStatus.idle);
       });
     }
+  }
+
+  // ── Compilar (usa el ANTLR4/Oracle del servidor) ─────────────────────
+
+  Future<void> _compileCurrentDocument() async {
+    final onCompile = widget.onCompile;
+    if (onCompile == null || _compileStatus == _CompileStatus.compiling) return;
+    final ctrl = _ctrl;
+    if (ctrl == null) return;
+    final code = await ctrl.document.getText();
+    if (!mounted) return;
+    setState(() => _compileStatus = _CompileStatus.compiling);
+    try {
+      await onCompile(code);
+      if (!mounted) return;
+      final rawCompileErrors = procedimientosProvider.lastCompileErrors;
+      final procId = _activeProcId ?? '';
+      if (rawCompileErrors.isNotEmpty) {
+        final compileIssues = parseOracleCompileErrors(rawCompileErrors);
+        final syntaxIssues = _issuesPerProc[procId] ?? [];
+        setState(() {
+          _compileErrorsPerProc[procId] = compileIssues;
+          _errorCounts[procId] = ([
+            ...syntaxIssues,
+            ...compileIssues,
+          ]).where((e) => e.severity == MarkerSeverity.error).length;
+          _compileStatus = _CompileStatus.error;
+          _showProblemsPanel = true;
+        });
+        await ctrl.document.setMarkers([
+          for (final e in [...syntaxIssues, ...compileIssues])
+            MarkerData(
+              range: Range(
+                startLine: e.line,
+                startColumn: e.col,
+                endLine: e.line,
+                endColumn: e.endCol,
+              ),
+              message: e.message,
+              severity: e.severity,
+              source: e.source,
+            ),
+        ], owner: 'plsql-checker');
+        await _errorDecos?.set([
+          for (final e in compileIssues)
+            DecorationOptions.line(
+              range: Range.lines(e.line, e.line),
+              className: 'plsql-error-line',
+              additionalOptions: {
+                'overviewRuler': {'color': '#FF4444', 'position': 4},
+                'minimap': {'color': '#FF4444', 'position': 1},
+              },
+            ),
+        ]);
+      } else {
+        if (_compileErrorsPerProc.containsKey(procId)) {
+          setState(() => _compileErrorsPerProc.remove(procId));
+        }
+        setState(() => _compileStatus = _CompileStatus.ok);
+      }
+    } catch (e) {
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      debugPrint('[CodeEditorPanel] Error al compilar: $msg');
+      if (!mounted) return;
+      final procId = _activeProcId ?? '';
+      final parsed = parseOracleCompileErrors(msg);
+      final errors = parsed.isNotEmpty
+          ? parsed
+          : [
+              PlSqlIssue(
+                line: 1,
+                col: 1,
+                endCol: 2,
+                message: msg,
+                source: 'Oracle',
+              ),
+            ];
+      setState(() {
+        _compileStatus = _CompileStatus.error;
+        _compileErrorsPerProc[procId] = errors;
+        _errorCounts[procId] = ((_issuesPerProc[procId] ?? []) + errors)
+            .where((e) => e.severity == MarkerSeverity.error)
+            .length;
+        _showProblemsPanel = true;
+      });
+    }
+    Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => _compileStatus = _CompileStatus.idle);
+    });
   }
 
   // ── Diff ───────────────────────────────────────────────────────────────
@@ -1073,7 +1312,220 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
             ],
           ),
         ),
+        // Panel de problemas (sintaxis + compilación Oracle)
+        _buildProblemsPanel(context),
       ],
+    );
+  }
+
+  Widget _buildProblemsPanel(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final procId = _activeProcId ?? '';
+    final syntaxIssues = _issuesPerProc[procId] ?? [];
+    final compileIssues = _compileErrorsPerProc[procId] ?? [];
+    final allIssues = [...compileIssues, ...syntaxIssues]
+      ..sort((a, b) => a.line.compareTo(b.line));
+    final errorCount = allIssues
+        .where((e) => e.severity == MarkerSeverity.error)
+        .length;
+    final warnCount = allIssues
+        .where((e) => e.severity == MarkerSeverity.warning)
+        .length;
+
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeInOut,
+      alignment: Alignment.bottomCenter,
+      child: _showProblemsPanel
+          ? Container(
+              height: 180,
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xFF1E1E1E)
+                    : cs.surfaceContainerLow,
+                border: Border(top: BorderSide(color: cs.outlineVariant)),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    height: 28,
+                    color: isDark
+                        ? cs.surfaceContainerHigh
+                        : cs.surfaceContainerHighest,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.list_alt_rounded,
+                          size: 13,
+                          color: cs.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Problemas',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: cs.onSurface,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        if (errorCount > 0)
+                          _ProblemCount(count: errorCount, isError: true),
+                        if (warnCount > 0) ...[
+                          const SizedBox(width: 4),
+                          _ProblemCount(count: warnCount, isError: false),
+                        ],
+                        const Spacer(),
+                        InkWell(
+                          onTap: () =>
+                              setState(() => _showProblemsPanel = false),
+                          borderRadius: BorderRadius.circular(3),
+                          child: Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: Icon(
+                              Icons.close,
+                              size: 13,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: allIssues.isEmpty
+                        ? Center(
+                            child: Text(
+                              'Sin problemas detectados',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          )
+                        : ListView.builder(
+                            itemCount: allIssues.length,
+                            itemBuilder: (_, i) {
+                              final issue = allIssues[i];
+                              final isError =
+                                  issue.severity == MarkerSeverity.error;
+                              return InkWell(
+                                onTap: () async {
+                                  await _ctrl?.revealLine(
+                                    issue.line,
+                                    center: true,
+                                  );
+                                  await _ctrl?.setCursorPosition(
+                                    Position(
+                                      line: issue.line,
+                                      column: issue.col,
+                                    ),
+                                  );
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 5,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        isError
+                                            ? Icons.error_outline
+                                            : Icons.warning_amber_rounded,
+                                        size: 14,
+                                        color: isError
+                                            ? Colors.red[400]
+                                            : Colors.orange[400],
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          issue.message,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontFamily: 'Consolas',
+                                          ),
+                                          softWrap: true,
+                                          maxLines: 4,
+                                          overflow: TextOverflow.fade,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      // Solo mostrar L:C si tienen valores reales (>1)
+                                      if (issue.line > 1 || issue.col > 1)
+                                        Text(
+                                          'L${issue.line}:${issue.col}',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: cs.onSurfaceVariant,
+                                            fontFamily: 'Consolas',
+                                          ),
+                                        ),
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 5,
+                                          vertical: 1,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: cs.surfaceContainerHighest,
+                                          borderRadius: BorderRadius.circular(
+                                            3,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          issue.source,
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            color: issue.source == 'Oracle'
+                                                ? Colors.orange[400]
+                                                : cs.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Tooltip(
+                                        message: 'Copiar mensaje',
+                                        child: InkWell(
+                                          onTap: () {
+                                            Clipboard.setData(
+                                              ClipboardData(
+                                                text:
+                                                    '${issue.source} L${issue.line}:${issue.col} — ${issue.message}',
+                                              ),
+                                            );
+                                            AppToast.info(
+                                              'Copiado al portapapeles',
+                                            );
+                                          },
+                                          borderRadius: BorderRadius.circular(
+                                            3,
+                                          ),
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(3),
+                                            child: Icon(
+                                              Icons.copy_rounded,
+                                              size: 13,
+                                              color: cs.onSurfaceVariant
+                                                  .withValues(alpha: 0.5),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            )
+          : const SizedBox.shrink(),
     );
   }
 
@@ -1238,6 +1690,13 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
             child: VerticalDivider(color: cs.outlineVariant, width: 12),
           ),
           // ── Guardar / Acciones ───────────────────────────────────────────
+          _buildCompileBtn(cs),
+          const SizedBox(width: 4),
+          SizedBox(
+            height: 18,
+            child: VerticalDivider(color: cs.outlineVariant, width: 12),
+          ),
+          const SizedBox(width: 4),
           _buildSaveBtn(cs),
           _ToolBtn(
             icon: Icons.compare_arrows,
@@ -1254,6 +1713,95 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     );
   }
 
+  Widget _buildCompileBtn(ColorScheme cs) {
+    return switch (_compileStatus) {
+      _CompileStatus.compiling => const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+        child: SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(
+            strokeWidth: 1.5,
+            color: Color(0xFF569CD6),
+          ),
+        ),
+      ),
+      _CompileStatus.ok => TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0.5, end: 1.0),
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.elasticOut,
+        builder: (_, scale, child) =>
+            Transform.scale(scale: scale, child: child),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.check_rounded, size: 14, color: Colors.green[500]),
+              const SizedBox(width: 4),
+              Text(
+                'Compilado',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.green[500],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      _CompileStatus.error => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline, size: 14, color: Colors.orange[400]),
+            const SizedBox(width: 4),
+            Text(
+              'Errores',
+              style: TextStyle(fontSize: 11, color: Colors.orange[400]),
+            ),
+          ],
+        ),
+      ),
+      _CompileStatus.idle => Tooltip(
+        message:
+            'Compilar con Oracle — verifica errores sin guardar si falla (F5)',
+        waitDuration: _kTooltipWait,
+        preferBelow: false,
+        decoration: _kTooltipDecoration,
+        textStyle: _kTooltipTextStyle,
+        child: InkWell(
+          onTap: _compileCurrentDocument,
+          borderRadius: BorderRadius.circular(4),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.play_circle_outline_rounded,
+                  size: 15,
+                  color: const Color(0xFF569CD6),
+                ),
+                const SizedBox(width: 4),
+                const Text(
+                  'Compilar',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF569CD6),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    };
+  }
+
   Widget _buildSaveBtn(ColorScheme cs) {
     return switch (_saveStatus) {
       _SaveStatus.saving => const Padding(
@@ -1267,40 +1815,50 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           ),
         ),
       ),
-      _SaveStatus.saved => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.check_circle_outline,
-              size: 14,
-              color: Colors.green[600],
-            ),
-            const SizedBox(width: 4),
-            Text(
-              'Guardado',
-              style: TextStyle(
-                fontSize: 11,
+      _SaveStatus.saved => TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0.5, end: 1.0),
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.elasticOut,
+        builder: (_, scale, child) =>
+            Transform.scale(scale: scale, child: child),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.check_circle_outline,
+                size: 14,
                 color: Colors.green[600],
-                fontWeight: FontWeight.w500,
               ),
-            ),
-          ],
+              const SizedBox(width: 4),
+              Text(
+                'Guardado',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.green[600],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      _SaveStatus.error => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error_outline, size: 14, color: Colors.red[400]),
-            const SizedBox(width: 4),
-            Text(
-              'Error',
-              style: TextStyle(fontSize: 11, color: Colors.red[400]),
-            ),
-          ],
+      _SaveStatus.error => Tooltip(
+        message: _lastSaveError ?? 'Error al guardar',
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline, size: 14, color: Colors.red[400]),
+              const SizedBox(width: 4),
+              Text(
+                'Error al guardar',
+                style: TextStyle(fontSize: 11, color: Colors.red[400]),
+              ),
+            ],
+          ),
         ),
       ),
       _SaveStatus.idle => _buildSaveBtnIdle(cs),
@@ -1423,8 +1981,21 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   }
 
   Widget _buildErrorBadge(ColorScheme cs) {
-    final n = _errorCounts[_activeProcId] ?? 0;
-    final issues = _issuesPerProc[_activeProcId] ?? [];
+    final procId = _activeProcId ?? '';
+    final syntaxErrors = (_issuesPerProc[procId] ?? [])
+        .where((e) => e.severity == MarkerSeverity.error)
+        .length;
+    final compileErrors = (_compileErrorsPerProc[procId] ?? [])
+        .where((e) => e.severity == MarkerSeverity.error)
+        .length;
+    final n = syntaxErrors + compileErrors;
+    final hasAny =
+        n > 0 ||
+        (_compileErrorsPerProc[procId]?.isNotEmpty ?? false) ||
+        (_issuesPerProc[procId]?.any(
+              (e) => e.severity == MarkerSeverity.warning,
+            ) ??
+            false);
 
     final badge = Container(
       margin: const EdgeInsets.only(right: 6),
@@ -1474,26 +2045,16 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     }
 
     return Tooltip(
-      message: 'Clic para navegar a los errores',
+      message: _showProblemsPanel
+          ? 'Ocultar panel de problemas'
+          : 'Mostrar panel de problemas',
       waitDuration: _kTooltipWait,
       preferBelow: false,
       decoration: _kTooltipDecoration,
       textStyle: _kTooltipTextStyle,
-      child: PopupMenuButton<PlSqlIssue>(
-        tooltip: '',
-        padding: EdgeInsets.zero,
-        onSelected: (e) async {
-          await _ctrl?.revealLine(e.line, center: true);
-          await _ctrl?.setCursorPosition(Position(line: e.line, column: e.col));
-        },
-        itemBuilder: (_) => [
-          for (final e in issues)
-            PopupMenuItem<PlSqlIssue>(
-              value: e,
-              height: 44,
-              child: _ErrorItem(issue: e),
-            ),
-        ],
+      child: InkWell(
+        onTap: () => setState(() => _showProblemsPanel = !_showProblemsPanel),
+        borderRadius: BorderRadius.circular(10),
         child: badge,
       ),
     );
@@ -1648,447 +2209,6 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       value: value,
       checked: checked,
       child: Text(label, style: const TextStyle(fontSize: 12)),
-    );
-  }
-}
-
-// ── Widgets auxiliares ────────────────────────────────────────────────────
-
-const _kTooltipDecoration = BoxDecoration(
-  color: Color(0xFF2D2D30),
-  borderRadius: BorderRadius.all(Radius.circular(6)),
-  boxShadow: [
-    BoxShadow(color: Color(0x4D000000), blurRadius: 6, offset: Offset(0, 2)),
-  ],
-);
-const _kTooltipTextStyle = TextStyle(color: Colors.white, fontSize: 12);
-const _kTooltipWait = Duration(milliseconds: 400);
-
-class _DocTab extends StatelessWidget {
-  final Procedimiento proc;
-  final bool isActive;
-  final bool isModified;
-  final VoidCallback onTap;
-  final VoidCallback? onClose;
-
-  const _DocTab({
-    required this.proc,
-    required this.isActive,
-    required this.isModified,
-    required this.onTap,
-    this.onClose,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          color: isActive
-              ? cs.primaryContainer.withValues(alpha: 0.5)
-              : Colors.transparent,
-          border: Border(
-            bottom: BorderSide(
-              color: isActive ? cs.primary : Colors.transparent,
-              width: 2,
-            ),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isModified)
-              Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: Text(
-                  '●',
-                  style: TextStyle(fontSize: 9, color: cs.primary, height: 1.2),
-                ),
-              ),
-            Text(
-              proc.cdProcedimiento,
-              style: TextStyle(
-                fontSize: 11,
-                color: isActive ? cs.primary : cs.onSurfaceVariant,
-                fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
-              ),
-            ),
-            if (onClose != null) ...[
-              const SizedBox(width: 4),
-              GestureDetector(
-                onTap: onClose,
-                child: Icon(Icons.close, size: 11, color: cs.onSurfaceVariant),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ToolBtn extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback? onPressed;
-
-  const _ToolBtn({required this.icon, required this.tooltip, this.onPressed});
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      waitDuration: _kTooltipWait,
-      preferBelow: false,
-      decoration: _kTooltipDecoration,
-      textStyle: _kTooltipTextStyle,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(4),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
-          child: Icon(
-            icon,
-            size: 16,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ToggleBtn extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final bool active;
-  final VoidCallback? onPressed;
-
-  const _ToggleBtn({
-    required this.icon,
-    required this.tooltip,
-    required this.active,
-    this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Tooltip(
-      message: tooltip,
-      waitDuration: _kTooltipWait,
-      preferBelow: false,
-      decoration: _kTooltipDecoration,
-      textStyle: _kTooltipTextStyle,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(4),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
-          decoration: BoxDecoration(
-            color: active
-                ? cs.primaryContainer.withValues(alpha: 0.55)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Icon(
-            icon,
-            size: 16,
-            color: active
-                ? cs.primary
-                : cs.onSurfaceVariant.withValues(alpha: 0.6),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-enum _EditorOption {
-  wordWrap,
-  renderWhitespace,
-  bracketColorize,
-  stickyScroll,
-  smoothScrolling,
-  mouseWheelZoom,
-  formatOnPaste,
-  quickSuggestions,
-  parameterHints,
-  hover,
-  links,
-  occurrences,
-  contextMenu,
-  resetDefaults,
-}
-
-class _ErrorItem extends StatelessWidget {
-  final PlSqlIssue issue;
-
-  const _ErrorItem({required this.issue});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 2),
-          child: Icon(Icons.error_outline, size: 14, color: Colors.red[400]),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Línea ${issue.line}, col ${issue.col}',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: cs.onSurfaceVariant,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              Text(
-                issue.message,
-                style: const TextStyle(fontSize: 12),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ── Overlay de variables dinámicas con buscador ──────────────────────────────
-
-class _VarsMenuOverlay extends StatefulWidget {
-  final double left;
-  final double top;
-  final double width;
-  final List<VariableDinamica> vars;
-  final Future<void> Function(VariableDinamica) onSelected;
-
-  const _VarsMenuOverlay({
-    required this.left,
-    required this.top,
-    required this.width,
-    required this.vars,
-    required this.onSelected,
-  });
-
-  @override
-  State<_VarsMenuOverlay> createState() => _VarsMenuOverlayState();
-}
-
-class _VarsMenuOverlayState extends State<_VarsMenuOverlay> {
-  final _search = TextEditingController();
-  late List<VariableDinamica> _filtered;
-
-  @override
-  void initState() {
-    super.initState();
-    _filtered = widget.vars;
-    _search.addListener(_onSearch);
-  }
-
-  void _onSearch() {
-    final q = _search.text.toLowerCase();
-    setState(() {
-      _filtered = q.isEmpty
-          ? widget.vars
-          : widget.vars
-                .where(
-                  (v) =>
-                      v.cdVariable.toLowerCase().contains(q) ||
-                      v.deVariable.toLowerCase().contains(q),
-                )
-                .toList();
-    });
-  }
-
-  @override
-  void dispose() {
-    _search.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF252526) : cs.surface;
-    final borderColor = isDark ? const Color(0xFF3C3C3C) : cs.outlineVariant;
-
-    return Stack(
-      children: [
-        Positioned(
-          left: widget.left,
-          top: widget.top,
-          width: widget.width,
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              constraints: const BoxConstraints(maxHeight: 320),
-              decoration: BoxDecoration(
-                color: bg,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: borderColor, width: 0.8),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: isDark ? 0.5 : 0.15),
-                    blurRadius: 16,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
-                    child: SizedBox(
-                      height: 30,
-                      child: TextField(
-                        controller: _search,
-                        autofocus: true,
-                        style: const TextStyle(fontSize: 12),
-                        decoration: InputDecoration(
-                          hintText: 'Buscar variable…',
-                          hintStyle: TextStyle(
-                            fontSize: 12,
-                            color: cs.onSurfaceVariant.withValues(alpha: 0.6),
-                          ),
-                          prefixIcon: Icon(
-                            Icons.search,
-                            size: 14,
-                            color: cs.onSurfaceVariant,
-                          ),
-                          prefixIconConstraints: const BoxConstraints(
-                            minWidth: 28,
-                            minHeight: 0,
-                          ),
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 6,
-                          ),
-                          filled: true,
-                          fillColor: isDark
-                              ? const Color(0xFF1E1E1E)
-                              : cs.surfaceContainerLowest,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(6),
-                            borderSide: BorderSide(
-                              color: borderColor,
-                              width: 0.5,
-                            ),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(6),
-                            borderSide: BorderSide(
-                              color: borderColor,
-                              width: 0.5,
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(6),
-                            borderSide: BorderSide(color: cs.primary, width: 1),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  Divider(height: 1, color: borderColor),
-                  if (_filtered.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: Text(
-                        'Sin resultados',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: cs.onSurfaceVariant,
-                        ),
-                      ),
-                    )
-                  else
-                    Flexible(
-                      child: ListView.builder(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        shrinkWrap: true,
-                        itemCount: _filtered.length,
-                        itemBuilder: (_, i) {
-                          final v = _filtered[i];
-                          return InkWell(
-                            onTap: () async {
-                              Navigator.of(context).pop();
-                              await widget.onSelected(v);
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 5,
-                              ),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(
-                                          ':${v.cdVariable}',
-                                          style: TextStyle(
-                                            fontFamily: 'Consolas',
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 12,
-                                            color: cs.primary,
-                                          ),
-                                        ),
-                                        if (v.deVariable.isNotEmpty)
-                                          Text(
-                                            v.deVariable,
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              color: cs.onSurfaceVariant,
-                                            ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                  Icon(
-                                    Icons.keyboard_return,
-                                    size: 12,
-                                    color: cs.onSurfaceVariant.withValues(
-                                      alpha: 0.4,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

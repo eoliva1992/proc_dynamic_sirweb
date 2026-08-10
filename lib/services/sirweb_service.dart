@@ -5,14 +5,20 @@ import '../models/configuracion_tipo.dart';
 import '../models/variable_dinamica.dart';
 
 class SirwebService {
+  static final SirwebService _instance = SirwebService._();
+  factory SirwebService() => _instance;
+  SirwebService._();
+
   static const String _baseUrl = 'http://localhost:5179/mcp';
+  // Shared across all instances for TCP keep-alive / connection reuse
+  static final http.Client _client = http.Client();
   int _nextId = 1;
 
   Future<Map<String, dynamic>> _call(
     String toolName,
     Map<String, dynamic> arguments,
   ) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse(_baseUrl),
       headers: {
         'Content-Type': 'application/json',
@@ -38,8 +44,21 @@ class SirwebService {
     final text = contentList.first['text'] as String;
     final result = jsonDecode(text) as Map<String, dynamic>;
 
-    if (result['success'] == false) {
-      throw Exception(result['message']?.toString() ?? 'Error en la operación');
+    // Server can signal error via success:false or ok:false
+    final isOk = result['ok'];
+    final isSuccess = result['success'];
+    if (isOk == false || isSuccess == false) {
+      // Si hay datos de compilación (lista no vacía), devolver el result
+      // para que el caller pueda extraer los errores individuales
+      final data = result['data'];
+      if (data is List && data.isNotEmpty) {
+        return result; // compile errors — let caller handle
+      }
+      final baseMsg =
+          result['message']?.toString() ??
+          result['error']?.toString() ??
+          'Error en la operación';
+      throw Exception(baseMsg);
     }
 
     return result;
@@ -73,8 +92,15 @@ class SirwebService {
       ..sort((a, b) => a.deArgumento.compareTo(b.deArgumento));
   }
 
-  Future<({List<Procedimiento> items, bool tieneSiguiente, bool tienePrevio, int pagina})>
-      listarProcedimientos({
+  Future<
+    ({
+      List<Procedimiento> items,
+      bool tieneSiguiente,
+      bool tienePrevio,
+      int pagina,
+    })
+  >
+  listarProcedimientos({
     String? busqueda,
     String? configuracion,
     String? estado = '1',
@@ -134,21 +160,65 @@ class SirwebService {
     });
   }
 
-  Future<void> actualizarProcedimiento({
+  Future<List<dynamic>> actualizarProcedimiento({
     required String cdProcedimiento,
     required String deTexto,
     required String cdUsuario,
-    String? inConfiguracion,
+    required String inConfiguracion,
     String? ambiente,
   }) async {
-    await _call('actualizar_procedimiento', {
+    final result = await _call('actualizar_procedimiento', {
       'cdProcedimiento': cdProcedimiento,
       'deTexto': deTexto,
       'cdUsuario': cdUsuario,
-      // ignore: use_null_aware_elements
-      if (inConfiguracion != null) 'inConfiguracion': inConfiguracion,
+      'inConfiguracion': inConfiguracion,
       if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
     });
+    return _extractCompileErrors(result);
+  }
+
+  List<dynamic> _extractCompileErrors(Map<String, dynamic> result) {
+    for (final key in [
+      'data',
+      'compileErrors',
+      'errors',
+      'compilationErrors',
+      'compile_errors',
+    ]) {
+      final val = result[key];
+      if (val is List && val.isNotEmpty) {
+        return val;
+      }
+      if (val is String &&
+          val.isNotEmpty &&
+          (val.contains('PLS-') || val.contains('ORA-') || val.contains('/'))) {
+        return [val];
+      }
+    }
+    final msg = result['message']?.toString() ?? '';
+    if (msg.isNotEmpty &&
+        (msg.contains('PLS-') ||
+            msg.contains('ORA-') ||
+            msg.toUpperCase().contains('ERROR'))) {
+      return [msg];
+    }
+    return [];
+  }
+
+  Future<List<dynamic>> compilarProcedimiento({
+    required String cdProcedimiento,
+    required String deTexto,
+    required String cdUsuario,
+    required String inConfiguracion,
+    String? ambiente,
+  }) async {
+    final result = await _call('compilar_procedimiento_dinamico', {
+      'cdProcedimiento': cdProcedimiento,
+      'deTexto': deTexto,
+      'inConfiguracion': inConfiguracion,
+      if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+    });
+    return _extractCompileErrors(result);
   }
 
   Future<void> activarProcedimiento({

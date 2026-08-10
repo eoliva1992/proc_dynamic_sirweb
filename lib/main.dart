@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:toastification/toastification.dart';
 import 'providers/theme_provider.dart';
 import 'screens/main_screen.dart';
+import 'services/favorites_service.dart';
 import 'services/schema_service.dart';
 import 'widgets/_editor_themes.dart';
 
@@ -9,6 +11,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await themeStore.loadFromPrefs();
   await editorThemeStore.loadFromPrefs();
+  await FavoritesService.load();
   unawaited(SchemaService.instance.loadMetadata());
   runApp(const ProcDynamicApp());
 }
@@ -352,13 +355,15 @@ class ProcDynamicApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: editorThemeStore,
-      builder: (_, _) => MaterialApp(
-        title: 'Procedimientos Dinámicos',
-        debugShowCheckedModeBanner: false,
-        theme: _buildThemeFor(editorThemeStore.themeId),
-        home: const MainScreen(),
+    return ToastificationWrapper(
+      child: ListenableBuilder(
+        listenable: editorThemeStore,
+        builder: (_, _) => MaterialApp(
+          title: 'Procedimientos Dinámicos',
+          debugShowCheckedModeBanner: false,
+          theme: _buildThemeFor(editorThemeStore.themeId),
+          home: const MainScreen(),
+        ),
       ),
     );
   }

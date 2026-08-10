@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -79,7 +80,10 @@ class SchemaService {
   // Per-ambiente in-memory caches and loading flags
   final _caches = <String, SchemaMetadata>{};
   final _loadings = <String, bool>{};
+  // Completers replace busy-wait loops for concurrent callers
+  final _loadCompleters = <String, Completer<SchemaMetadata>>{};
   int _nextId = 1;
+  final _client = http.Client();
 
   /// Normaliza el nombre del ambiente para usarlo como clave de caché.
   static String _env(String? a) => (a == null || a.isEmpty) ? 'Desa' : a;
@@ -94,12 +98,7 @@ class SchemaService {
   Future<SchemaMetadata> getMetadata({String? ambiente}) async {
     final env = _env(ambiente);
     if (_caches.containsKey(env)) return _caches[env]!;
-    if (_loadings[env] == true) {
-      while (_loadings[env] == true) {
-        await Future.delayed(const Duration(milliseconds: 50));
-      }
-      return _caches[env]!;
-    }
+    if (_loadCompleters.containsKey(env)) return _loadCompleters[env]!.future;
     return loadMetadata(ambiente: ambiente);
   }
 
@@ -113,13 +112,10 @@ class SchemaService {
       return _caches[env]!;
     }
 
-    if (_loadings[env] == true) {
-      while (_loadings[env] == true) {
-        await Future.delayed(const Duration(milliseconds: 50));
-      }
-      return _caches[env]!;
-    }
+    if (_loadCompleters.containsKey(env)) return _loadCompleters[env]!.future;
     _loadings[env] = true;
+    final completer = Completer<SchemaMetadata>();
+    _loadCompleters[env] = completer;
 
     try {
       status.value = SchemaLoadStatus.loadingLocal;
@@ -130,6 +126,7 @@ class SchemaService {
         _caches[env] = local;
         status.value = SchemaLoadStatus.ready;
         _refreshInBackground(prefs, ambiente: ambiente);
+        completer.complete(_caches[env]!);
         return _caches[env]!;
       }
 
@@ -138,12 +135,15 @@ class SchemaService {
       _caches[env] = fresh;
       _saveToPrefs(prefs, fresh, env);
       status.value = SchemaLoadStatus.ready;
+      completer.complete(_caches[env]!);
       return _caches[env]!;
-    } catch (_) {
+    } catch (e) {
       status.value = SchemaLoadStatus.error;
+      completer.completeError(e);
       rethrow;
     } finally {
       _loadings[env] = false;
+      _loadCompleters.remove(env);
     }
   }
 
@@ -444,6 +444,12 @@ class SchemaService {
   /// Fuerza recarga desde el servidor en la próxima llamada (para todos los ambientes).
   void clearCache() => _caches.clear();
 
+  /// Fuerza recarga solo del ambiente dado desde el servidor.
+  Future<SchemaMetadata> refreshAmbiente(String ambiente) {
+    _caches.remove(_env(ambiente));
+    return loadMetadata(ambiente: ambiente);
+  }
+
   /// Devuelve el schema en memoria para el ambiente dado, sin disparar carga ni refresco.
   SchemaMetadata? getCached({String? ambiente}) => _caches[_env(ambiente)];
 
@@ -622,7 +628,7 @@ class SchemaService {
     String toolName,
     Map<String, dynamic> arguments,
   ) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse(_mcpUrl),
       headers: {
         'Content-Type': 'application/json',

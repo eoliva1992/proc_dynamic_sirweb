@@ -69,15 +69,26 @@ class AmbienteSelector extends StatelessWidget {
     };
   }
 
+  static IconData iconForAmbiente(String ambiente) {
+    return switch (ambiente) {
+      'Prod' => Icons.warning_rounded,
+      'QA' => Icons.bug_report_outlined,
+      'Demo' => Icons.slideshow_outlined,
+      'Replica' => Icons.copy_all_outlined,
+      _ => Icons.computer_outlined, // Desa
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final surfaceColor = Theme.of(context).colorScheme.surface;
+    final color = colorForAmbiente(value);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: colorForAmbiente(value).withValues(alpha: 0.15),
+        color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: colorForAmbiente(value), width: 1),
+        border: Border.all(color: color, width: 1),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
@@ -85,25 +96,64 @@ class AmbienteSelector extends StatelessWidget {
           isDense: true,
           dropdownColor: surfaceColor,
           style: TextStyle(
-            color: colorForAmbiente(value),
+            color: color,
             fontWeight: FontWeight.bold,
             fontSize: 13,
           ),
-          icon: Icon(
-            Icons.arrow_drop_down,
-            color: colorForAmbiente(value),
-            size: 18,
-          ),
+          icon: Icon(Icons.arrow_drop_down, color: color, size: 18),
+          selectedItemBuilder: (_) => ambientes
+              .map(
+                (a) => Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      iconForAmbiente(a),
+                      size: 13,
+                      color: colorForAmbiente(a),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      a,
+                      style: TextStyle(
+                        color: colorForAmbiente(a),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+              .toList(),
           items: ambientes
               .map(
                 (a) => DropdownMenuItem(
                   value: a,
-                  child: Text(
-                    a,
-                    style: TextStyle(
-                      color: colorForAmbiente(a),
-                      fontWeight: FontWeight.bold,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: colorForAmbiente(a),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(
+                        iconForAmbiente(a),
+                        size: 13,
+                        color: colorForAmbiente(a),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        a,
+                        style: TextStyle(
+                          color: colorForAmbiente(a),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               )

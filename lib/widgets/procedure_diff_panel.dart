@@ -43,6 +43,20 @@ class _DiffDialog extends StatefulWidget {
 class _DiffDialogState extends State<_DiffDialog> {
   bool _sideBySide = true;
   MonacoDiffController? _ctrl;
+  late final ({int added, int removed}) _stats;
+
+  static ({int added, int removed}) _computeStats(String a, String b) {
+    if (a == b) return (added: 0, removed: 0);
+    final la = a.split('\n').toSet();
+    final lb = b.split('\n').toSet();
+    return (added: lb.difference(la).length, removed: la.difference(lb).length);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _stats = _computeStats(widget.original, widget.modified);
+  }
 
   Future<void> _onReady(MonacoDiffController ctrl) async {
     _ctrl = ctrl;
@@ -84,13 +98,55 @@ class _DiffDialogState extends State<_DiffDialog> {
                 ),
                 const SizedBox(width: 4),
                 Expanded(
-                  child: Text(
-                    widget.title,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    overflow: TextOverflow.ellipsis,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.title,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (_stats.added > 0 || _stats.removed > 0) ...[
+                        const SizedBox(width: 8),
+                        if (_stats.added > 0)
+                          Text(
+                            '+${_stats.added}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.green.shade500,
+                              fontWeight: FontWeight.w600,
+                              fontFamily: 'Consolas',
+                            ),
+                          ),
+                        if (_stats.removed > 0) ...[
+                          const SizedBox(width: 4),
+                          Text(
+                            '-${_stats.removed}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.red.shade400,
+                              fontWeight: FontWeight.w600,
+                              fontFamily: 'Consolas',
+                            ),
+                          ),
+                        ],
+                      ] else
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: Text(
+                            'sin cambios',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade600,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
                 TextButton.icon(

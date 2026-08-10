@@ -109,6 +109,11 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
   final _childSearchCtrls = <String, TextEditingController>{};
   final _childSearchDebounces = <String, Timer>{};
   String _filter = '';
+  _Node? _selectedNode;
+  String? _hoveredNodeId;
+  double _treeWidth = 340.0;
+  final _treeFocusNode = FocusNode();
+  int _focusedIndex = -1;
 
   @override
   void initState() {
@@ -143,6 +148,7 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
   void dispose() {
     SchemaService.instance.status.removeListener(_onSchemaStatus);
     _searchCtrl.dispose();
+    _treeFocusNode.dispose();
     for (final c in _childSearchCtrls.values) {
       c.dispose();
     }
@@ -342,19 +348,64 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
     _ => 'PROCEDURE',
   };
 
+  bool get _hasAnyExpanded =>
+      _expanded.values.any((v) => v) ||
+      _expandedTables.values.any((v) => v) ||
+      _expandedObjects.values.any((v) => v) ||
+      _expandedTypes.values.any((v) => v);
+
+  void _collapseAll() {
+    setState(() {
+      _expanded.clear();
+      _expandedTables.clear();
+      _expandedObjects.clear();
+      _expandedSubprogs.clear();
+      _expandedTypes.clear();
+      for (final t in _childSearchDebounces.values) t.cancel();
+      _childSearchDebounces.clear();
+      for (final c in _childSearchCtrls.values) c.dispose();
+      _childSearchCtrls.clear();
+      _childSearch.clear();
+    });
+  }
+
+  void _cleanChildSearch(String parentKey) {
+    _childSearchDebounces[parentKey]?.cancel();
+    _childSearchDebounces.remove(parentKey);
+    _childSearchCtrls[parentKey]?.dispose();
+    _childSearchCtrls.remove(parentKey);
+    _childSearch.remove(parentKey);
+  }
+
+  void _refreshSchema() {
+    setState(() {
+      _schemaFutures[_currentAmbiente] = SchemaService.instance.refreshAmbiente(
+        _currentAmbiente,
+      );
+    });
+  }
+
   void _toggleSection(String key) =>
       setState(() => _expanded[key] = !(_expanded[key] ?? false));
 
   void _toggleTable(String table) {
     final nowOpen = !(_expandedTables[table] ?? false);
     setState(() => _expandedTables[table] = nowOpen);
-    if (nowOpen) _loadColumns(table);
+    if (nowOpen) {
+      _loadColumns(table);
+    } else {
+      _cleanChildSearch('tbl_$table');
+    }
   }
 
   void _toggleType(String typeName) {
     final nowOpen = !(_expandedTypes[typeName] ?? false);
     setState(() => _expandedTypes[typeName] = nowOpen);
-    if (nowOpen) _loadTypeAttrs(typeName);
+    if (nowOpen) {
+      _loadTypeAttrs(typeName);
+    } else {
+      _cleanChildSearch('typ_$typeName');
+    }
   }
 
   Future<void> _loadTypeAttrs(String typeName) async {
@@ -378,7 +429,11 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
   void _togglePackage(String name) {
     final nowOpen = !(_expandedObjects[name] ?? false);
     setState(() => _expandedObjects[name] = nowOpen);
-    if (nowOpen) _loadPackageSubprogs(name);
+    if (nowOpen) {
+      _loadPackageSubprogs(name);
+    } else {
+      _cleanChildSearch('pkg_$name');
+    }
   }
 
   Future<void> _loadPackageSubprogs(String packageName) async {
@@ -406,7 +461,13 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
   void _toggleObject(String name) {
     final nowOpen = !(_expandedObjects[name] ?? false);
     setState(() => _expandedObjects[name] = nowOpen);
-    if (nowOpen) _loadObjectArgs(name);
+    if (nowOpen) {
+      _loadObjectArgs(name);
+    } else {
+      // parentKey puede ser obj_procedures_name o obj_functions_name
+      _cleanChildSearch('obj_procedures_$name');
+      _cleanChildSearch('obj_functions_$name');
+    }
   }
 
   Future<void> _loadObjectArgs(String objectName) async {
@@ -907,14 +968,14 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final size = MediaQuery.of(context).size;
-    final width = (size.width * 0.85).clamp(400.0, 640.0);
+    final width = (size.width * 0.90).clamp(500.0, 1000.0);
 
     return Center(
       child: Material(
         color: Colors.transparent,
         child: Container(
           width: width,
-          height: size.height * 0.75,
+          height: size.height * 0.85,
           decoration: BoxDecoration(
             color: isDark
                 ? const Color(0xFF1E1E1E).withValues(alpha: 0.97)
@@ -971,7 +1032,7 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
                   ),
                 ),
                 Text(
-                  widget.ambiente,
+                  _currentAmbiente,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.7),
                     fontSize: 11,
@@ -979,6 +1040,17 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
                 ),
               ],
             ),
+          ),
+          IconButton(
+            onPressed: _refreshSchema,
+            icon: const Icon(
+              Icons.refresh_rounded,
+              color: Colors.white70,
+              size: 20,
+            ),
+            tooltip: 'Recargar esquema',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
           ),
           IconButton(
             onPressed: () => Navigator.of(context).pop(),
@@ -1068,7 +1140,22 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
               ),
             ),
           ),
-          const SizedBox(width: 10),
+          if (_hasAnyExpanded)
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: IconButton(
+                onPressed: _collapseAll,
+                icon: Icon(
+                  Icons.unfold_less_rounded,
+                  size: 18,
+                  color: isDark ? const Color(0xFF888888) : Colors.black45,
+                ),
+                tooltip: 'Colapsar todo',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              ),
+            ),
+          const SizedBox(width: 6),
           AmbienteSelector(value: _currentAmbiente, onChanged: _changeAmbiente),
         ],
       ),
@@ -1105,157 +1192,958 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
             ),
           );
         }
-        final nodes = _buildNodes(snap.data!);
-        if (nodes.isEmpty) {
-          return Center(
-            child: Text(
-              _filter.isNotEmpty
-                  ? 'Sin resultados para "$_filter"'
-                  : 'Sin datos disponibles',
-              style: TextStyle(
-                fontSize: 13,
-                color: isDark ? Colors.white38 : Colors.black38,
+        final schema = snap.data!;
+        final nodes = _buildNodes(schema);
+        return Column(
+          children: [
+            Expanded(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(width: _treeWidth, child: _buildTree(nodes, isDark)),
+                  GestureDetector(
+                    onHorizontalDragUpdate: (d) => setState(() {
+                      _treeWidth = (_treeWidth + d.delta.dx).clamp(
+                        220.0,
+                        550.0,
+                      );
+                    }),
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.resizeColumn,
+                      child: Container(
+                        width: 5,
+                        color: isDark
+                            ? const Color(0xFF3A3A3A)
+                            : const Color(0xFFDDE2EA),
+                      ),
+                    ),
+                  ),
+                  Expanded(child: _buildDetailPanel(schema, isDark)),
+                ],
               ),
             ),
-          );
-        }
-        // Solo renderiza los items visibles en pantalla.
-        return ListView.builder(
-          itemCount: nodes.length,
-          itemBuilder: (_, i) => _buildNodeWidget(nodes[i], isDark),
+            _buildStatusBar(schema, isDark),
+          ],
         );
       },
     );
   }
 
-  Widget _buildNodeWidget(_Node node, bool isDark) {
+  Widget _buildTree(List<_Node> nodes, bool isDark) {
+    final subColor = isDark ? const Color(0xFF888888) : Colors.black45;
+    if (nodes.isEmpty) {
+      return Center(
+        child: Text(
+          _filter.isNotEmpty
+              ? 'Sin resultados para "$_filter"'
+              : 'Sin datos disponibles',
+          style: TextStyle(fontSize: 13, color: subColor),
+        ),
+      );
+    }
+    return Focus(
+      focusNode: _treeFocusNode,
+      autofocus: true,
+      onKeyEvent: (_, event) => _onKeyEvent(event, nodes),
+      child: RepaintBoundary(
+        child: ListView.builder(
+          itemCount: nodes.length,
+          itemBuilder: (_, i) => _buildNodeWidget(nodes[i], isDark, index: i),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailPanel(SchemaMetadata schema, bool isDark) {
+    final bg = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final subColor = isDark ? const Color(0xFF888888) : Colors.black45;
+    final selected = _selectedNode;
+    if (selected == null) {
+      return Container(
+        color: bg,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.touch_app_outlined, size: 40, color: subColor),
+              const SizedBox(height: 12),
+              Text(
+                'Seleccioná un objeto del árbol',
+                style: TextStyle(fontSize: 13, color: subColor),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return Container(
+      color: bg,
+      child: switch (selected.kind) {
+        _NK.section => _buildSectionDetail(selected, schema, isDark),
+        _NK.table => _buildTableDetail(selected, isDark),
+        _NK.object when selected.detail == 'package' => _buildPackageDetail(
+          selected,
+          isDark,
+        ),
+        _NK.object => _buildObjectDetail(selected, isDark),
+        _NK.subprogram => _buildSubprogramDetail(selected, isDark),
+        _NK.column || _NK.arg => _buildColumnArgDetail(selected, isDark),
+        _ => const SizedBox.shrink(),
+      },
+    );
+  }
+
+  // ── Detail panel helpers ────────────────────────────────────────────────
+
+  Widget _detailHeader(_Node node, bool isDark) {
+    final textColor = isDark ? const Color(0xFFD4D4D4) : Colors.black87;
+    final subColor = isDark ? const Color(0xFF888888) : Colors.black45;
+    final headerBg = isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 11, 16, 9),
+      decoration: BoxDecoration(
+        color: headerBg,
+        border: Border(
+          bottom: BorderSide(
+            color: isDark ? const Color(0xFF3A3A3A) : const Color(0xFFDDE2EA),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(node.icon, size: 14, color: node.color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              node.label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: textColor,
+                fontFamily: 'Consolas',
+              ),
+            ),
+          ),
+          if (node.detail != null &&
+              node.detail != 'view' &&
+              node.detail != 'type')
+            _typeBadgeStr(node.detail!, isDark),
+          if ((node.owner ?? '').isNotEmpty) ...[
+            const SizedBox(width: 6),
+            _ownerBadge(node.owner!, subColor),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionDetail(_Node node, SchemaMetadata schema, bool isDark) {
+    final textColor = isDark ? const Color(0xFFD4D4D4) : Colors.black87;
+    final subColor = isDark ? const Color(0xFF888888) : Colors.black45;
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(node.icon, size: 20, color: node.color),
+              const SizedBox(width: 10),
+              Text(
+                node.label,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(width: 8),
+              _badge(node.count!, node.color),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(switch (node.detail) {
+            'tables' =>
+              'Tablas del esquema Oracle. Seleccioná una para ver sus columnas.',
+            'views' =>
+              'Vistas del esquema. Seleccioná una para ver sus columnas.',
+            'procedures' =>
+              'Procedimientos almacenados. Seleccioná uno para ver sus parámetros.',
+            'functions' =>
+              'Funciones Oracle. Seleccioná una para ver sus parámetros.',
+            'packages' =>
+              'Paquetes Oracle con procedimientos y funciones agrupadas.',
+            'types' => 'Tipos de datos definidos por el usuario.',
+            _ => '',
+          }, style: TextStyle(fontSize: 12, color: subColor)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTableDetail(_Node node, bool isDark) {
+    final subColor = isDark ? const Color(0xFF888888) : Colors.black45;
+    if (!_columns.containsKey(node.label) &&
+        !_loadingCols.contains(node.label)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadColumns(node.label);
+      });
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _detailHeader(node, isDark),
+        Expanded(
+          child: _loadingCols.contains(node.label)
+              ? const Center(
+                  child: CircularProgressIndicator(
+                    color: Color(0xFF0078D4),
+                    strokeWidth: 2,
+                  ),
+                )
+              : _columns[node.label] == null
+              ? Center(
+                  child: Text(
+                    'Sin columnas disponibles',
+                    style: TextStyle(color: subColor, fontSize: 12),
+                  ),
+                )
+              : _buildColumnsTable(_columns[node.label]!, isDark),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildObjectDetail(_Node node, bool isDark) {
+    final subColor = isDark ? const Color(0xFF888888) : Colors.black45;
+    if (!_objectArgs.containsKey(node.label) &&
+        !_loadingArgs.contains(node.label)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadObjectArgs(node.label);
+      });
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _detailHeader(node, isDark),
+        Expanded(
+          child: _loadingArgs.contains(node.label)
+              ? const Center(
+                  child: CircularProgressIndicator(
+                    color: Color(0xFF0078D4),
+                    strokeWidth: 2,
+                  ),
+                )
+              : _objectArgs[node.label] == null
+              ? Center(
+                  child: Text(
+                    'Sin argumentos',
+                    style: TextStyle(color: subColor, fontSize: 12),
+                  ),
+                )
+              : _buildArgsTable(_objectArgs[node.label]!, isDark),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPackageDetail(_Node node, bool isDark) {
+    final textColor = isDark ? const Color(0xFFD4D4D4) : Colors.black87;
+    final subColor = isDark ? const Color(0xFF888888) : Colors.black45;
+    final rowAlt = isDark ? const Color(0xFF252526) : const Color(0xFFF8F8F8);
+    if (!_packageSubprogs.containsKey(node.label) &&
+        !_loadingPackages.contains(node.label)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadPackageSubprogs(node.label);
+      });
+    }
+    final subs = _packageSubprogs[node.label];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _detailHeader(node, isDark),
+        Expanded(
+          child: _loadingPackages.contains(node.label)
+              ? const Center(
+                  child: CircularProgressIndicator(
+                    color: Color(0xFF0078D4),
+                    strokeWidth: 2,
+                  ),
+                )
+              : subs == null
+              ? Center(
+                  child: Text(
+                    'Sin subprogramas',
+                    style: TextStyle(color: subColor, fontSize: 12),
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: subs.length,
+                  itemBuilder: (_, i) {
+                    final sp = subs[i];
+                    final isFunc = sp.kind == 'FUNCTION';
+                    final accent = isFunc
+                        ? const Color(0xFF8764B8)
+                        : const Color(0xFFCA5010);
+                    return Container(
+                      color: i.isOdd ? rowAlt : null,
+                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+                      child: Row(
+                        children: [
+                          Icon(
+                            isFunc
+                                ? Icons.functions_rounded
+                                : Icons.code_rounded,
+                            size: 13,
+                            color: accent,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              sp.name,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: textColor,
+                                fontFamily: 'Consolas',
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: accent.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              isFunc ? 'FN' : 'PR',
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: accent,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${sp.arguments.where((a) => a.name != "(RETURN)").length}p',
+                            style: TextStyle(fontSize: 10, color: subColor),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSubprogramDetail(_Node node, bool isDark) {
+    final spKey = node.id.substring(3);
+    final sepIdx = spKey.indexOf('::');
+    final pkgName = sepIdx >= 0 ? spKey.substring(0, sepIdx) : spKey;
+    final procName = sepIdx >= 0 ? spKey.substring(sepIdx + 2) : '';
+    final subs = _packageSubprogs[pkgName];
+    final sp = subs?.where((s) => s.name == procName).firstOrNull;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _detailHeader(
+          _Node(
+            kind: _NK.subprogram,
+            id: node.id,
+            label: '$pkgName.$procName',
+            icon: node.icon,
+            color: node.color,
+            detail: node.detail,
+          ),
+          isDark,
+        ),
+        Expanded(
+          child: sp == null
+              ? const SizedBox.shrink()
+              : _buildArgsTable(sp.arguments, isDark),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildColumnArgDetail(_Node node, bool isDark) {
+    final textColor = isDark ? const Color(0xFFD4D4D4) : Colors.black87;
+    final subColor = isDark ? const Color(0xFF888888) : Colors.black45;
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            node.label,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: textColor,
+              fontFamily: 'Consolas',
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (node.detail != null) ...[
+            Row(
+              children: [
+                Text('Tipo: ', style: TextStyle(fontSize: 12, color: subColor)),
+                const SizedBox(width: 4),
+                _typeBadgeStr(node.detail!, isDark),
+              ],
+            ),
+          ],
+          if (node.extra != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Dirección: ${node.extra}',
+              style: TextStyle(fontSize: 12, color: subColor),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildColumnsTable(
+    List<({String name, String dataType})> cols,
+    bool isDark,
+  ) {
+    final textColor = isDark ? const Color(0xFFD4D4D4) : Colors.black87;
+    final rowAlt = isDark ? const Color(0xFF252526) : const Color(0xFFF8F8F8);
+    return ListView.builder(
+      itemCount: cols.length,
+      itemBuilder: (_, i) {
+        final col = cols[i];
+        return Container(
+          color: i.isOdd ? rowAlt : null,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  col.name,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: textColor,
+                    fontFamily: 'Consolas',
+                  ),
+                ),
+              ),
+              _typeBadgeStr(col.dataType, isDark),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildArgsTable(
+    List<({String name, String dataType, String inOut})> args,
+    bool isDark,
+  ) {
+    final textColor = isDark ? const Color(0xFFD4D4D4) : Colors.black87;
+    final rowAlt = isDark ? const Color(0xFF252526) : const Color(0xFFF8F8F8);
+    return ListView.builder(
+      itemCount: args.length,
+      itemBuilder: (_, i) {
+        final arg = args[i];
+        if (arg.name == '(RETURN)') {
+          return Container(
+            color: i.isOdd ? rowAlt : null,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+            child: Row(
+              children: [
+                const Text(
+                  'RETURN',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                    color: Color(0xFF0078D4),
+                  ),
+                ),
+                const Spacer(),
+                _typeBadgeStr(arg.dataType, isDark),
+              ],
+            ),
+          );
+        }
+        final dirColor = switch (arg.inOut) {
+          'IN' => const Color(0xFF0078D4),
+          'OUT' => const Color(0xFFCA5010),
+          _ => const Color(0xFF107C10),
+        };
+        return Container(
+          color: i.isOdd ? rowAlt : null,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 30,
+                child: Text(
+                  arg.inOut,
+                  style: TextStyle(
+                    fontSize: 9,
+                    color: dirColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  arg.name,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: textColor,
+                    fontFamily: 'Consolas',
+                  ),
+                ),
+              ),
+              _typeBadgeStr(arg.dataType, isDark),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ── Status bar ──────────────────────────────────────────────────────────
+
+  Widget _buildStatusBar(SchemaMetadata schema, bool isDark) {
+    final bg = isDark ? const Color(0xFF2D2D2D) : const Color(0xFFF0F0F0);
+    final border = isDark ? const Color(0xFF3A3A3A) : const Color(0xFFDDE2EA);
+    final procCount = schema.objects
+        .where((o) => o.type == 'PROCEDURE' || o.type == 'FUNCTION')
+        .length;
+    final pkgCount = schema.objects.where((o) => o.type == 'PACKAGE').length;
+    return ValueListenableBuilder<SchemaLoadStatus>(
+      valueListenable: SchemaService.instance.status,
+      builder: (_, status, _) {
+        final isRefreshing =
+            status == SchemaLoadStatus.refreshing ||
+            status == SchemaLoadStatus.loadingServer;
+        return Container(
+          height: 26,
+          decoration: BoxDecoration(
+            color: bg,
+            border: Border(top: BorderSide(color: border)),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              _statusChip(
+                Icons.table_chart_outlined,
+                '${schema.tables.length}',
+                const Color(0xFF0078D4),
+                isDark,
+              ),
+              const SizedBox(width: 10),
+              _statusChip(
+                Icons.visibility_outlined,
+                '${schema.views.length}',
+                const Color(0xFF107C10),
+                isDark,
+              ),
+              const SizedBox(width: 10),
+              _statusChip(
+                Icons.code_rounded,
+                '$procCount',
+                const Color(0xFFCA5010),
+                isDark,
+              ),
+              const SizedBox(width: 10),
+              _statusChip(
+                Icons.inventory_2_outlined,
+                '$pkgCount',
+                const Color(0xFFC19C00),
+                isDark,
+              ),
+              const Spacer(),
+              if (isRefreshing) ...[
+                const SizedBox(
+                  width: 10,
+                  height: 10,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 1.5,
+                    color: Color(0xFF0078D4),
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                isRefreshing ? 'Actualizando…' : _currentAmbiente,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: isDark ? const Color(0xFF888888) : Colors.black45,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _statusChip(IconData icon, String label, Color color, bool isDark) {
+    final text = isDark ? const Color(0xFF888888) : Colors.black45;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 11, color: color.withValues(alpha: 0.7)),
+        const SizedBox(width: 3),
+        Text(label, style: TextStyle(fontSize: 10, color: text)),
+      ],
+    );
+  }
+
+  // ── Keyboard navigation ──────────────────────────────────────────────────
+
+  KeyEventResult _onKeyEvent(KeyEvent event, List<_Node> nodes) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowDown) {
+      setState(() {
+        _focusedIndex = (_focusedIndex + 1).clamp(0, nodes.length - 1);
+        _selectedNode = nodes[_focusedIndex];
+      });
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowUp) {
+      setState(() {
+        _focusedIndex = (_focusedIndex - 1).clamp(0, nodes.length - 1);
+        _selectedNode = nodes[_focusedIndex];
+      });
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.space) {
+      if (_focusedIndex >= 0 && _focusedIndex < nodes.length) {
+        _activateNode(nodes[_focusedIndex]);
+      }
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.f5) {
+      _refreshSchema();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.escape) {
+      Navigator.of(context).pop();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  void _activateNode(_Node node) {
+    switch (node.kind) {
+      case _NK.section:
+        if (node.detail != null) _toggleSection(node.detail!);
+      case _NK.table:
+        _toggleTable(node.label);
+      case _NK.object:
+        if (node.detail == 'package') {
+          _togglePackage(node.label);
+        } else if (node.detail == 'type') {
+          _toggleType(node.label);
+        } else {
+          _toggleObject(node.label);
+        }
+      case _NK.subprogram:
+        _toggleSubprog(node.id.substring(3));
+      default:
+        break;
+    }
+    setState(() => _selectedNode = node);
+  }
+
+  // ── Visual helpers ───────────────────────────────────────────────────────
+
+  static Color _typeColor(String dt) {
+    final t = dt.toUpperCase();
+    if (t.contains('NUMBER') ||
+        t.contains('INTEGER') ||
+        t.contains('FLOAT') ||
+        t.contains('DECIMAL') ||
+        t.contains('NUMERIC')) {
+      return const Color(0xFF0078D4);
+    }
+    if (t.contains('VARCHAR') || t.contains('CHAR') || t.contains('NCHAR')) {
+      return const Color(0xFF107C10);
+    }
+    if (t.contains('DATE') ||
+        t.contains('TIMESTAMP') ||
+        t.contains('INTERVAL')) {
+      return const Color(0xFFCA5010);
+    }
+    if (t.contains('CLOB') ||
+        t.contains('BLOB') ||
+        t.contains('XML') ||
+        t.contains('RAW') ||
+        t.contains('BINARY')) {
+      return const Color(0xFF8764B8);
+    }
+    if (t.contains('BOOL') ||
+        t.contains('PLS_INTEGER') ||
+        t.contains('BINARY_INTEGER')) {
+      return const Color(0xFF2E7D9E);
+    }
+    return const Color(0xFF888888);
+  }
+
+  Widget _typeBadgeStr(String dt, bool isDark) {
+    if (dt.isEmpty) return const SizedBox.shrink();
+    final color = _typeColor(dt);
+    final label = dt.length > 14 ? '${dt.substring(0, 14)}…' : dt;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withValues(alpha: 0.30), width: 0.5),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 9,
+          color: color,
+          fontWeight: FontWeight.w600,
+          fontFamily: 'Consolas',
+        ),
+      ),
+    );
+  }
+
+  Widget _highlight(
+    String text,
+    Color baseColor, {
+    double fontSize = 12.0,
+    FontWeight weight = FontWeight.normal,
+    String? fontFamily,
+  }) {
+    if (_filter.isEmpty) {
+      return Text(
+        text,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: fontSize,
+          color: baseColor,
+          fontWeight: weight,
+          fontFamily: fontFamily,
+        ),
+      );
+    }
+    final lower = text.toLowerCase();
+    final idx = lower.indexOf(_filter);
+    if (idx == -1) {
+      return Text(
+        text,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: fontSize,
+          color: baseColor,
+          fontWeight: weight,
+          fontFamily: fontFamily,
+        ),
+      );
+    }
+    final end = idx + _filter.length;
+    return RichText(
+      overflow: TextOverflow.ellipsis,
+      text: TextSpan(
+        style: TextStyle(
+          fontSize: fontSize,
+          color: baseColor,
+          fontWeight: weight,
+          fontFamily: fontFamily,
+        ),
+        children: [
+          if (idx > 0) TextSpan(text: text.substring(0, idx)),
+          TextSpan(
+            text: text.substring(idx, end),
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              backgroundColor: const Color(0xFF0078D4).withValues(alpha: 0.18),
+              color: const Color(0xFF0078D4),
+            ),
+          ),
+          if (end < text.length) TextSpan(text: text.substring(end)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNodeWidget(_Node node, bool isDark, {int index = -1}) {
     final textColor = isDark ? const Color(0xFFD4D4D4) : Colors.black87;
     final subColor = isDark ? const Color(0xFF888888) : Colors.black45;
     final rowBg = isDark ? const Color(0xFF252526) : const Color(0xFFF8F8F8);
     final colBg = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFFAFAFA);
+    final isSelected = _selectedNode?.id == node.id;
+    final isFocused = index == _focusedIndex && index >= 0;
+    final isHovered = _hoveredNodeId == node.id;
+
+    Color? selectionBg(Color accent) {
+      if (isSelected) return accent.withValues(alpha: 0.08);
+      if (isFocused) return accent.withValues(alpha: 0.05);
+      if (isHovered) return rowBg;
+      return null;
+    }
 
     switch (node.kind) {
       case _NK.section:
         final key = node.detail!;
         final isOpen = _filter.isNotEmpty || (_expanded[key] ?? false);
-        return InkWell(
-          onTap: _filter.isNotEmpty ? null : () => _toggleSection(key),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-            child: Row(
-              children: [
-                Icon(node.icon, size: 16, color: node.color),
-                const SizedBox(width: 8),
-                Text(
-                  node.label,
-                  style: TextStyle(
+        return MouseRegion(
+          onEnter: (_) => setState(() => _hoveredNodeId = node.id),
+          onExit: (_) => setState(() => _hoveredNodeId = null),
+          child: InkWell(
+            onTap: () {
+              if (_filter.isEmpty) _toggleSection(key);
+              setState(() {
+                _selectedNode = node;
+                _focusedIndex = index;
+              });
+            },
+            child: Container(
+              color: selectionBg(node.color),
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+              child: Row(
+                children: [
+                  Icon(node.icon, size: 16, color: node.color),
+                  const SizedBox(width: 8),
+                  _highlight(
+                    node.label,
+                    node.color,
                     fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: node.color,
+                    weight: FontWeight.w600,
                   ),
-                ),
-                const SizedBox(width: 8),
-                _badge(node.count!, node.color),
-                const Spacer(),
-                if (_filter.isEmpty)
-                  Icon(
-                    isOpen ? Icons.expand_less : Icons.expand_more,
-                    size: 16,
-                    color: subColor,
-                  ),
-              ],
+                  const SizedBox(width: 8),
+                  _badge(node.count!, node.color),
+                  const Spacer(),
+                  if (_filter.isEmpty)
+                    Icon(
+                      isOpen ? Icons.expand_less : Icons.expand_more,
+                      size: 16,
+                      color: subColor,
+                    ),
+                ],
+              ),
             ),
           ),
         );
 
       case _NK.table:
         final isOpen = _expandedTables[node.label] ?? false;
-        return InkWell(
-          onTap: () => _toggleTable(node.label),
-          child: Container(
-            color: rowBg,
-            padding: const EdgeInsets.fromLTRB(40, 7, 16, 7),
-            child: Row(
-              children: [
-                Icon(
-                  node.icon,
-                  size: 13,
-                  color: node.color.withValues(alpha: 0.7),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    node.label,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: textColor,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                if ((node.owner ?? '').isNotEmpty)
-                  _ownerBadge(node.owner!, subColor),
-                const SizedBox(width: 4),
-                InkWell(
-                  onTap: () => _copyNode(node),
-                  borderRadius: BorderRadius.circular(4),
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Icon(
-                      _copiedNodes.contains(node.id)
-                          ? Icons.check_rounded
-                          : Icons.content_copy_outlined,
-                      size: 13,
-                      color: _copiedNodes.contains(node.id)
-                          ? Colors.green
-                          : subColor,
-                    ),
-                  ),
-                ),
-                if (node.detail == 'view') ...[
-                  InkWell(
-                    onTap: () => _openSource(node.label, 'VIEW'),
-                    borderRadius: BorderRadius.circular(4),
-                    child: Padding(
-                      padding: const EdgeInsets.all(4),
-                      child: Icon(
-                        Icons.integration_instructions_outlined,
-                        size: 13,
-                        color: subColor,
-                      ),
-                    ),
-                  ),
-                ],
-                InkWell(
-                  onTap: () => showObjectDetails(
-                    context,
-                    name: node.label,
-                    type: node.detail == 'view' ? 'VIEW' : 'TABLE',
-                    ambiente: _currentAmbiente,
-                  ),
-                  borderRadius: BorderRadius.circular(4),
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Icon(Icons.info_outline, size: 13, color: subColor),
-                  ),
-                ),
-                const SizedBox(width: 2),
-                if (_loadingCols.contains(node.label))
-                  const SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 1.5,
-                      color: Color(0xFF0078D4),
-                    ),
-                  )
-                else
+        return MouseRegion(
+          onEnter: (_) => setState(() => _hoveredNodeId = node.id),
+          onExit: (_) => setState(() => _hoveredNodeId = null),
+          child: InkWell(
+            onTap: () {
+              _toggleTable(node.label);
+              setState(() {
+                _selectedNode = node;
+                _focusedIndex = index;
+              });
+            },
+            child: Container(
+              color: selectionBg(node.color) ?? (isHovered ? rowBg : null),
+              padding: const EdgeInsets.fromLTRB(40, 7, 16, 7),
+              child: Row(
+                children: [
                   Icon(
-                    isOpen ? Icons.expand_less : Icons.expand_more,
-                    size: 14,
-                    color: subColor,
+                    node.icon,
+                    size: 13,
+                    color: node.color.withValues(alpha: 0.7),
                   ),
-              ],
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _highlight(
+                      node.label,
+                      textColor,
+                      fontSize: 12,
+                      weight: FontWeight.w500,
+                    ),
+                  ),
+                  if ((node.owner ?? '').isNotEmpty)
+                    _ownerBadge(node.owner!, subColor),
+                  AnimatedOpacity(
+                    opacity: isHovered ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 150),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(width: 4),
+                        InkWell(
+                          onTap: () => _copyNode(node),
+                          borderRadius: BorderRadius.circular(4),
+                          child: Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: Icon(
+                              _copiedNodes.contains(node.id)
+                                  ? Icons.check_rounded
+                                  : Icons.content_copy_outlined,
+                              size: 13,
+                              color: _copiedNodes.contains(node.id)
+                                  ? Colors.green
+                                  : subColor,
+                            ),
+                          ),
+                        ),
+                        if (node.detail == 'view')
+                          InkWell(
+                            onTap: () => _openSource(node.label, 'VIEW'),
+                            borderRadius: BorderRadius.circular(4),
+                            child: Padding(
+                              padding: const EdgeInsets.all(4),
+                              child: Icon(
+                                Icons.integration_instructions_outlined,
+                                size: 13,
+                                color: subColor,
+                              ),
+                            ),
+                          ),
+                        InkWell(
+                          onTap: () => showObjectDetails(
+                            context,
+                            name: node.label,
+                            type: node.detail == 'view' ? 'VIEW' : 'TABLE',
+                            ambiente: _currentAmbiente,
+                          ),
+                          borderRadius: BorderRadius.circular(4),
+                          child: Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: Icon(
+                              Icons.info_outline,
+                              size: 13,
+                              color: subColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  if (_loadingCols.contains(node.label))
+                    const SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 1.5,
+                        color: Color(0xFF0078D4),
+                      ),
+                    )
+                  else
+                    Icon(
+                      isOpen ? Icons.expand_less : Icons.expand_more,
+                      size: 14,
+                      color: subColor,
+                    ),
+                ],
+              ),
             ),
           ),
         );
@@ -1275,28 +2163,31 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
         );
 
       case _NK.column:
-        return Container(
-          color: colBg,
-          padding: const EdgeInsets.fromLTRB(64, 5, 16, 5),
-          child: Row(
-            children: [
-              Icon(Icons.view_column_outlined, size: 12, color: subColor),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  node.label,
-                  style: TextStyle(fontSize: 11.5, color: textColor),
+        return InkWell(
+          onTap: () => setState(() {
+            _selectedNode = node;
+            _focusedIndex = index;
+          }),
+          child: Container(
+            color: isSelected
+                ? const Color(0xFF0078D4).withValues(alpha: 0.07)
+                : colBg,
+            padding: const EdgeInsets.fromLTRB(64, 5, 16, 5),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    node.label,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: textColor,
+                      fontFamily: 'Consolas',
+                    ),
+                  ),
                 ),
-              ),
-              Text(
-                node.detail ?? '',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: subColor,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ],
+                if (node.detail != null) _typeBadgeStr(node.detail!, isDark),
+              ],
+            ),
           ),
         );
 
@@ -1311,188 +2202,224 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
             : isTyp
             ? _loadingTypeAttrs.contains(node.label)
             : _loadingArgs.contains(node.label);
-        return InkWell(
-          onTap: () => isPkg
-              ? _togglePackage(node.label)
-              : isTyp
-              ? _toggleType(node.label)
-              : _toggleObject(node.label),
-          child: Container(
-            color: rowBg,
-            padding: const EdgeInsets.fromLTRB(40, 7, 16, 7),
-            child: Row(
-              children: [
-                Icon(
-                  node.icon,
-                  size: 13,
-                  color: node.color.withValues(alpha: 0.7),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    node.label,
-                    style: TextStyle(
+        return MouseRegion(
+          onEnter: (_) => setState(() => _hoveredNodeId = node.id),
+          onExit: (_) => setState(() => _hoveredNodeId = null),
+          child: InkWell(
+            onTap: () {
+              if (isPkg) {
+                _togglePackage(node.label);
+              } else if (isTyp) {
+                _toggleType(node.label);
+              } else {
+                _toggleObject(node.label);
+              }
+              setState(() {
+                _selectedNode = node;
+                _focusedIndex = index;
+              });
+            },
+            child: Container(
+              color: selectionBg(node.color),
+              padding: const EdgeInsets.fromLTRB(40, 7, 16, 7),
+              child: Row(
+                children: [
+                  Icon(
+                    node.icon,
+                    size: 13,
+                    color: node.color.withValues(alpha: 0.7),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _highlight(
+                      node.label,
+                      textColor,
                       fontSize: 12,
-                      color: textColor,
-                      fontWeight: FontWeight.w500,
+                      weight: FontWeight.w500,
                     ),
                   ),
-                ),
-                if ((node.owner ?? '').isNotEmpty)
-                  _ownerBadge(node.owner!, subColor),
-                const SizedBox(width: 4),
-                if (!isPkg) ...[
-                  InkWell(
-                    onTap: () => _copyNode(node),
-                    borderRadius: BorderRadius.circular(4),
-                    child: Padding(
-                      padding: const EdgeInsets.all(4),
-                      child: Icon(
-                        _copiedNodes.contains(node.id)
-                            ? Icons.check_rounded
-                            : Icons.content_copy_outlined,
-                        size: 13,
-                        color: _copiedNodes.contains(node.id)
-                            ? Colors.green
-                            : subColor,
-                      ),
+                  if ((node.owner ?? '').isNotEmpty)
+                    _ownerBadge(node.owner!, subColor),
+                  AnimatedOpacity(
+                    opacity: isHovered ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 150),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(width: 4),
+                        if (!isPkg) ...[
+                          InkWell(
+                            onTap: () => _copyNode(node),
+                            borderRadius: BorderRadius.circular(4),
+                            child: Padding(
+                              padding: const EdgeInsets.all(4),
+                              child: Icon(
+                                _copiedNodes.contains(node.id)
+                                    ? Icons.check_rounded
+                                    : Icons.content_copy_outlined,
+                                size: 13,
+                                color: _copiedNodes.contains(node.id)
+                                    ? Colors.green
+                                    : subColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                        InkWell(
+                          onTap: () =>
+                              _openSource(node.label, _oracleType(node.detail)),
+                          borderRadius: BorderRadius.circular(4),
+                          child: Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: Tooltip(
+                              message: 'Ver fuente',
+                              child: Icon(
+                                Icons.integration_instructions_outlined,
+                                size: 13,
+                                color: subColor,
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (!isPkg) ...[
+                          InkWell(
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => SchemaObjectDiffPage(
+                                  objectName: node.label,
+                                  objectType: _oracleType(node.detail),
+                                  sourceAmbiente: _currentAmbiente,
+                                ),
+                              ),
+                            ),
+                            borderRadius: BorderRadius.circular(4),
+                            child: Padding(
+                              padding: const EdgeInsets.all(4),
+                              child: Icon(
+                                Icons.compare_arrows,
+                                size: 13,
+                                color: subColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                        InkWell(
+                          onTap: () => showObjectDetails(
+                            context,
+                            name: node.label,
+                            type: _oracleType(node.detail),
+                            ambiente: _currentAmbiente,
+                          ),
+                          borderRadius: BorderRadius.circular(4),
+                          child: Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: Icon(
+                              Icons.info_outline,
+                              size: 13,
+                              color: subColor,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(width: 2),
-                ],
-                InkWell(
-                  onTap: () =>
-                      _openSource(node.label, _oracleType(node.detail)),
-                  borderRadius: BorderRadius.circular(4),
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Icon(
-                      Icons.integration_instructions_outlined,
-                      size: 13,
-                      color: subColor,
-                    ),
-                  ),
-                ),
-                InkWell(
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => SchemaObjectDiffPage(
-                        objectName: node.label,
-                        objectType: _oracleType(node.detail),
-                        sourceAmbiente: _currentAmbiente,
+                  if (isObjLoading)
+                    const SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 1.5,
+                        color: Color(0xFF0078D4),
                       ),
-                    ),
-                  ),
-                  borderRadius: BorderRadius.circular(4),
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Icon(
-                      Icons.compare_arrows,
-                      size: 13,
+                    )
+                  else
+                    Icon(
+                      isObjOpen ? Icons.expand_less : Icons.expand_more,
+                      size: 14,
                       color: subColor,
                     ),
-                  ),
-                ),
-                InkWell(
-                  onTap: () => showObjectDetails(
-                    context,
-                    name: node.label,
-                    type: _oracleType(node.detail),
-                    ambiente: _currentAmbiente,
-                  ),
-                  borderRadius: BorderRadius.circular(4),
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Icon(Icons.info_outline, size: 13, color: subColor),
-                  ),
-                ),
-                const SizedBox(width: 2),
-                if (isObjLoading)
-                  const SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 1.5,
-                      color: Color(0xFF0078D4),
-                    ),
-                  )
-                else
-                  Icon(
-                    isObjOpen ? Icons.expand_less : Icons.expand_more,
-                    size: 14,
-                    color: subColor,
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         );
 
       case _NK.subprogram:
-        // id = 'sp_PKG::PROC'
         final spKey = node.id.substring(3);
         final isSpOpen = _expandedSubprogs[spKey] ?? false;
         final isFunc = node.detail == 'FUNCTION';
-        return InkWell(
-          onTap: () => _toggleSubprog(spKey),
-          child: Container(
-            color: rowBg,
-            padding: const EdgeInsets.fromLTRB(56, 6, 16, 6),
-            child: Row(
-              children: [
-                Icon(
-                  node.icon,
-                  size: 12,
-                  color: node.color.withValues(alpha: 0.8),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    node.label,
-                    style: TextStyle(fontSize: 11.5, color: textColor),
+        return MouseRegion(
+          onEnter: (_) => setState(() => _hoveredNodeId = node.id),
+          onExit: (_) => setState(() => _hoveredNodeId = null),
+          child: InkWell(
+            onTap: () {
+              _toggleSubprog(spKey);
+              setState(() {
+                _selectedNode = node;
+                _focusedIndex = index;
+              });
+            },
+            child: Container(
+              color: selectionBg(node.color),
+              padding: const EdgeInsets.fromLTRB(56, 6, 16, 6),
+              child: Row(
+                children: [
+                  Icon(
+                    node.icon,
+                    size: 12,
+                    color: node.color.withValues(alpha: 0.8),
                   ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 5,
-                    vertical: 1,
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: _highlight(node.label, textColor, fontSize: 11.5),
                   ),
-                  decoration: BoxDecoration(
-                    color: node.color.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    isFunc ? 'FN' : 'PR',
-                    style: TextStyle(
-                      fontSize: 9,
-                      color: node.color,
-                      fontWeight: FontWeight.w700,
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: node.color.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      isFunc ? 'FN' : 'PR',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: node.color,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 4),
-                InkWell(
-                  onTap: () => _copyNode(node),
-                  borderRadius: BorderRadius.circular(4),
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Icon(
-                      _copiedNodes.contains(node.id)
-                          ? Icons.check_rounded
-                          : Icons.content_copy_outlined,
-                      size: 12,
-                      color: _copiedNodes.contains(node.id)
-                          ? Colors.green
-                          : subColor,
+                  AnimatedOpacity(
+                    opacity: isHovered ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 150),
+                    child: InkWell(
+                      onTap: () => _copyNode(node),
+                      borderRadius: BorderRadius.circular(4),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Icon(
+                          _copiedNodes.contains(node.id)
+                              ? Icons.check_rounded
+                              : Icons.content_copy_outlined,
+                          size: 12,
+                          color: _copiedNodes.contains(node.id)
+                              ? Colors.green
+                              : subColor,
+                        ),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 2),
-                Icon(
-                  isSpOpen ? Icons.expand_less : Icons.expand_more,
-                  size: 13,
-                  color: subColor,
-                ),
-              ],
+                  const SizedBox(width: 2),
+                  Icon(
+                    isSpOpen ? Icons.expand_less : Icons.expand_more,
+                    size: 13,
+                    color: subColor,
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -1573,50 +2500,49 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
           'OUT' => const Color(0xFFCA5010),
           _ => subColor,
         };
-        return Container(
-          color: colBg,
-          padding: const EdgeInsets.fromLTRB(64, 5, 16, 5),
-          child: Row(
-            children: [
-              if (inOut.isNotEmpty) ...[
-                Container(
-                  width: 32,
-                  alignment: Alignment.centerLeft,
+        return InkWell(
+          onTap: () => setState(() {
+            _selectedNode = node;
+            _focusedIndex = index;
+          }),
+          child: Container(
+            color: isSelected
+                ? const Color(0xFF0078D4).withValues(alpha: 0.07)
+                : colBg,
+            padding: const EdgeInsets.fromLTRB(64, 5, 16, 5),
+            child: Row(
+              children: [
+                if (inOut.isNotEmpty) ...[
+                  SizedBox(
+                    width: 32,
+                    child: Text(
+                      inOut,
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: dirColor,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                ] else
+                  const SizedBox(width: 34),
+                Expanded(
                   child: Text(
-                    inOut,
+                    node.label,
                     style: TextStyle(
-                      fontSize: 9,
-                      color: dirColor,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.3,
+                      fontSize: 11.5,
+                      color: node.detail == null ? subColor : textColor,
+                      fontStyle: node.detail == null
+                          ? FontStyle.italic
+                          : FontStyle.normal,
                     ),
                   ),
                 ),
-                const SizedBox(width: 2),
-              ] else
-                const SizedBox(width: 34),
-              Expanded(
-                child: Text(
-                  node.label,
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    color: node.detail == null ? subColor : textColor,
-                    fontStyle: node.detail == null
-                        ? FontStyle.italic
-                        : FontStyle.normal,
-                  ),
-                ),
-              ),
-              if (node.detail != null)
-                Text(
-                  node.detail!,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: subColor,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-            ],
+                if (node.detail != null) _typeBadgeStr(node.detail!, isDark),
+              ],
+            ),
           ),
         );
     }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/procedimiento.dart';
+import '../providers/procedimientos_provider.dart';
 import 'search_tab_state.dart';
 import 'search_bar_widget.dart';
 import 'procedure_list.dart';
@@ -37,6 +38,16 @@ class SearchTabView extends StatelessWidget {
             tabState: state,
             onSelect: onSelect,
             onOpenInNewTab: onOpenInNewTab,
+            onClearFilters: () {
+              state.config = null;
+              state.estado = '1';
+              state.buscar(
+                busqueda: state.searchText,
+                cfg: null,
+                est: '1',
+                ambiente: procedimientosProvider.ambiente,
+              );
+            },
           ),
         ),
       ],
