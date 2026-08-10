@@ -516,6 +516,11 @@ class SchemaService {
   }
 
   /// Refresca el schema desde el servidor en background sin bloquear nada.
+  void dispose() {
+    _client.close();
+    status.dispose();
+  }
+
   void _refreshInBackground(SharedPreferences prefs, {String? ambiente}) {
     final env = _env(ambiente);
     status.value = SchemaLoadStatus.refreshing;

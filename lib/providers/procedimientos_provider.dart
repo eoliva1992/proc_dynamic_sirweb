@@ -1,4 +1,5 @@
 ﻿import 'dart:async';
+import 'dart:io';
 import 'package:mobx/mobx.dart';
 import '../models/procedimiento.dart';
 import '../models/configuracion_tipo.dart';
@@ -29,7 +30,7 @@ abstract class _ProcedimientosProvider with Store {
   String ambiente = 'Desa';
 
   @observable
-  String cdUsuario = '';
+  String cdUsuario = (Platform.environment['USERNAME'] ?? '').toUpperCase();
 
   @observable
   ObservableList<Procedimiento> resultados = ObservableList();
@@ -332,7 +333,8 @@ abstract class _ProcedimientosProvider with Store {
           deTexto: deTexto,
           version: procedimientoActual!.version + 1,
         );
-        mensaje = 'Compilado correctamente. Versión ${procedimientoActual!.version}';
+        mensaje =
+            'Compilado correctamente. Versión ${procedimientoActual!.version}';
         cargando = false;
       });
       return true;

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +9,7 @@ import 'package:window_manager/window_manager.dart';
 import '../models/procedimiento.dart';
 import '../providers/procedimientos_provider.dart';
 import '../services/backup_service.dart';
+import '../services/schema_service.dart';
 import '../services/sirweb_service.dart';
 import '../widgets/ambiente_selector.dart';
 import '../widgets/app_tab.dart';
@@ -150,7 +152,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   @override
   void onWindowClose() async {
     closeAllSourceWindows();
+    SchemaService.instance.dispose();
     await windowManager.destroy();
+    exit(0);
   }
 
   // Global shortcut handler — fires even when Monaco/WebView2 has focus

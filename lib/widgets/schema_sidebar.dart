@@ -63,6 +63,8 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
 
   // Datos
   List<SchemaObjectRef> _recents = [];
+  bool _recentsExpanded = false;
+  bool _favoritesExpanded = false;
   List<SchemaObjectRef> _favorites = [];
   Set<String> _favoriteKeys = {};
   SchemaMetadata? _meta;
@@ -362,51 +364,92 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
     final types = ['TABLE', 'VIEW', 'PROCEDURE', 'FUNCTION', 'PACKAGE', 'TYPE'];
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: types.map((t) {
-          final active = _activeFilters.contains(t);
-          final color = _kTypeColors[t]!;
-          final icon = _kTypeIcons[t]!;
-          return Tooltip(
-            message: _kTypeLabels[t]!,
-            child: GestureDetector(
-              onTap: () => setState(() {
-                if (active) {
-                  _activeFilters.remove(t);
-                } else {
-                  _activeFilters.add(t);
-                }
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final chipSize = ((constraints.maxWidth - 10) / types.length)
+              .floorToDouble()
+              .clamp(24.0, 32.0);
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              ...types.map((t) {
+                final active = _activeFilters.contains(t);
+                final color = _kTypeColors[t]!;
+                final icon = _kTypeIcons[t]!;
+                return Tooltip(
+                  message: _kTypeLabels[t]!,
+                  child: GestureDetector(
+                    onTap: () => setState(() {
+                      if (active) {
+                        _activeFilters.remove(t);
+                      } else {
+                        _activeFilters.add(t);
+                      }
+                    }),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 130),
+                      width: chipSize,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: active
+                            ? color.withValues(alpha: 0.16)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: active
+                              ? color.withValues(alpha: 0.8)
+                              : (isDark
+                                    ? const Color(0xFF3A3A3A)
+                                    : const Color(0xFFDDE2EA)),
+                          width: active ? 1.4 : 0.8,
+                        ),
+                      ),
+                      child: Icon(
+                        icon,
+                        size: 14,
+                        color: active
+                            ? color
+                            : (isDark ? Colors.white38 : Colors.black38),
+                      ),
+                    ),
+                  ),
+                );
               }),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 130),
-                width: 32,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: active
-                      ? color.withValues(alpha: 0.16)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(
-                    color: active
-                        ? color.withValues(alpha: 0.8)
-                        : (isDark
-                              ? const Color(0xFF3A3A3A)
-                              : const Color(0xFFDDE2EA)),
-                    width: active ? 1.4 : 0.8,
+              if (_activeFilters.isNotEmpty)
+                Tooltip(
+                  message: 'Limpiar filtros',
+                  child: GestureDetector(
+                    onTap: () => setState(() => _activeFilters.clear()),
+                    child: Container(
+                      height: 22,
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0078D4).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: const Color(0xFF0078D4).withValues(alpha: 0.4),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '× ${_activeFilters.length}',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF0078D4),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-                child: Icon(
-                  icon,
-                  size: 14,
-                  color: active
-                      ? color
-                      : (isDark ? Colors.white38 : Colors.black38),
-                ),
-              ),
-            ),
+            ],
           );
-        }).toList(),
+        },
       ),
     );
   }
@@ -464,6 +507,9 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
             const Color(0xFFF4C430),
             isDark,
             isFavoriteSection: true,
+            expanded: _favoritesExpanded,
+            onToggleExpand: () =>
+                setState(() => _favoritesExpanded = !_favoritesExpanded),
           ),
         if (_filter.isEmpty && _recents.isNotEmpty)
           ..._buildSavedSection(
@@ -473,6 +519,9 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
             const Color(0xFF0078D4),
             isDark,
             isFavoriteSection: false,
+            expanded: _recentsExpanded,
+            onToggleExpand: () =>
+                setState(() => _recentsExpanded = !_recentsExpanded),
           ),
         ..._buildSchemaTree(meta, isDark),
       ],
@@ -486,9 +535,12 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
     Color sectionColor,
     bool isDark, {
     required bool isFavoriteSection,
+    bool expanded = false,
+    VoidCallback? onToggleExpand,
   }) {
     const maxShow = 5;
-    final shown = items.take(maxShow).toList();
+    final hasMore = items.length > maxShow;
+    final shown = (!expanded && hasMore) ? items.take(maxShow).toList() : items;
     return [
       SliverToBoxAdapter(
         child: _savedSectionHeader(
@@ -517,6 +569,23 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
           childCount: shown.length,
         ),
       ),
+      if (hasMore)
+        SliverToBoxAdapter(
+          child: GestureDetector(
+            onTap: onToggleExpand,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              child: Text(
+                expanded ? 'Ver menos ↑' : '+ ${items.length - maxShow} más',
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Color(0xFF0078D4),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ),
+        ),
     ];
   }
 

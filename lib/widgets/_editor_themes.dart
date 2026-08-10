@@ -180,20 +180,20 @@ class EditorThemeStore extends ChangeNotifier {
 
   /// Registers all custom theme definitions in a MonacoController.
   /// Must be called in onReady before setTheme with a custom id.
-  static Future<void> defineAllThemes(MonacoController ctrl) async {
-    await ctrl.defineTheme(oracleDark);
-    await ctrl.defineTheme(oracleLight);
-    await ctrl.defineTheme(monokaiDef);
-    await ctrl.defineTheme(draculaDef);
-    await ctrl.defineTheme(solarizedDarkDef);
-    await ctrl.defineTheme(solarizedLightDef);
-    await ctrl.defineTheme(oneDarkDef);
-    await ctrl.defineTheme(githubDarkDef);
-    await ctrl.defineTheme(githubLightDef);
-    await ctrl.defineTheme(nordDef);
-    await ctrl.defineTheme(tokyoNightDef);
-    await ctrl.defineTheme(catppuccinMochaDef);
-  }
+  static Future<void> defineAllThemes(MonacoController ctrl) => Future.wait([
+    ctrl.defineTheme(oracleDark),
+    ctrl.defineTheme(oracleLight),
+    ctrl.defineTheme(monokaiDef),
+    ctrl.defineTheme(draculaDef),
+    ctrl.defineTheme(solarizedDarkDef),
+    ctrl.defineTheme(solarizedLightDef),
+    ctrl.defineTheme(oneDarkDef),
+    ctrl.defineTheme(githubDarkDef),
+    ctrl.defineTheme(githubLightDef),
+    ctrl.defineTheme(nordDef),
+    ctrl.defineTheme(tokyoNightDef),
+    ctrl.defineTheme(catppuccinMochaDef),
+  ]);
 }
 
 final editorThemeStore = EditorThemeStore();

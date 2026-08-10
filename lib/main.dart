@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:toastification/toastification.dart';
 import 'package:window_manager/window_manager.dart';
@@ -8,9 +9,17 @@ import 'services/favorites_service.dart';
 import 'services/schema_service.dart';
 import 'widgets/_editor_themes.dart';
 import 'widgets/object_source_page.dart';
+import 'widgets/source_float_window.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Ensure clean exit when flutter run is stopped (Ctrl+C / VS Code stop)
+  // Without this, WebView2 leaves locks that block the next run.
+  ProcessSignal.sigint.watch().listen((_) {
+    closeAllSourceWindows();
+    exit(0);
+  });
 
   // ── Secondary window: source viewer ──────────────────────────────────────
   final sourceArg = args.where((a) => a.startsWith('--source=')).firstOrNull;

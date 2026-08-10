@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
+import '../models/configuracion_tipo.dart';
 import '../providers/procedimientos_provider.dart';
 import 'ambiente_selector.dart';
 import 'search_tab_state.dart';
@@ -101,6 +102,9 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
       builder: (context, child) => Observer(
         builder: (context) {
           final provider = procedimientosProvider;
+          // Read observable length to register MobX tracking on configuraciones
+          final configuraciones = provider.configuraciones;
+          final _ = configuraciones.length;
           final hasSearched = widget.tabState.hasSearched;
           // Sync filter local state when mutated externally (e.g., clear from results panel)
           final stateConfig = widget.tabState.config;
@@ -158,7 +162,7 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
                           padding: const EdgeInsets.only(top: 6),
                           child: Row(
                             children: [
-                              _buildConfigFilter(provider, cs),
+                              _buildConfigFilter(configuraciones, cs),
                               const SizedBox(width: 8),
                               _buildEstadoFilter(cs),
                               if (_hasActiveFilters)
@@ -346,9 +350,7 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
     );
   }
 
-  Widget _buildConfigFilter(ProcedimientosProvider provider, ColorScheme cs) {
-    final configs = provider.configuraciones;
-
+  Widget _buildConfigFilter(List<ConfiguracionTipo> configs, ColorScheme cs) {
     return Container(
       height: 38,
       padding: const EdgeInsets.symmetric(horizontal: 8),

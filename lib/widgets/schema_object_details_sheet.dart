@@ -1,8 +1,10 @@
 ﻿import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../screens/schema_object_diff_page.dart';
 import '../services/schema_recents_service.dart';
 import '../services/schema_service.dart';
 import 'ambiente_selector.dart';
+import 'app_toast.dart';
 import 'source_float_window.dart';
 
 Future<void> showObjectDetails(
@@ -565,9 +567,16 @@ class _ColumnsViewState extends State<_ColumnsView>
           );
         if (snap.hasError)
           return Center(
-            child: Text(
-              'Error al cargar columnas',
-              style: TextStyle(color: Colors.red.shade400, fontSize: 13),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.error_outline, size: 32, color: Colors.red.shade400),
+                const SizedBox(height: 8),
+                Text(
+                  'Error al cargar columnas',
+                  style: TextStyle(color: Colors.red.shade400, fontSize: 13),
+                ),
+              ],
             ),
           );
         final cols = snap.data!;
@@ -590,48 +599,60 @@ class _ColumnsViewState extends State<_ColumnsView>
                 itemCount: cols.length,
                 itemBuilder: (_, i) {
                   final c = cols[i];
-                  return Container(
-                    color: _rowBg(isDark, i),
-                    padding: const EdgeInsets.fromLTRB(16, 7, 16, 7),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          flex: 1,
-                          child: Text(
-                            '${i + 1}',
-                            textAlign: TextAlign.right,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontFamily: 'Consolas',
-                              color: sc,
+                  return InkWell(
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: c.name));
+                      AppToast.info('Copiado: ${c.name}');
+                    },
+                    mouseCursor: SystemMouseCursors.click,
+                    child: Container(
+                      color: _rowBg(isDark, i),
+                      padding: const EdgeInsets.fromLTRB(16, 7, 16, 7),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            flex: 1,
+                            child: Text(
+                              '${i + 1}',
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontFamily: 'Consolas',
+                                color: sc,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          flex: 5,
-                          child: Text(
-                            c.name,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontFamily: 'Consolas',
-                              color: tc,
-                              fontWeight: FontWeight.w500,
+                          const SizedBox(width: 16),
+                          Expanded(
+                            flex: 5,
+                            child: Tooltip(
+                              message: c.name,
+                              waitDuration: const Duration(milliseconds: 500),
+                              child: Text(
+                                c.name,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontFamily: 'Consolas',
+                                  color: tc,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           ),
-                        ),
-                        Expanded(
-                          flex: 4,
-                          child: Text(
-                            c.dataType,
-                            style: const TextStyle(
-                              fontSize: 11.5,
-                              fontFamily: 'Consolas',
-                              color: Color(0xFF0078D4),
+                          Expanded(
+                            flex: 4,
+                            child: Text(
+                              c.dataType,
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                fontFamily: 'Consolas',
+                                color: Color(0xFF0078D4),
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   );
                 },
@@ -685,9 +706,16 @@ class _ParamsViewState extends State<_ParamsView>
           );
         if (snap.hasError)
           return Center(
-            child: Text(
-              'Error al cargar parámetros',
-              style: TextStyle(color: Colors.red.shade400, fontSize: 13),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.error_outline, size: 32, color: Colors.red.shade400),
+                const SizedBox(height: 8),
+                Text(
+                  'Error al cargar parámetros',
+                  style: TextStyle(color: Colors.red.shade400, fontSize: 13),
+                ),
+              ],
             ),
           );
         final args = snap.data!;
@@ -716,78 +744,90 @@ class _ParamsViewState extends State<_ParamsView>
                     'OUT' => const Color(0xFFCA5010),
                     _ => const Color(0xFF8764B8),
                   };
-                  return Container(
-                    color: _rowBg(isDark, i),
-                    padding: const EdgeInsets.fromLTRB(16, 7, 16, 7),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          flex: 1,
-                          child: Text(
-                            '${i + 1}',
-                            textAlign: TextAlign.right,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontFamily: 'Consolas',
-                              color: sc,
+                  return InkWell(
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: a.name));
+                      AppToast.info('Copiado: ${a.name}');
+                    },
+                    mouseCursor: SystemMouseCursors.click,
+                    child: Container(
+                      color: _rowBg(isDark, i),
+                      padding: const EdgeInsets.fromLTRB(16, 7, 16, 7),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            flex: 1,
+                            child: Text(
+                              '${i + 1}',
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontFamily: 'Consolas',
+                                color: sc,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          flex: 5,
-                          child: Text(
-                            a.name,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontFamily: 'Consolas',
-                              color: tc,
-                              fontWeight: FontWeight.w500,
+                          const SizedBox(width: 16),
+                          Expanded(
+                            flex: 5,
+                            child: Tooltip(
+                              message: a.name,
+                              waitDuration: const Duration(milliseconds: 500),
+                              child: Text(
+                                a.name,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontFamily: 'Consolas',
+                                  color: tc,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           ),
-                        ),
-                        Expanded(
-                          flex: 2,
-                          child: a.inOut.isEmpty
-                              ? const SizedBox.shrink()
-                              : Center(
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: dc.withValues(alpha: 0.12),
-                                      borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(
-                                        color: dc.withValues(alpha: 0.4),
-                                        width: 0.8,
+                          Expanded(
+                            flex: 2,
+                            child: a.inOut.isEmpty
+                                ? const SizedBox.shrink()
+                                : Center(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 2,
                                       ),
-                                    ),
-                                    child: Text(
-                                      a.inOut,
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: dc,
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 0.5,
+                                      decoration: BoxDecoration(
+                                        color: dc.withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(
+                                          color: dc.withValues(alpha: 0.4),
+                                          width: 0.8,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        a.inOut,
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: dc,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 0.5,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                        ),
-                        Expanded(
-                          flex: 4,
-                          child: Text(
-                            a.dataType,
-                            style: const TextStyle(
-                              fontSize: 11.5,
-                              fontFamily: 'Consolas',
-                              color: Color(0xFF0078D4),
+                          ),
+                          Expanded(
+                            flex: 4,
+                            child: Text(
+                              a.dataType,
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                fontFamily: 'Consolas',
+                                color: Color(0xFF0078D4),
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   );
                 },

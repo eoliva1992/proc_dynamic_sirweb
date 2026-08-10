@@ -89,6 +89,7 @@ class _ProcedureListState extends State<ProcedureList>
   }
 
   void _onScroll() {
+    if (widget.tabState.cargando) return;
     if (_scrollController.position.pixels >=
         _scrollController.position.maxScrollExtent - 200) {
       widget.tabState.cargarMas(ambiente: procedimientosProvider.ambiente);

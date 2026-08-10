@@ -83,7 +83,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   MonacoCompletionRegistration? _completionReg;
   MonacoCompletionRegistration? _variablesReg;
   MonacoCompletionRegistration? _schemaReg; // tablas, columnas, objetos Oracle
-  String _editorFullText = ''; // texto completo actual del editor
+  String _editorFullText = '';
+  // Cache for _extractFromTables — avoids regex on full text for each keystroke
+  int? _fromExtractHash;
+  Map<String, String> _fromExtractResult = {};
   ReactionDisposer? _variablesReaction;
 
   // ── Opciones del editor (persisten en SharedPreferences) ──────────────
@@ -402,7 +405,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     if (_isActiveJs) return;
     _debounce?.cancel();
     _debounce = Timer(
-      const Duration(milliseconds: 600),
+      const Duration(milliseconds: 1200),
       () => _checkPlSql(code),
     );
   }
@@ -411,13 +414,13 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     final ctrl = _ctrl;
     if (ctrl == null) return;
 
-    // ANTLR4 corre en el WebView2 (V8); fallback al checker manual mientras carga
     List<PlSqlIssue> issues;
-    if (_antlrReady) {
+    // Skip ANTLR for very large files — Dart fallback is much faster
+    if (_antlrReady && code.length < 40000) {
       try {
-        await ctrl.runJavaScript('window.__plsqlCode=${jsonEncode(code)};');
+        // Read text directly from Monaco model — avoids jsonEncode + bridge transfer
         final raw = await ctrl.evaluateJavaScript<String>(
-          '__checkPlSql(window.__plsqlCode)',
+          'try{__checkPlSql(_editor.getValue())}catch(e){null}',
         );
         issues = raw != null ? _parseAntlrResult(raw) : checkPlSqlSyntax(code);
       } catch (_) {
@@ -642,6 +645,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   /// Extrae { ALIAS_UPPER → TABLA_REAL_UPPER } del texto completo del documento.
   /// Detecta: FROM tabla [alias], FROM tabla AS alias, JOIN tabla [alias]
   Map<String, String> _extractFromTables(String sql) {
+    final hash = sql.hashCode ^ sql.length;
+    if (hash == _fromExtractHash) return _fromExtractResult;
     final result = <String, String>{};
 
     void add(String table, String? alias) {
@@ -691,6 +696,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       add(m.group(1)!, m.group(2));
     }
 
+    _fromExtractHash = sql.hashCode ^ sql.length;
+    _fromExtractResult = result;
     return result;
   }
 
@@ -1989,14 +1996,6 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         .where((e) => e.severity == MarkerSeverity.error)
         .length;
     final n = syntaxErrors + compileErrors;
-    final hasAny =
-        n > 0 ||
-        (_compileErrorsPerProc[procId]?.isNotEmpty ?? false) ||
-        (_issuesPerProc[procId]?.any(
-              (e) => e.severity == MarkerSeverity.warning,
-            ) ??
-            false);
-
     final badge = Container(
       margin: const EdgeInsets.only(right: 6),
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),

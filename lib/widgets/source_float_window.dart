@@ -7,23 +7,6 @@ import '../widgets/ambiente_selector.dart';
 import 'app_toast.dart';
 import 'object_source_page.dart';
 
-const _kTypeColors = {
-  'TABLE': Color(0xFF0078D4),
-  'VIEW': Color(0xFF107C10),
-  'PROCEDURE': Color(0xFFCA5010),
-  'FUNCTION': Color(0xFF8764B8),
-  'PACKAGE': Color(0xFFC19C00),
-  'TYPE': Color(0xFF2E7D9E),
-};
-const _kTypeIcons = {
-  'TABLE': Icons.table_chart_outlined,
-  'VIEW': Icons.visibility_outlined,
-  'PROCEDURE': Icons.code_rounded,
-  'FUNCTION': Icons.functions_rounded,
-  'PACKAGE': Icons.inventory_2_outlined,
-  'TYPE': Icons.data_object_outlined,
-};
-
 // Tracks live child source-viewer processes so they can be killed on main-window close.
 final _childProcesses = <Process>{};
 
@@ -69,10 +52,14 @@ void _openNewProcess(
   required String ambiente,
 }) {
   try {
-    // inheritStdio: child shares parent's console handles — avoids pipe-buffer deadlock in debug mode.
+    // normal mode keeps streams piped (not shared) so the child's VM service URI
+    // never appears on the parent's stdout — that was causing Flutter tooling to
+    // lose connection on hot restart. Drain streams to prevent pipe-buffer deadlock.
     Process.start(Platform.resolvedExecutable, [
       '--source=$name::$objectType::$ambiente',
-    ], mode: ProcessStartMode.inheritStdio).then((process) {
+    ]).then((process) {
+      process.stdout.listen(null);
+      process.stderr.listen(null);
       _childProcesses.add(process);
       process.exitCode.then((_) => _childProcesses.remove(process));
     });
@@ -170,7 +157,7 @@ class _SourceFloatWindowState extends State<_SourceFloatWindow>
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final color = _kTypeColors[widget.objectType] ?? Colors.blueGrey;
+    final color = kTypeColors[widget.objectType] ?? Colors.blueGrey;
     final ambColor = AmbienteSelector.colorForAmbiente(widget.ambiente);
 
     return Material(
@@ -313,7 +300,7 @@ class _SourceFloatWindowState extends State<_SourceFloatWindow>
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Icon(
-                _kTypeIcons[widget.objectType] ?? Icons.storage_outlined,
+                kTypeIcons[widget.objectType] ?? Icons.storage_outlined,
                 size: 14,
                 color: color,
               ),

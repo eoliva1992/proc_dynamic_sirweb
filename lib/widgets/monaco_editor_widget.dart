@@ -7,6 +7,9 @@ import 'package:flutter_monaco/flutter_monaco.dart' as fm;
 import '../services/schema_service.dart';
 import '_editor_themes.dart';
 
+// Cached per-ambiente so jsonEncode doesn't run on every editor open
+final Map<String, String> _schemaPayloadCache = {};
+
 // ─── Modelo de error (lo que el panel pasa desde _SyntaxError) ───────────────
 class MonacoError {
   final int line;
@@ -110,25 +113,25 @@ class MonacoEditorController {
   /// Las columnas se envían bajo demanda cuando el usuario escribe "TABLA.".
   Future<void> loadAndSendSchema({String ambiente = 'Desa'}) async {
     try {
-      final schema = await SchemaService.instance.getMetadata(
-        ambiente: ambiente,
-      );
-
-      final payload = jsonEncode({
-        'action': 'setCompletionSchema',
-        'tables': schema.tables,
-        'views': schema.views,
-        'objects': schema.objects
-            .map((o) => {'name': o.name, 'type': o.type})
-            .toList(),
-      });
-
+      String? payload = _schemaPayloadCache[ambiente];
+      if (payload == null) {
+        final schema = await SchemaService.instance.getMetadata(
+          ambiente: ambiente,
+        );
+        payload = jsonEncode({
+          'action': 'setCompletionSchema',
+          'tables': schema.tables,
+          'views': schema.views,
+          'objects': schema.objects
+              .map((o) => {'name': o.name, 'type': o.type})
+              .toList(),
+        });
+        _schemaPayloadCache[ambiente] = payload;
+      }
       _enqueue((ctrl) async {
         await ctrl.runJavaScript('monacoReceiveMessage($payload)');
       });
-    } catch (_) {
-      // Schema no crítico — el editor sigue funcionando sin autocompletado
-    }
+    } catch (_) {}
   }
 
   /// Carga las columnas de [tableName] y las envía a Monaco.
