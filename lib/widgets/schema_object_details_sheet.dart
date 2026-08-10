@@ -1,6 +1,9 @@
 ﻿import 'package:flutter/material.dart';
+import '../screens/schema_object_diff_page.dart';
+import '../services/schema_recents_service.dart';
 import '../services/schema_service.dart';
 import 'ambiente_selector.dart';
+import 'source_float_window.dart';
 
 Future<void> showObjectDetails(
   BuildContext context, {
@@ -8,6 +11,9 @@ Future<void> showObjectDetails(
   required String type,
   required String ambiente,
 }) {
+  SchemaRecentsService.instance.addRecent(
+    SchemaObjectRef(name: name, type: type, ambiente: ambiente),
+  );
   return showGeneralDialog(
     context: context,
     barrierDismissible: true,
@@ -18,7 +24,7 @@ Future<void> showObjectDetails(
       opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
       child: child,
     ),
-    pageBuilder: (ctx, _, _2) =>
+    pageBuilder: (ctx, _, anim2) =>
         _ObjectDetailsModal(name: name, type: type, ambiente: ambiente),
   );
 }
@@ -42,7 +48,7 @@ const _kTypeIcons = {
 Color _tc(String t) => _kTypeColors[t] ?? Colors.grey;
 IconData _ti(String t) => _kTypeIcons[t] ?? Icons.storage_outlined;
 
-class _ObjectDetailsModal extends StatelessWidget {
+class _ObjectDetailsModal extends StatefulWidget {
   final String name;
   final String type;
   final String ambiente;
@@ -51,6 +57,57 @@ class _ObjectDetailsModal extends StatelessWidget {
     required this.type,
     required this.ambiente,
   });
+
+  @override
+  State<_ObjectDetailsModal> createState() => _ObjectDetailsModalState();
+}
+
+class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
+  bool _isFavorite = false;
+
+  String get name => widget.name;
+  String get type => widget.type;
+  String get ambiente => widget.ambiente;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFavoriteState();
+  }
+
+  Future<void> _loadFavoriteState() async {
+    final fav = await SchemaRecentsService.instance.isFavorite(
+      SchemaObjectRef(name: name, type: type, ambiente: ambiente),
+    );
+    if (mounted) setState(() => _isFavorite = fav);
+  }
+
+  Future<void> _toggleFavorite() async {
+    final ref = SchemaObjectRef(name: name, type: type, ambiente: ambiente);
+    if (_isFavorite) {
+      await SchemaRecentsService.instance.removeFavorite(ref);
+    } else {
+      await SchemaRecentsService.instance.addFavorite(ref);
+    }
+    if (mounted) setState(() => _isFavorite = !_isFavorite);
+  }
+
+  void _openSource() {
+    Navigator.of(context).pop();
+    openSourceWindow(context, name: name, objectType: type, ambiente: ambiente);
+  }
+
+  void _openDiff() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SchemaObjectDiffPage(
+          objectName: name,
+          objectType: type,
+          sourceAmbiente: ambiente,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -109,8 +166,9 @@ class _ObjectDetailsModal extends StatelessWidget {
 
   Widget _buildHeader(BuildContext context, bool isDark, Color color) {
     final ambColor = AmbienteSelector.colorForAmbiente(ambiente);
+    final hasSource = type != 'TABLE';
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA),
         border: Border(
@@ -129,7 +187,7 @@ class _ObjectDetailsModal extends StatelessWidget {
             ),
             child: Icon(_ti(type), size: 20, color: color),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -138,7 +196,7 @@ class _ObjectDetailsModal extends StatelessWidget {
                 Text(
                   name,
                   style: const TextStyle(
-                    fontSize: 16,
+                    fontSize: 15,
                     fontWeight: FontWeight.w700,
                     fontFamily: 'Consolas',
                   ),
@@ -155,11 +213,48 @@ class _ObjectDetailsModal extends StatelessWidget {
               ],
             ),
           ),
+          const SizedBox(width: 8),
+          // ── Acciones con etiqueta ────────────────────────────────────
+          if (hasSource)
+            _LabeledAction(
+              icon: Icons.code_rounded,
+              label: 'Fuente',
+              color: color,
+              isDark: isDark,
+              onTap: _openSource,
+            ),
+          const SizedBox(width: 4),
+          _LabeledAction(
+            icon: Icons.compare_arrows_rounded,
+            label: 'Comparar',
+            color: color,
+            isDark: isDark,
+            onTap: _openDiff,
+          ),
+          // Favorito
+          const SizedBox(width: 4),
+          Tooltip(
+            message: _isFavorite
+                ? 'Quitar de favoritos'
+                : 'Agregar a favoritos',
+            child: IconButton(
+              onPressed: _toggleFavorite,
+              icon: Icon(
+                _isFavorite ? Icons.star_rounded : Icons.star_border_rounded,
+                size: 20,
+                color: _isFavorite
+                    ? const Color(0xFFF4C430)
+                    : (isDark ? Colors.white38 : Colors.black38),
+              ),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.close, size: 18),
             onPressed: () => Navigator.of(context).pop(),
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
           ),
         ],
       ),
@@ -211,6 +306,126 @@ class _ObjectDetailsModal extends StatelessWidget {
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
+
+class _LabeledAction extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final bool isDark;
+  final VoidCallback onTap;
+  const _LabeledAction({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.isDark,
+    required this.onTap,
+  });
+  @override
+  State<_LabeledAction> createState() => _LabeledActionState();
+}
+
+class _LabeledActionState extends State<_LabeledAction> {
+  bool _hovered = false;
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 130),
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+          decoration: BoxDecoration(
+            color: _hovered
+                ? widget.color.withValues(alpha: widget.isDark ? 0.18 : 0.10)
+                : (widget.isDark
+                      ? const Color(0xFF2D2D2D)
+                      : const Color(0xFFF0F2F5)),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: _hovered
+                  ? widget.color.withValues(alpha: 0.5)
+                  : (widget.isDark
+                        ? const Color(0xFF3A3A3A)
+                        : const Color(0xFFDDE2EA)),
+              width: 0.8,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                widget.icon,
+                size: 13,
+                color: _hovered
+                    ? widget.color
+                    : (widget.isDark ? Colors.white54 : Colors.black45),
+              ),
+              const SizedBox(width: 5),
+              Text(
+                widget.label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: _hovered
+                      ? widget.color
+                      : (widget.isDark ? Colors.white54 : Colors.black45),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionButton extends StatefulWidget {
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+  const _ActionButton({
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+  @override
+  State<_ActionButton> createState() => _ActionButtonState();
+}
+
+class _ActionButtonState extends State<_ActionButton> {
+  bool _hovered = false;
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          margin: const EdgeInsets.symmetric(horizontal: 2),
+          padding: const EdgeInsets.all(7),
+          decoration: BoxDecoration(
+            color: _hovered
+                ? widget.color.withValues(alpha: isDark ? 0.18 : 0.10)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Icon(
+            widget.icon,
+            size: 18,
+            color: _hovered
+                ? widget.color
+                : (isDark ? Colors.white54 : Colors.black45),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _TH extends StatelessWidget {
   final List<(String, int, TextAlign)> cols;

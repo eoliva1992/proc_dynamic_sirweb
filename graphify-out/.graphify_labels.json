@@ -2629,5 +2629,14 @@
   "2627": ".visitZonemap_clause",
   "2628": ".visitZonemap_name",
   "2629": "schema_service_clean.dart",
-  "2630": "MonacoController?"
+  "2630": "MonacoController?",
+  "2631": ".visitXmlindex_clause",
+  "2632": ".visitXmlroot_param_version_part",
+  "2633": ".visitXmlserialize_param_enconding_part",
+  "2634": ".visitXmlserialize_param_ident_part",
+  "2635": ".visitXmltype_virtual_columns",
+  "2636": ".visitZonemap_refresh_clause",
+  "2637": "Future",
+  "2638": "SchemaMetadata",
+  "2639": "SirwebService"
 }

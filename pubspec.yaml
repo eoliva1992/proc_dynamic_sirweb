@@ -18,6 +18,7 @@ dependencies:
   shared_preferences: ^2.3.0
   toastification: ^3.2.0
   file_picker: ^11.0.3
+  window_manager: ^0.5.2
 dev_dependencies:
   flutter_test:
     sdk: flutter

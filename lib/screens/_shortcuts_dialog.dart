@@ -4,6 +4,7 @@ class _ShortcutsDialog extends StatelessWidget {
   const _ShortcutsDialog();
 
   static const _shortcuts = [
+    ('Ctrl + K', 'Búsqueda rápida de esquema'),
     ('Ctrl + S', 'Guardar procedimiento'),
     ('Ctrl + T', 'Nueva pestaña de búsqueda'),
     ('Ctrl + W', 'Cerrar pestaña activa'),

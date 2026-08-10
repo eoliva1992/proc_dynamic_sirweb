@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/schema_service.dart';
 import '../widgets/ambiente_selector.dart';
-import '../widgets/object_source_page.dart';
 import '../widgets/schema_object_details_sheet.dart';
+import '../widgets/source_float_window.dart';
 import '../screens/schema_object_diff_page.dart';
 
 /// Abre el explorador de esquema con fondo semi-transparente.
@@ -329,14 +329,11 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
   }
 
   void _openSource(String name, String objectType) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => ObjectSourcePage(
-          name: name,
-          objectType: objectType,
-          ambiente: _currentAmbiente,
-        ),
-      ),
+    openSourceWindow(
+      context,
+      name: name,
+      objectType: objectType,
+      ambiente: _currentAmbiente,
     );
   }
 

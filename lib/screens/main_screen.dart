@@ -14,7 +14,8 @@ import '../widgets/code_editor_panel.dart';
 import '../widgets/config_badge.dart';
 import '../widgets/_editor_themes.dart';
 import '../widgets/new_procedure_dialog.dart';
-import '../widgets/schema_browser_modal.dart';
+import '../widgets/schema_command_palette.dart';
+import '../widgets/schema_sidebar.dart';
 import '../widgets/schema_status_overlay.dart';
 import '../widgets/app_toast.dart';
 import '../widgets/search_tab_view.dart';
@@ -38,6 +39,10 @@ class _MainScreenState extends State<MainScreen> {
   int _activeTab = 0;
   int? _loadingTabIndex;
   bool _syncingActiveTab = false;
+  bool _schemaSidebarOpen = false;
+  double _sidebarWidth = 290.0;
+  static const _minSidebarW = 180.0;
+  static const _maxSidebarW = 540.0;
   late ReactionDisposer _tabReaction;
 
   // LRU list of tab IDs kept alive in the IndexedStack (search tabs only)
@@ -157,6 +162,9 @@ class _MainScreenState extends State<MainScreen> {
           return true;
         case LogicalKeyboardKey.tab:
           _cycleTab(1);
+          return true;
+        case LogicalKeyboardKey.keyK:
+          _showSchemaCommandPalette(context);
           return true;
         default:
           break;
@@ -570,8 +578,8 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  void _showSchemaBrowser(BuildContext context) {
-    showSchemaBrowser(context, ambiente: _tabs[_activeTab].ambiente);
+  void _showSchemaCommandPalette(BuildContext context) {
+    showSchemaCommandPalette(context, ambiente: _tabs[_activeTab].ambiente);
   }
 
   void _showShortcutsHelp(BuildContext context) {
@@ -933,40 +941,81 @@ class _MainScreenState extends State<MainScreen> {
         autofocus: true,
         child: Scaffold(
           appBar: _buildAppBar(context),
-          body: Stack(
+          body: Row(
             children: [
-              Column(
-                children: [
-                  _MainTabBar(
-                    tabs: _tabs,
-                    activeTab: _activeTab,
-                    onActivate: _activateTab,
-                    onClose: _closeTab,
-                    onAdd: _addSearchTab,
-                    onReorder: _onTabReorder,
-                  ),
-                  Expanded(
-                    child: IndexedStack(
-                      index: _activeTab,
-                      children: [
-                        for (final tab in _tabs)
-                          _TabFadeIn(
-                            key: ValueKey(tab.tabId),
-                            child: _isLive(tab)
-                                ? _buildTabContent(tab)
-                                : SizedBox.shrink(
-                                    key: ValueKey('dead_${tab.tabId}'),
-                                  ),
-                          ),
-                      ],
+              SchemaSidebar(
+                isOpen: _schemaSidebarOpen,
+                onToggle: () =>
+                    setState(() => _schemaSidebarOpen = !_schemaSidebarOpen),
+                ambiente: _tabs[_activeTab].ambiente,
+                width: _sidebarWidth,
+              ),
+              // Drag handle — visible only when sidebar is open
+              if (_schemaSidebarOpen)
+                GestureDetector(
+                  onHorizontalDragUpdate: (d) {
+                    setState(() {
+                      _sidebarWidth = (_sidebarWidth + d.delta.dx)
+                          .clamp(_minSidebarW, _maxSidebarW);
+                    });
+                  },
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.resizeColumn,
+                    child: Container(
+                      width: 5,
+                      color: Colors.transparent,
+                      child: Center(
+                        child: Container(
+                          width: 1,
+                          color: Theme.of(context).dividerColor,
+                        ),
+                      ),
                     ),
                   ),
-                ],
-              ),
-              const Positioned(
-                left: 12,
-                bottom: 12,
-                child: SchemaStatusOverlay(),
+                )
+              else
+                SchemaSidebarToggle(
+                  onToggle: () =>
+                      setState(() => _schemaSidebarOpen = true),
+                ),
+              Expanded(
+                child: Stack(
+                  children: [
+                    Column(
+                      children: [
+                        _MainTabBar(
+                          tabs: _tabs,
+                          activeTab: _activeTab,
+                          onActivate: _activateTab,
+                          onClose: _closeTab,
+                          onAdd: _addSearchTab,
+                          onReorder: _onTabReorder,
+                        ),
+                        Expanded(
+                          child: IndexedStack(
+                            index: _activeTab,
+                            children: [
+                              for (final tab in _tabs)
+                                _TabFadeIn(
+                                  key: ValueKey(tab.tabId),
+                                  child: _isLive(tab)
+                                      ? _buildTabContent(tab)
+                                      : SizedBox.shrink(
+                                          key: ValueKey('dead_${tab.tabId}'),
+                                        ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Positioned(
+                      left: 12,
+                      bottom: 12,
+                      child: SchemaStatusOverlay(),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -1587,10 +1636,18 @@ class _MainScreenState extends State<MainScreen> {
       ),
       actions: [
         Tooltip(
-          message: 'Explorador de esquema',
+          message: _schemaSidebarOpen ? 'Cerrar explorador de esquema' : 'Abrir explorador de esquema',
           child: IconButton(
-            onPressed: () => _showSchemaBrowser(context),
-            icon: const Icon(Icons.storage_rounded),
+            onPressed: () => setState(() => _schemaSidebarOpen = !_schemaSidebarOpen),
+            icon: Icon(_schemaSidebarOpen ? Icons.menu_open_rounded : Icons.schema_outlined),
+            color: _schemaSidebarOpen ? Colors.white : Colors.white70,
+          ),
+        ),
+        Tooltip(
+          message: 'Búsqueda rápida de esquema (Ctrl+K)',
+          child: IconButton(
+            onPressed: () => _showSchemaCommandPalette(context),
+            icon: const Icon(Icons.search_rounded),
             color: Colors.white70,
           ),
         ),

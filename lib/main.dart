@@ -1,14 +1,49 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:toastification/toastification.dart';
+import 'package:window_manager/window_manager.dart';
 import 'providers/theme_provider.dart';
 import 'screens/main_screen.dart';
 import 'services/favorites_service.dart';
 import 'services/schema_service.dart';
 import 'widgets/_editor_themes.dart';
+import 'widgets/object_source_page.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // ── Secondary window: source viewer ──────────────────────────────────────
+  final sourceArg = args.where((a) => a.startsWith('--source=')).firstOrNull;
+  if (sourceArg != null) {
+    final params = sourceArg.substring('--source='.length).split('::');
+    if (params.length >= 3) {
+      await windowManager.ensureInitialized();
+      WindowOptions opts = WindowOptions(
+        size: const Size(920, 680),
+        center: true,
+        title: '${params[0]} — ${params[1]}',
+        minimumSize: const Size(480, 320),
+        backgroundColor: Colors.transparent,
+        skipTaskbar: false,
+      );
+      await windowManager.waitUntilReadyToShow(opts, () async {
+        await windowManager.show();
+        await windowManager.focus();
+      });
+      await editorThemeStore.loadFromPrefs();
+      runApp(
+        SourceViewerApp(
+          name: params[0],
+          objectType: params[1],
+          ambiente: params[2],
+        ),
+      );
+      return;
+    }
+  }
+
+  // ── Main window ───────────────────────────────────────────────────────────
+  await windowManager.ensureInitialized();
   await themeStore.loadFromPrefs();
   await editorThemeStore.loadFromPrefs();
   await FavoritesService.load();
@@ -155,7 +190,7 @@ class ProcDynamicApp extends StatelessWidget {
 
   // ── Per-theme definitions ───────────────────────────────────────────────
 
-  static ThemeData _buildThemeFor(String id) => switch (id) {
+  static ThemeData buildThemeFor(String id) => switch (id) {
     'monokai' => _dark(
       primary: const Color(0xFFA6E22E),
       scaffoldBg: const Color(0xFF272822),
@@ -361,8 +396,42 @@ class ProcDynamicApp extends StatelessWidget {
         builder: (_, _) => MaterialApp(
           title: 'Procedimientos Dinámicos',
           debugShowCheckedModeBanner: false,
-          theme: _buildThemeFor(editorThemeStore.themeId),
+          theme: ProcDynamicApp.buildThemeFor(editorThemeStore.themeId),
           home: const MainScreen(),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Ventana secundaria: visor de código fuente ────────────────────────────────
+
+class SourceViewerApp extends StatelessWidget {
+  final String name;
+  final String objectType;
+  final String ambiente;
+
+  const SourceViewerApp({
+    super.key,
+    required this.name,
+    required this.objectType,
+    required this.ambiente,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ToastificationWrapper(
+      child: ListenableBuilder(
+        listenable: editorThemeStore,
+        builder: (_, child) => MaterialApp(
+          title: '$name — Código fuente',
+          debugShowCheckedModeBanner: false,
+          theme: ProcDynamicApp.buildThemeFor(editorThemeStore.themeId),
+          home: ObjectSourcePage(
+            name: name,
+            objectType: objectType,
+            ambiente: ambiente,
+          ),
         ),
       ),
     );

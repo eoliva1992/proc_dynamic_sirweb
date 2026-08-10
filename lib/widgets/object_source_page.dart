@@ -16,11 +16,15 @@ class ObjectSourcePage extends StatefulWidget {
   final String objectType; // PROCEDURE | FUNCTION | PACKAGE | VIEW | TYPE
   final String ambiente;
 
+  /// When true, renders content without a Scaffold (for embedding in a float window).
+  final bool embedded;
+
   const ObjectSourcePage({
     super.key,
     required this.name,
     required this.objectType,
     required this.ambiente,
+    this.embedded = false,
   });
 
   @override
@@ -140,6 +144,8 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final hasTabs = _tabCtrl != null;
 
+    if (widget.embedded) return _buildEmbedded(isDark, hasTabs);
+
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -224,6 +230,99 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
           ),
         ],
       ),
+    );
+  }
+
+  // Embedded layout (no Scaffold) — used by the floating source window.
+  Widget _buildEmbedded(bool isDark, bool hasTabs) {
+    final border = isDark ? const Color(0xFF3A3A3A) : const Color(0xFFDDE2EA);
+    return Column(
+      children: [
+        // Compact action bar
+        Container(
+          height: 36,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA),
+            border: Border(bottom: BorderSide(color: border)),
+          ),
+          child: Row(
+            children: [
+              if (hasTabs)
+                Expanded(
+                  child: TabBar(
+                    controller: _tabCtrl,
+                    tabs: const [
+                      Tab(text: 'Especificación'),
+                      Tab(text: 'Cuerpo'),
+                    ],
+                    labelStyle: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    unselectedLabelStyle: const TextStyle(fontSize: 12),
+                    indicatorColor: const Color(0xFF0078D4),
+                    labelColor: const Color(0xFF0078D4),
+                    unselectedLabelColor: isDark
+                        ? Colors.white54
+                        : Colors.black54,
+                    indicatorSize: TabBarIndicatorSize.label,
+                    padding: EdgeInsets.zero,
+                    labelPadding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                )
+              else
+                const Spacer(),
+              if (_data != null) ...[
+                IconButton(
+                  tooltip: 'Copiar fuente',
+                  icon: const Icon(Icons.content_copy_outlined, size: 16),
+                  onPressed: _copyCurrentSource,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Compilar',
+                  icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                  onPressed: _compiling ? null : _compile,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                  color: const Color(0xFF0078D4),
+                ),
+              ],
+            ],
+          ),
+        ),
+        Expanded(
+          child: Stack(
+            children: [
+              _buildBody(isDark),
+              Positioned(
+                left: 12,
+                bottom: 12,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 300),
+                  opacity: (_data == null || _compiling) ? 1.0 : 0.0,
+                  child: IgnorePointer(
+                    ignoring: _data != null && !_compiling,
+                    child: StatusCard(
+                      message: _compiling
+                          ? 'Compilando...'
+                          : 'Cargando fuente...',
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
