@@ -10,8 +10,8 @@
     "semantic_hash": ""
   },
   "lib/main.dart": {
-    "mtime": 1786338679.1236925,
-    "ast_hash": "f0c21eb5a3789ee2ebf92bcdc7f77012",
+    "mtime": 1786366409.8393154,
+    "ast_hash": "64f5a66bbf8e3fbe2073b641b4101b5c",
     "semantic_hash": ""
   },
   "lib/models/configuracion_tipo.dart": {
@@ -30,8 +30,8 @@
     "semantic_hash": "64db44684de2764cd44452c2d56208ff"
   },
   "lib/providers/procedimientos_provider.dart": {
-    "mtime": 1786315934.62752,
-    "ast_hash": "c81217a4c8d1921ac304f315135d8151",
+    "mtime": 1786369423.692587,
+    "ast_hash": "594a6d899ae7b0e185b9baa3e142d027",
     "semantic_hash": ""
   },
   "lib/providers/theme_provider.dart": {
@@ -40,8 +40,8 @@
     "semantic_hash": ""
   },
   "lib/screens/main_screen.dart": {
-    "mtime": 1786338679.1258602,
-    "ast_hash": "9233571475a4aa48ef67f19dccf3c2fc",
+    "mtime": 1786363987.147024,
+    "ast_hash": "9cd0977c2163f5e3513fbb96ee691b5c",
     "semantic_hash": ""
   },
   "lib/services/sirweb_service.dart": {
@@ -55,8 +55,8 @@
     "semantic_hash": ""
   },
   "lib/widgets/code_editor_panel.dart": {
-    "mtime": 1786328320.9843452,
-    "ast_hash": "4ffd9620c56efbec6bc66c748ba530c6",
+    "mtime": 1786378325.8577979,
+    "ast_hash": "6930d14ee65f3326c044dbc14921d724",
     "semantic_hash": ""
   },
   "lib/widgets/config_badge.dart": {
@@ -75,13 +75,13 @@
     "semantic_hash": ""
   },
   "lib/widgets/procedure_list.dart": {
-    "mtime": 1786309217.8830078,
-    "ast_hash": "faafcbb9aeb1bf1bbc1480350f986b25",
+    "mtime": 1786376127.4222536,
+    "ast_hash": "89177850b28cc5a730216b82eeaa40be",
     "semantic_hash": ""
   },
   "lib/widgets/search_bar_widget.dart": {
-    "mtime": 1786285280.7686715,
-    "ast_hash": "3b41f82fcd3a01678a94da50377b43e1",
+    "mtime": 1786367638.306431,
+    "ast_hash": "e47353aa4b69104487986dfea324b30e",
     "semantic_hash": ""
   },
   "windows/flutter/generated_plugin_registrant.cc": {
@@ -215,8 +215,8 @@
     "semantic_hash": ""
   },
   "lib/widgets/monaco_editor_widget.dart": {
-    "mtime": 1786119798.730681,
-    "ast_hash": "f1d1f53e220038071a173e110c0a434e",
+    "mtime": 1786376127.4222536,
+    "ast_hash": "101365e6799e5020ed43264ff8565672",
     "semantic_hash": ""
   },
   "tools/plsql_parser/build.ps1": {
@@ -335,8 +335,8 @@
     "semantic_hash": ""
   },
   "lib/services/schema_service.dart": {
-    "mtime": 1786315934.6215136,
-    "ast_hash": "5e278772d41f1fa77862418d4d7b23af",
+    "mtime": 1786363987.1555367,
+    "ast_hash": "dcb243e955fac6f2eb1d869af738afb1",
     "semantic_hash": ""
   },
   "lib/services/schema_service_clean.dart": {
@@ -445,8 +445,8 @@
     "semantic_hash": ""
   },
   "lib/widgets/_editor_themes.dart": {
-    "mtime": 1786165647.9759092,
-    "ast_hash": "cea0ccb73847514a3de2e1ef53e07223",
+    "mtime": 1786366409.8423338,
+    "ast_hash": "4949c87beed4a91575a6385c71c51973",
     "semantic_hash": ""
   },
   "lib/widgets/_editor_toolbar_widgets.dart": {
@@ -465,13 +465,13 @@
     "semantic_hash": ""
   },
   "lib/widgets/object_source_page.dart": {
-    "mtime": 1786336096.0547812,
-    "ast_hash": "833dd8275217fd20ef7b99ea3852717d",
+    "mtime": 1786378325.8577979,
+    "ast_hash": "132e01bc8b8d97c91e061b910a3417ec",
     "semantic_hash": ""
   },
   "lib/widgets/schema_object_details_sheet.dart": {
-    "mtime": 1786336096.0428631,
-    "ast_hash": "dc2deade694c2b0743514d5f6a6cbf2c",
+    "mtime": 1786364857.948174,
+    "ast_hash": "1cafe28e48cf6e822c9fd25fb1901215",
     "semantic_hash": ""
   },
   "lib/widgets/status_card.dart": {
@@ -490,13 +490,13 @@
     "semantic_hash": ""
   },
   "lib/widgets/schema_sidebar.dart": {
-    "mtime": 1786337804.334059,
-    "ast_hash": "d7f72bd1103f70ed673240fdaa306152",
+    "mtime": 1786364857.941797,
+    "ast_hash": "64c85847061981a05152838411ef1adf",
     "semantic_hash": ""
   },
   "lib/widgets/source_float_window.dart": {
-    "mtime": 1786338679.1270046,
-    "ast_hash": "8cd8365ab14338f4ab3f13ab6c902185",
+    "mtime": 1786372123.2358687,
+    "ast_hash": "16b5086df98176ad881acfdfe7e0565e",
     "semantic_hash": ""
   }
 }

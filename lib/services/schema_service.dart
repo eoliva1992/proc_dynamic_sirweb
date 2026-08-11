@@ -336,6 +336,33 @@ class SchemaService {
         .toList();
   }
 
+  /// Validates PL/SQL syntax without persisting changes to Oracle.
+  /// Backend tool 'validate_syntax_ddl': CREATE with temp name → read USER_ERRORS → DROP.
+  Future<List<({int line, int position, String text, String attribute})>>
+  validateSyntax(String source, String objectType, {String? ambiente}) async {
+    try {
+      final result = await _call('validate_syntax_ddl', {
+        'source': source,
+        'objectType': objectType.toUpperCase(),
+        if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+      });
+      final rawList = result['data'] as List? ?? [];
+      return rawList
+          .cast<Map<String, dynamic>>()
+          .map(
+            (e) => (
+              line: (e['line'] as num).toInt(),
+              position: (e['position'] as num).toInt(),
+              text: e['text'] as String? ?? '',
+              attribute: e['attribute'] as String? ?? 'ERROR',
+            ),
+          )
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
   /// Código fuente de un objeto Oracle. Para PACKAGE/TYPE también retorna el body.
   Future<({String spec, String? body})> getObjectSource(
     String objectName,

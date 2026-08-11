@@ -295,8 +295,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
     if (mounted) setState(() {});
 
-    // Inyectar el bundle ANTLR4 en V8/Chromium (no en QuickJS) para detección real de sintaxis
-    _injectAntlrBundle(ctrl);
+    // Delay ANTLR injection so 6MB JS eval doesn't block initial typing
+    Future.delayed(const Duration(seconds: 5), () {
+      if (mounted && _ctrl != null) _injectAntlrBundle(_ctrl!);
+    });
   }
 
   Future<void> _injectAntlrBundle(MonacoController ctrl) async {
@@ -1309,7 +1311,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                   customCss:
                       '.plsql-error-line { background: rgba(255,68,68,0.1) !important; }',
                 ),
-                contentDebounce: const Duration(milliseconds: 400),
+                contentDebounce: const Duration(milliseconds: 600),
                 onReady: _onReady,
                 onContentChanged: _onContentChanged,
                 onError: (err, _) => debugPrint('Monaco error: $err'),

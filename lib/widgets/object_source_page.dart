@@ -32,7 +32,7 @@ const kTypeIcons = {
 enum _ViewerCompileStatus { idle, compiling, ok, error }
 
 // Shared across all editor instances — avoids re-reading the asset each time
-String? _cachedAntlrJs;
+// _cachedAntlrJs removed — validation now uses Oracle backend
 
 class ObjectSourcePage extends StatefulWidget {
   final String name;
@@ -494,6 +494,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
         isDark: isDark,
         ambiente: widget.ambiente,
         isPlSql: widget.objectType != 'VIEW',
+        objectType: widget.objectType,
         tabCtrl: _tabCtrl!,
         minimap: _minimap,
         wordWrap: _wordWrap,
@@ -1497,9 +1498,10 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     with AutomaticKeepAliveClientMixin {
   fm.MonacoController? _ctrl;
   fm.MonacoCompletionRegistration? _kwReg;
-  bool _antlrReady = false;
-  bool _contentReady = false; // true once monacoSetValue has been called
+  bool _contentReady = false;
   Timer? _debounce;
+  int _checkGen =
+      0; // increments on each new check; stale responses are discarded
 
   @override
   bool get wantKeepAlive => true;
@@ -1542,7 +1544,6 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     await ctrl.setTheme(editorThemeStore.monacoTheme);
 
     _loadSchema(ctrl);
-    if (widget.isPlSql) _injectAntlr(ctrl);
 
     await ctrl.runJavaScript(
       'try { window.flutterMonaco.updateOptions({'
@@ -1572,46 +1573,48 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     } catch (_) {}
   }
 
-  Future<void> _injectAntlr(fm.MonacoController ctrl) async {
-    try {
-      _cachedAntlrJs ??= await rootBundle.loadString('assets/plsql_checker.js');
-      await ctrl.runJavaScript(_cachedAntlrJs!);
-      if (mounted) setState(() => _antlrReady = true);
-    } catch (_) {}
-  }
-
+  // Debounce scales with size — larger files need more idle time before validation fires
   void _scheduleCheck(String code) {
     _debounce?.cancel();
+    final gen = ++_checkGen;
+    // Clear stale markers immediately so the editor doesn't show obsolete results
+    _ctrl?.document.clearMarkers(owner: 'plsql-checker');
+    widget.onErrorCountChanged?.call(0);
+    widget.onIssuesChanged?.call([]);
+    final ms = code.length > 15000 ? 3500 : 1200;
     _debounce = Timer(
-      const Duration(milliseconds: 1200),
-      () => _checkSyntax(code),
+      Duration(milliseconds: ms),
+      () => _checkSyntax(code, gen),
     );
   }
 
-  Future<void> _checkSyntax(String code) async {
+  Future<void> _checkSyntax(String code, int gen) async {
     final ctrl = _ctrl;
-    if (ctrl == null) return;
-
-    List<PlSqlIssue> issues;
-    if (_antlrReady && code.length < 40000) {
-      try {
-        final raw = await ctrl.evaluateJavaScript<String>(
-          'try{__checkPlSql(_editor.getValue())}catch(e){null}',
-        );
-        issues = raw != null ? _parseAntlrResult(raw) : checkPlSqlSyntax(code);
-      } catch (_) {
-        issues = checkPlSqlSyntax(code);
-      }
-    } else {
-      issues = checkPlSqlSyntax(code);
-    }
-
-    final errCount = issues
-        .where((e) => e.severity == fm.MarkerSeverity.error)
-        .length;
-    widget.onErrorCountChanged?.call(errCount);
+    if (ctrl == null || code.isEmpty) return;
+    final errors = await SchemaService.instance.validateSyntax(
+      code,
+      'PROCEDURE',
+      ambiente: widget.ambiente,
+    );
+    if (!mounted || gen != _checkGen) return; // user typed again — discard
+    final issues = errors
+        .map(
+          (e) => PlSqlIssue(
+            line: e.line,
+            col: e.position,
+            endCol: e.position + 1,
+            message: e.text,
+            severity: e.attribute == 'ERROR'
+                ? fm.MarkerSeverity.error
+                : fm.MarkerSeverity.warning,
+            source: 'Oracle',
+          ),
+        )
+        .toList();
+    widget.onErrorCountChanged?.call(
+      issues.where((e) => e.severity == fm.MarkerSeverity.error).length,
+    );
     widget.onIssuesChanged?.call(issues);
-
     await ctrl.document.setMarkers([
       for (final e in issues)
         fm.MarkerData(
@@ -1623,26 +1626,9 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
           ),
           message: e.message,
           severity: e.severity,
-          source: 'PL/SQL',
+          source: 'Oracle',
         ),
     ], owner: 'plsql-checker');
-  }
-
-  List<PlSqlIssue> _parseAntlrResult(String jsonStr) {
-    try {
-      final list = jsonDecode(jsonStr) as List<dynamic>;
-      return [
-        for (final e in list)
-          PlSqlIssue(
-            line: (e['line'] as num).toInt(),
-            col: (e['col'] as num).toInt(),
-            endCol: (e['col'] as num).toInt() + 1,
-            message: e['msg'] as String,
-          ),
-      ];
-    } catch (_) {
-      return [];
-    }
   }
 
   @override
@@ -1669,7 +1655,7 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
             renderWhitespace: fm.RenderWhitespace.none,
             tabSize: 2,
           ),
-          contentDebounce: const Duration(milliseconds: 300),
+          contentDebounce: const Duration(milliseconds: 600),
           onReady: _onReady,
           onContentChanged: (text) {
             widget.onTextChanged?.call(text);
@@ -1695,6 +1681,7 @@ class _MultiDocSourceEditor extends StatefulWidget {
   final bool isDark;
   final String ambiente;
   final bool isPlSql;
+  final String objectType;
   final TabController tabCtrl;
   final bool minimap;
   final bool wordWrap;
@@ -1713,6 +1700,7 @@ class _MultiDocSourceEditor extends StatefulWidget {
     required this.isDark,
     required this.ambiente,
     required this.isPlSql,
+    required this.objectType,
     required this.tabCtrl,
     this.minimap = true,
     this.wordWrap = false,
@@ -1735,10 +1723,13 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
   fm.MonacoDocument? _specDoc;
   fm.MonacoDocument? _bodyDoc;
   fm.MonacoCompletionRegistration? _kwReg;
-  bool _antlrReady = false;
   bool _specReady = false;
+  bool _bodyReady = false;
   Timer? _debounce;
+  int _checkGen = 0;
   bool _isBody = false;
+  String _currentSpecCode = '';
+  String _currentBodyCode = '';
 
   @override
   void initState() {
@@ -1764,22 +1755,23 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
     if (_isBody == wantsBody) return;
     _isBody = wantsBody;
 
-    // Open the body document lazily on first switch to avoid blocking spec load
-    if (wantsBody && _bodyDoc == null) {
-      final ctrl = _ctrl;
-      final body = widget.body;
-      if (ctrl != null && body != null && body.isNotEmpty) {
-        _bodyDoc = await ctrl.openDocument(
-          text: body,
-          language: fm.MonacoLanguage.sql,
-          uri: Uri.parse('file:///source/body.sql'),
-        );
-        if (widget.isPlSql) _scheduleCheck(body, isBody: true);
+    if (wantsBody) {
+      if (_bodyDoc != null) {
+        _ctrl?.activateDocument(_bodyDoc!);
+        if (widget.isPlSql && _currentBodyCode.isNotEmpty) {
+          _scheduleCheck(_currentBodyCode, isBody: true);
+        }
       }
+      return;
     }
 
-    final doc = wantsBody ? _bodyDoc : _specDoc;
-    if (doc != null) _ctrl?.activateDocument(doc);
+    final doc = _specDoc;
+    if (doc != null) {
+      _ctrl?.activateDocument(doc);
+      if (widget.isPlSql && _currentSpecCode.isNotEmpty) {
+        _scheduleCheck(_currentSpecCode, isBody: false);
+      }
+    }
   }
 
   Future<void> _onReady(fm.MonacoController ctrl) async {
@@ -1812,7 +1804,6 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
     await ctrl.setTheme(editorThemeStore.monacoTheme);
 
     _loadSchema(ctrl);
-    if (widget.isPlSql) _injectAntlr(ctrl);
 
     await ctrl.runJavaScript(
       'try { window.flutterMonaco.updateOptions({'
@@ -1821,11 +1812,32 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
     );
 
     if (widget.isPlSql && widget.spec.isNotEmpty) {
+      _currentSpecCode = widget.spec;
       _scheduleCheck(widget.spec, isBody: false);
     }
 
-    // Notify parent with body text for subprogram parsing without opening the doc
-    if (widget.body != null) widget.onBodyTextChanged?.call(widget.body!);
+    // Load body in background so it's ready before the user switches tabs
+    final body = widget.body;
+    if (body != null && body.isNotEmpty) {
+      widget.onBodyTextChanged?.call(body);
+      _openBodyInBackground(ctrl, body);
+    }
+  }
+
+  Future<void> _openBodyInBackground(
+    fm.MonacoController ctrl,
+    String body,
+  ) async {
+    _bodyDoc = await ctrl.openDocument(
+      text: body,
+      language: fm.MonacoLanguage.sql,
+      uri: Uri.parse('file:///source/body.sql'),
+    );
+    if (!mounted) return;
+    if (mounted) setState(() => _bodyReady = true);
+    _currentBodyCode = body;
+    if (_isBody) _ctrl?.activateDocument(_bodyDoc!);
+    if (widget.isPlSql) _scheduleCheck(body, isBody: true);
   }
 
   Future<void> _loadSchema(fm.MonacoController ctrl) async {
@@ -1845,40 +1857,60 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
     } catch (_) {}
   }
 
-  Future<void> _injectAntlr(fm.MonacoController ctrl) async {
-    try {
-      _cachedAntlrJs ??= await rootBundle.loadString('assets/plsql_checker.js');
-      await ctrl.runJavaScript(_cachedAntlrJs!);
-      if (mounted) setState(() => _antlrReady = true);
-    } catch (_) {}
-  }
-
+  // Debounce scales with size — larger files need more idle time before validation fires
   void _scheduleCheck(String code, {required bool isBody}) {
     _debounce?.cancel();
+    final gen = ++_checkGen;
+    // Clear stale markers immediately so the editor doesn't show obsolete results
+    final doc = isBody ? _bodyDoc : _specDoc;
+    doc?.clearMarkers(owner: 'plsql-checker');
+    if (isBody) {
+      widget.onBodyErrorsChanged?.call(0);
+      widget.onBodyIssuesChanged?.call([]);
+    } else {
+      widget.onSpecErrorsChanged?.call(0);
+      widget.onSpecIssuesChanged?.call([]);
+    }
+    final ms = code.length > 15000 ? 3500 : 1200;
     _debounce = Timer(
-      const Duration(milliseconds: 1200),
-      () => _checkSyntax(code, isBody: isBody),
+      Duration(milliseconds: ms),
+      () => _checkSyntax(code, gen, isBody: isBody),
     );
   }
 
-  Future<void> _checkSyntax(String code, {required bool isBody}) async {
+  Future<void> _checkSyntax(
+    String code,
+    int gen, {
+    required bool isBody,
+  }) async {
     final ctrl = _ctrl;
-    if (ctrl == null) return;
-
-    List<PlSqlIssue> issues;
-    if (_antlrReady && code.length < 40000) {
-      try {
-        final raw = await ctrl.evaluateJavaScript<String>(
-          'try{__checkPlSql(_editor.getValue())}catch(e){null}',
-        );
-        issues = raw != null ? _parseAntlrResult(raw) : checkPlSqlSyntax(code);
-      } catch (_) {
-        issues = checkPlSqlSyntax(code);
-      }
-    } else {
-      issues = checkPlSqlSyntax(code);
-    }
-
+    if (ctrl == null || code.isEmpty) return;
+    // PACKAGE BODY requires a different objectType for the backend validator
+    final objType = (isBody && widget.objectType == 'PACKAGE')
+        ? 'PACKAGE BODY'
+        : widget.objectType;
+    final errors = await SchemaService.instance.validateSyntax(
+      code,
+      objType,
+      ambiente: widget.ambiente,
+    );
+    if (!mounted || gen != _checkGen) return; // user typed again — discard
+    final doc = isBody ? _bodyDoc : _specDoc;
+    if (doc == null) return;
+    final issues = errors
+        .map(
+          (e) => PlSqlIssue(
+            line: e.line,
+            col: e.position,
+            endCol: e.position + 1,
+            message: e.text,
+            severity: e.attribute == 'ERROR'
+                ? fm.MarkerSeverity.error
+                : fm.MarkerSeverity.warning,
+            source: 'Oracle',
+          ),
+        )
+        .toList();
     final errCount = issues
         .where((e) => e.severity == fm.MarkerSeverity.error)
         .length;
@@ -1889,8 +1921,7 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
       widget.onSpecErrorsChanged?.call(errCount);
       widget.onSpecIssuesChanged?.call(issues);
     }
-
-    await ctrl.document.setMarkers([
+    await doc.setMarkers([
       for (final e in issues)
         fm.MarkerData(
           range: fm.Range(
@@ -1901,26 +1932,9 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
           ),
           message: e.message,
           severity: e.severity,
-          source: 'PL/SQL',
+          source: 'Oracle',
         ),
     ], owner: 'plsql-checker');
-  }
-
-  List<PlSqlIssue> _parseAntlrResult(String jsonStr) {
-    try {
-      final list = jsonDecode(jsonStr) as List<dynamic>;
-      return [
-        for (final e in list)
-          PlSqlIssue(
-            line: (e['line'] as num).toInt(),
-            col: (e['col'] as num).toInt(),
-            endCol: (e['col'] as num).toInt() + 1,
-            message: e['msg'] as String,
-          ),
-      ];
-    } catch (_) {
-      return [];
-    }
   }
 
   @override
@@ -1941,13 +1955,15 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
             renderWhitespace: fm.RenderWhitespace.none,
             tabSize: 2,
           ),
-          contentDebounce: const Duration(milliseconds: 300),
+          contentDebounce: const Duration(milliseconds: 600),
           onReady: _onReady,
           onContentChanged: (text) {
             if (_isBody) {
+              _currentBodyCode = text;
               widget.onBodyTextChanged?.call(text);
               if (widget.isPlSql) _scheduleCheck(text, isBody: true);
             } else {
+              _currentSpecCode = text;
               widget.onSpecTextChanged?.call(text);
               if (widget.isPlSql) _scheduleCheck(text, isBody: false);
             }
@@ -1958,6 +1974,12 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
             left: 12,
             bottom: 12,
             child: StatusCard(message: 'Cargando especificación...'),
+          ),
+        if (_isBody && !_bodyReady)
+          const Positioned(
+            left: 12,
+            bottom: 12,
+            child: StatusCard(message: 'Cargando cuerpo...'),
           ),
       ],
     );

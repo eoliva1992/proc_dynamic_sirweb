@@ -2675,5 +2675,8 @@
   "2673": ".visitXmlschema_spec",
   "2674": ".visitXmltype_storage",
   "2675": ".visitYes_no",
-  "2676": "../widgets/schema_browser_modal.dart"
+  "2676": "../widgets/schema_browser_modal.dart",
+  "2677": ".visitZonemap_clause",
+  "2678": "_EditorOption",
+  "2679": "MonacoController?"
 }
