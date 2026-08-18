@@ -313,6 +313,16 @@ List<PlSqlIssue> checkPlSqlSyntax(String code) {
   return issues;
 }
 
+/// Infers the Oracle object type from the first CREATE OR REPLACE statement.
+String inferObjectType(String source) {
+  final match = RegExp(
+    r'CREATE\s+(?:OR\s+REPLACE\s+)?(?:EDITIONABLE\s+|NONEDITIONABLE\s+)?(PACKAGE\s+BODY|PACKAGE|PROCEDURE|FUNCTION|TRIGGER|TYPE\s+BODY|TYPE)',
+    caseSensitive: false,
+  ).firstMatch(source.trimLeft());
+  if (match == null) return 'PROCEDURE';
+  return match.group(1)!.replaceAll(RegExp(r'\s+'), ' ').trim().toUpperCase();
+}
+
 /// Replaces string literals and comments with spaces (preserving line counts).
 String _stripCommentsAndStrings(String code) {
   final buf = StringBuffer();

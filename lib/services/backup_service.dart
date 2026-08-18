@@ -58,7 +58,7 @@ abstract final class BackupService {
     String cdUsuario,
   ) {
     final now = DateTime.now();
-    final p = (int v) => v.toString().padLeft(2, '0');
+    String p(int v) => v.toString().padLeft(2, '0');
     final fecha =
         '${now.year}-${p(now.month)}-${p(now.day)} ${p(now.hour)}:${p(now.minute)}:${p(now.second)}';
     final estado = proc.activo ? '1' : '0';

@@ -18,9 +18,11 @@ import '_editor_plsql_completions.dart';
 import 'procedure_diff_panel.dart';
 import '../services/editor_draft_service.dart';
 import 'app_toast.dart';
+import 'source_float_window.dart';
 
 part '_editor_toolbar_widgets.dart';
 part '_editor_variables_overlay.dart';
+part '_editor_outline_panel.dart';
 
 enum _SaveStatus { idle, saving, saved, error }
 
@@ -115,18 +117,38 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   final Map<String, int> _errorCounts = {};
   final Map<String, List<PlSqlIssue>> _issuesPerProc = {};
   final Map<String, List<PlSqlIssue>> _compileErrorsPerProc = {};
+  final Map<String, List<PlSqlIssue>> _backendIssuesPerProc = {};
+  bool _backendChecking = false;
+  int _backendCheckVersion = 0;
   MonacoActionRegistration? _zoomInAction;
   MonacoActionRegistration? _zoomOutAction;
   MonacoActionRegistration? _saveAction;
   MonacoActionRegistration? _compileAction;
+  MonacoActionRegistration? _gotoDefAction;
   Timer? _saveTimer;
   Timer? _draftDebounce;
   _SaveStatus _saveStatus = _SaveStatus.idle;
   _CompileStatus _compileStatus = _CompileStatus.idle;
   String? _lastSaveError;
   bool _showProblemsPanel = false;
+  double _problemsPanelHeight = 180.0;
   final Map<String, bool> _draftVisible = {}; // procId → show restore banner
   final GlobalKey _varsButtonKey = GlobalKey();
+
+  // ── Outline & docked panels ───────────────────────────────────────────
+  bool _showOutline = false;
+  List<_OutlineItem> _outlineItems = const [];
+  bool _varsDocked = false;
+
+  // ── Tab scroll overflow indicators ────────────────────────────────────
+  final _tabsScrollCtrl = ScrollController();
+  bool _tabsCanScrollLeft = false;
+
+  // Last cursor position — kept in sync via onSelectionChanged for goto-definition
+  int _lastCursorLine = 1;
+  int _lastCursorCol = 1;
+  StreamSubscription<Range?>? _selectionSub;
+  bool _tabsCanScrollRight = false;
 
   bool get _isActiveJs {
     final proc = _openProcs.firstWhere(
@@ -142,6 +164,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _openProcs.add(widget.procedimiento);
     _activeProcId = widget.procedimiento.cdProcedimiento;
     _loadPrefs();
+    _tabsScrollCtrl.addListener(_onTabsScroll);
     editorThemeStore.addListener(_onEditorThemeChanged);
     // Two frames ensure DWM/DirectComposition is ready before WebView2 init.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -178,6 +201,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _compileAction?.dispose();
     _saveTimer?.cancel();
     _draftDebounce?.cancel();
+    _gotoDefAction?.dispose();
+    _selectionSub?.cancel();
+    _tabsScrollCtrl
+      ..removeListener(_onTabsScroll)
+      ..dispose();
     super.dispose();
   }
 
@@ -204,6 +232,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     );
     _docs[proc.cdProcedimiento] = doc;
     await ctrl.activateDocument(doc);
+    // Initialize full-text cache so outline/completion work before first keystroke
+    _editorFullText = hasDraft ? draft : proc.deTexto;
     // Report initial text so currentEditorCode is set before first keystroke
     widget.onCodeChanged?.call(hasDraft ? draft : proc.deTexto);
     if (hasDraft && mounted) {
@@ -293,12 +323,75 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       },
     );
 
-    if (mounted) setState(() {});
+    _gotoDefAction = await ctrl.addAction(
+      MonacoActionDescriptor(
+        id: MonacoAction('custom.goto.definition'),
+        label: 'Ir a definición',
+        keybindings: [MonacoKeybinding(key: MonacoKey.f12)],
+        contextMenuGroupId: 'navigation',
+        contextMenuOrder: 1.5,
+      ),
+      () async {
+        await _goToDefinitionAtCursor();
+      },
+    );
+
+    // Cache cursor position synchronously for reliable goto-definition from context menu
+    _selectionSub = ctrl.onSelectionChanged.listen((range) {
+      if (range != null) {
+        _lastCursorLine = range.startLine;
+        _lastCursorCol = range.startColumn;
+      }
+    });
+
+    if (mounted) {
+      setState(() {
+        if (_showOutline) {
+          _outlineItems = _parseOutlineItems(_editorFullText);
+        }
+      });
+    }
 
     // Delay ANTLR injection so 6MB JS eval doesn't block initial typing
     Future.delayed(const Duration(seconds: 5), () {
       if (mounted && _ctrl != null) _injectAntlrBundle(_ctrl!);
     });
+  }
+
+  // Synchronous toggle: show/hide panel immediately, then refresh from live editor
+  void _toggleOutline() {
+    if (_showOutline) {
+      setState(() => _showOutline = false);
+      _savePrefs();
+      return;
+    }
+    final cached = _editorFullText.isNotEmpty
+        ? _editorFullText
+        : widget.procedimiento.deTexto;
+    setState(() {
+      _showOutline = true;
+      _outlineItems = _parseOutlineItems(cached);
+    });
+    _savePrefs();
+    // Refresh from live Monaco text in case there are unsaved edits
+    _ctrl?.document.getText().then((text) {
+      if (text.isNotEmpty && mounted) {
+        setState(() => _outlineItems = _parseOutlineItems(text));
+      }
+    });
+  }
+
+  void _onTabsScroll() {
+    if (!_tabsScrollCtrl.hasClients) return;
+    final pos = _tabsScrollCtrl.position;
+    final canLeft = pos.pixels > 0;
+    final canRight = pos.pixels < pos.maxScrollExtent;
+    if (canLeft != _tabsCanScrollLeft || canRight != _tabsCanScrollRight) {
+      setState(() {
+        _tabsCanScrollLeft = canLeft;
+        _tabsCanScrollRight = canRight;
+      });
+    }
   }
 
   Future<void> _injectAntlrBundle(MonacoController ctrl) async {
@@ -362,7 +455,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     // Report active document text so currentEditorCode reflects the switched-to proc
     if (mounted) {
       final text = await ctrl.document.getText();
+      _editorFullText = text;
       widget.onCodeChanged?.call(text);
+      if (_showOutline) {
+        setState(() => _outlineItems = _parseOutlineItems(text));
+      }
     }
     if (mounted) setState(() => _activeProcId = proc.cdProcedimiento);
     // inConfiguracion puede diferir del procedimiento anterior — actualizar completions
@@ -415,6 +512,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   Future<void> _checkPlSql(String code) async {
     final ctrl = _ctrl;
     if (ctrl == null) return;
+    final procId = _activeProcId ?? '';
 
     List<PlSqlIssue> issues;
     // Skip ANTLR for very large files — Dart fallback is much faster
@@ -422,7 +520,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       try {
         // Read text directly from Monaco model — avoids jsonEncode + bridge transfer
         final raw = await ctrl.evaluateJavaScript<String>(
-          'try{__checkPlSql(_editor.getValue())}catch(e){null}',
+          'try{__checkPlSql(window.editor.getValue())}catch(e){null}',
         );
         issues = raw != null ? _parseAntlrResult(raw) : checkPlSqlSyntax(code);
       } catch (_) {
@@ -441,6 +539,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         _errorCounts[id] = [
           ...issues,
           ...compileErrors,
+          ...(_backendIssuesPerProc[id] ?? []),
         ].where((e) => e.severity == MarkerSeverity.error).length;
       });
     }
@@ -449,7 +548,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     await ctrl.document.setMarkers([
       for (final e in [
         ...issues,
-        ...(_compileErrorsPerProc[_activeProcId ?? ''] ?? []),
+        ...(_compileErrorsPerProc[procId] ?? []),
+        ...(_backendIssuesPerProc[procId] ?? []),
       ])
         MarkerData(
           range: Range(
@@ -476,6 +576,72 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           },
         ),
     ]);
+    unawaited(_runBackendValidation(code, procId));
+  }
+
+  Future<void> _runBackendValidation(String code, String procId) async {
+    _backendCheckVersion++;
+    final version = _backendCheckVersion;
+    if (!mounted) return;
+    setState(() => _backendChecking = true);
+    try {
+      final objectType = inferObjectType(code);
+      final results = await SchemaService.instance.validateSyntax(
+        code,
+        objectType,
+        ambiente: widget.ambiente,
+      );
+      if (!mounted || version != _backendCheckVersion) return;
+      final issues = results
+          .map(
+            (e) => PlSqlIssue(
+              line: e.line,
+              col: e.position,
+              endCol: e.position + 1,
+              message: e.text,
+              severity: e.attribute.toUpperCase() == 'WARNING'
+                  ? MarkerSeverity.warning
+                  : MarkerSeverity.error,
+              source: 'Oracle-DDL',
+            ),
+          )
+          .toList();
+      setState(() {
+        _backendIssuesPerProc[procId] = issues;
+        _errorCounts[procId] = [
+          ...(_issuesPerProc[procId] ?? []),
+          ...(_compileErrorsPerProc[procId] ?? []),
+          ...issues,
+        ].where((e) => e.severity == MarkerSeverity.error).length;
+      });
+      if (_activeProcId == procId) {
+        final ctrl = _ctrl;
+        if (ctrl != null) {
+          await ctrl.document.setMarkers([
+            for (final e in [
+              ...(_issuesPerProc[procId] ?? []),
+              ...(_compileErrorsPerProc[procId] ?? []),
+              ...issues,
+            ])
+              MarkerData(
+                range: Range(
+                  startLine: e.line,
+                  startColumn: e.col,
+                  endLine: e.line,
+                  endColumn: e.endCol,
+                ),
+                message: e.message,
+                severity: e.severity,
+                source: e.source,
+              ),
+          ], owner: 'plsql-checker');
+        }
+      }
+    } finally {
+      if (mounted && version == _backendCheckVersion) {
+        setState(() => _backendChecking = false);
+      }
+    }
   }
 
   // ── LSP ────────────────────────────────────────────────────────────────
@@ -777,7 +943,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         setState(() {
           _compileErrorsPerProc[procId] = compileIssues;
           _errorCounts[procId] =
-              ((_issuesPerProc[procId] ?? []) + compileIssues)
+              ((_issuesPerProc[procId] ?? []) +
+                      compileIssues +
+                      (_backendIssuesPerProc[procId] ?? []))
                   .where((e) => e.severity == MarkerSeverity.error)
                   .length;
         });
@@ -785,7 +953,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         final ctrl = _ctrl;
         if (ctrl != null) {
           await ctrl.document.setMarkers([
-            for (final e in [...syntaxIssues, ...compileIssues])
+            for (final e in [
+              ...syntaxIssues,
+              ...compileIssues,
+              ...(_backendIssuesPerProc[procId] ?? []),
+            ])
               MarkerData(
                 range: Range(
                   startLine: e.line,
@@ -810,7 +982,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         final syntaxIssues = _issuesPerProc[procId] ?? [];
         if (ctrl != null) {
           await ctrl.document.setMarkers([
-            for (final e in syntaxIssues)
+            for (final e in [
+              ...syntaxIssues,
+              ...(_backendIssuesPerProc[procId] ?? []),
+            ])
               MarkerData(
                 range: Range(
                   startLine: e.line,
@@ -851,9 +1026,12 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         _saveStatus = _SaveStatus.error;
         _lastSaveError = msg;
         _compileErrorsPerProc[procId] = serverErrors;
-        _errorCounts[procId] = ((_issuesPerProc[procId] ?? []) + serverErrors)
-            .where((e) => e.severity == MarkerSeverity.error)
-            .length;
+        _errorCounts[procId] =
+            ((_issuesPerProc[procId] ?? []) +
+                    serverErrors +
+                    (_backendIssuesPerProc[procId] ?? []))
+                .where((e) => e.severity == MarkerSeverity.error)
+                .length;
         _showProblemsPanel = true;
       });
       // Aplicar squiggles y decoraciones en Monaco para ver los errores en el código
@@ -861,7 +1039,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       if (editorCtrl != null) {
         final syntaxIssues = _issuesPerProc[procId] ?? [];
         await editorCtrl.document.setMarkers([
-          for (final e in [...syntaxIssues, ...serverErrors])
+          for (final e in [
+            ...syntaxIssues,
+            ...serverErrors,
+            ...(_backendIssuesPerProc[procId] ?? []),
+          ])
             MarkerData(
               range: Range(
                 startLine: e.line,
@@ -915,12 +1097,17 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           _errorCounts[procId] = ([
             ...syntaxIssues,
             ...compileIssues,
+            ...(_backendIssuesPerProc[procId] ?? []),
           ]).where((e) => e.severity == MarkerSeverity.error).length;
           _compileStatus = _CompileStatus.error;
           _showProblemsPanel = true;
         });
         await ctrl.document.setMarkers([
-          for (final e in [...syntaxIssues, ...compileIssues])
+          for (final e in [
+            ...syntaxIssues,
+            ...compileIssues,
+            ...(_backendIssuesPerProc[procId] ?? []),
+          ])
             MarkerData(
               range: Range(
                 startLine: e.line,
@@ -981,6 +1168,40 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     });
   }
 
+  // ── Go to Definition ──────────────────────────────────────────────────
+
+  Future<void> _goToDefinitionAtCursor() async {
+    final ctrl = _ctrl;
+    if (ctrl == null || !mounted) return;
+
+    // Use cached position — avoids bridge round-trip that fails when context menu is open
+    final word = await ctrl.evaluateJavaScript<String>(
+      '(()=>{ try {'
+      '  const w=window.editor.getModel()'
+      '    .getWordAtPosition(new monaco.Position($_lastCursorLine,$_lastCursorCol));'
+      '  return w ? w.word : "";'
+      '} catch(e){return "";} })()',
+    );
+    if (word == null || word.isEmpty || !mounted) return;
+
+    final upperWord = word.toUpperCase();
+    final objects =
+        SchemaService.instance.getCached(ambiente: widget.ambiente)?.objects ??
+        [];
+    final candidates = objects.where((o) => o.name == upperWord).toList();
+
+    if (candidates.isNotEmpty) {
+      openSourceWindow(
+        context,
+        name: candidates.first.name,
+        objectType: candidates.first.type,
+        ambiente: widget.ambiente,
+      );
+    } else {
+      AppToast.info('No se encontró definición para "$word"');
+    }
+  }
+
   // ── Diff ───────────────────────────────────────────────────────────────
 
   Future<void> _openDiff() async {
@@ -1023,6 +1244,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     }
     _scheduleCheck(code);
     _scheduleDraftSave(id, code);
+    if (_showOutline) {
+      final items = _parseOutlineItems(code);
+      setState(() => _outlineItems = items);
+    }
   }
 
   void _scheduleDraftSave(String? id, String code) {
@@ -1105,6 +1330,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       _occurrencesHighlight =
           prefs.getBool('editor_occurrences_highlight') ?? true;
       _contextMenu = prefs.getBool('editor_context_menu') ?? true;
+      _problemsPanelHeight = prefs.getDouble('editor_problems_height') ?? 180.0;
+      _showOutline = prefs.getBool('editor_show_outline') ?? false;
+      _varsDocked = prefs.getBool('editor_vars_docked') ?? false;
     });
   }
 
@@ -1131,6 +1359,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     await prefs.setBool('editor_links', _links);
     await prefs.setBool('editor_occurrences_highlight', _occurrencesHighlight);
     await prefs.setBool('editor_context_menu', _contextMenu);
+    await prefs.setDouble('editor_problems_height', _problemsPanelHeight);
+    await prefs.setBool('editor_show_outline', _showOutline);
+    await prefs.setBool('editor_vars_docked', _varsDocked);
   }
 
   void _applyEditorOptions() {
@@ -1277,46 +1508,97 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         Expanded(
           child: Stack(
             children: [
-              MonacoEditor(
-                initialText: widget.procedimiento.deTexto,
-                options: EditorOptions(
-                  language: _langFor(widget.procedimiento),
-                  theme: oracleDarkTheme,
-                  fontSize: _fontSize,
-                  minimap: MonacoMinimapOptions(enabled: _minimap),
-                  wordWrap: _wordWrap ? MonacoWordWrap.on : MonacoWordWrap.off,
-                  lineNumbers: _lineNumbers
-                      ? MonacoLineNumbers.on
-                      : MonacoLineNumbers.off,
-                  renderWhitespace: _renderWhitespace
-                      ? RenderWhitespace.all
-                      : RenderWhitespace.none,
-                  tabSize: 2,
-                  bracketPairColorization: _bracketPairColorization,
-                  stickyScroll: MonacoStickyScroll(enabled: _stickyScroll),
-                  folding: _folding,
-                  readOnly: _readOnly,
-                  smoothScrolling: _smoothScrolling,
-                  mouseWheelZoom: _mouseWheelZoom,
-                  formatOnPaste: _formatOnPaste,
-                  quickSuggestions: _quickSuggestions,
-                  parameterHints: _parameterHints,
-                  hover: _hover,
-                  links: _links,
-                  occurrencesHighlight: _occurrencesHighlight,
-                  contextMenu: _contextMenu,
-                ),
-                showStatusBar: true,
-                page: const MonacoPageConfig(
-                  customCss:
-                      '.plsql-error-line { background: rgba(255,68,68,0.1) !important; }',
-                ),
-                contentDebounce: const Duration(milliseconds: 600),
-                onReady: _onReady,
-                onContentChanged: _onContentChanged,
-                onError: (err, _) => debugPrint('Monaco error: $err'),
+              Row(
+                children: [
+                  // Monaco editor — takes all remaining width
+                  Expanded(
+                    child: MonacoEditor(
+                      initialText: widget.procedimiento.deTexto,
+                      options: EditorOptions(
+                        language: _langFor(widget.procedimiento),
+                        theme: oracleDarkTheme,
+                        fontSize: _fontSize,
+                        minimap: MonacoMinimapOptions(enabled: _minimap),
+                        wordWrap: _wordWrap
+                            ? MonacoWordWrap.on
+                            : MonacoWordWrap.off,
+                        lineNumbers: _lineNumbers
+                            ? MonacoLineNumbers.on
+                            : MonacoLineNumbers.off,
+                        renderWhitespace: _renderWhitespace
+                            ? RenderWhitespace.all
+                            : RenderWhitespace.none,
+                        tabSize: 2,
+                        bracketPairColorization: _bracketPairColorization,
+                        stickyScroll: MonacoStickyScroll(
+                          enabled: _stickyScroll,
+                        ),
+                        folding: _folding,
+                        readOnly: _readOnly,
+                        smoothScrolling: _smoothScrolling,
+                        mouseWheelZoom: _mouseWheelZoom,
+                        formatOnPaste: _formatOnPaste,
+                        quickSuggestions: _quickSuggestions,
+                        parameterHints: _parameterHints,
+                        hover: _hover,
+                        links: _links,
+                        occurrencesHighlight: _occurrencesHighlight,
+                        contextMenu: _contextMenu,
+                      ),
+                      showStatusBar: true,
+                      page: const MonacoPageConfig(
+                        customCss:
+                            '.plsql-error-line { background: rgba(255,68,68,0.1) !important; }',
+                      ),
+                      contentDebounce: const Duration(milliseconds: 600),
+                      onReady: _onReady,
+                      onContentChanged: _onContentChanged,
+                      onError: (err, _) => debugPrint('Monaco error: $err'),
+                    ),
+                  ),
+                  // Docked variables panel
+                  if (_varsDocked && _filteredVariables().isNotEmpty)
+                    _VarsDockedPanel(
+                      vars: _filteredVariables(),
+                      onSelected: (v) async {
+                        final ctrl = _ctrl;
+                        if (ctrl == null) return;
+                        final pos = await ctrl.getCursorPosition();
+                        if (pos != null) {
+                          await ctrl.document.insert(pos, ':${v.cdVariable}');
+                        }
+                      },
+                      onUnpin: () {
+                        setState(() => _varsDocked = false);
+                        _savePrefs();
+                      },
+                    ),
+                  // Outline sidebar
+                  if (_showOutline)
+                    _EditorOutlinePanel(
+                      items: _outlineItems,
+                      code: _editorFullText,
+                      ambiente: widget.ambiente,
+                      schemaObjects: SchemaService.instance
+                          .getCached(ambiente: widget.ambiente)
+                          ?.objects
+                          .fold(<String, String>{}, (map, o) {
+                            map![o.name.toUpperCase()] = o.type;
+                            return map;
+                          }),
+                      onItemTap: (line) async {
+                        await _ctrl?.revealLine(line, center: true);
+                        await _ctrl?.setCursorPosition(
+                          Position(line: line, column: 1),
+                        );
+                      },
+                      onClose: () {
+                        setState(() => _showOutline = false);
+                        _savePrefs();
+                      },
+                    ),
+                ],
               ),
-
               // Overlay flotante — indicador de schema (esquina inferior izquierda)
             ],
           ),
@@ -1333,7 +1615,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     final procId = _activeProcId ?? '';
     final syntaxIssues = _issuesPerProc[procId] ?? [];
     final compileIssues = _compileErrorsPerProc[procId] ?? [];
-    final allIssues = [...compileIssues, ...syntaxIssues]
+    final backendIssues = _backendIssuesPerProc[procId] ?? [];
+    final allIssues = [...compileIssues, ...syntaxIssues, ...backendIssues]
       ..sort((a, b) => a.line.compareTo(b.line));
     final errorCount = allIssues
         .where((e) => e.severity == MarkerSeverity.error)
@@ -1348,7 +1631,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       alignment: Alignment.bottomCenter,
       child: _showProblemsPanel
           ? Container(
-              height: 180,
+              height: _problemsPanelHeight,
               decoration: BoxDecoration(
                 color: isDark
                     ? const Color(0xFF1E1E1E)
@@ -1357,50 +1640,77 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
               ),
               child: Column(
                 children: [
-                  Container(
-                    height: 28,
-                    color: isDark
-                        ? cs.surfaceContainerHigh
-                        : cs.surfaceContainerHighest,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.list_alt_rounded,
-                          size: 13,
-                          color: cs.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Problemas',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: cs.onSurface,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        if (errorCount > 0)
-                          _ProblemCount(count: errorCount, isError: true),
-                        if (warnCount > 0) ...[
-                          const SizedBox(width: 4),
-                          _ProblemCount(count: warnCount, isError: false),
-                        ],
-                        const Spacer(),
-                        InkWell(
-                          onTap: () =>
-                              setState(() => _showProblemsPanel = false),
-                          borderRadius: BorderRadius.circular(3),
-                          child: Padding(
-                            padding: const EdgeInsets.all(4),
-                            child: Icon(
-                              Icons.close,
+                  // Resize handle + header combined
+                  GestureDetector(
+                    onVerticalDragUpdate: (d) {
+                      setState(() {
+                        _problemsPanelHeight =
+                            (_problemsPanelHeight - d.delta.dy).clamp(
+                              80.0,
+                              400.0,
+                            );
+                      });
+                    },
+                    onVerticalDragEnd: (_) => _savePrefs(),
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.resizeRow,
+                      child: Container(
+                        height: 28,
+                        color: isDark
+                            ? cs.surfaceContainerHigh
+                            : cs.surfaceContainerHighest,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.list_alt_rounded,
                               size: 13,
                               color: cs.onSurfaceVariant,
                             ),
-                          ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Problemas',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: cs.onSurface,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            if (errorCount > 0)
+                              _ProblemCount(count: errorCount, isError: true),
+                            if (warnCount > 0) ...[
+                              const SizedBox(width: 4),
+                              _ProblemCount(count: warnCount, isError: false),
+                            ],
+                            if (_backendChecking) ...[
+                              const SizedBox(width: 6),
+                              SizedBox(
+                                width: 10,
+                                height: 10,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 1.5,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                            const Spacer(),
+                            InkWell(
+                              onTap: () =>
+                                  setState(() => _showProblemsPanel = false),
+                              borderRadius: BorderRadius.circular(3),
+                              child: Padding(
+                                padding: const EdgeInsets.all(4),
+                                child: Icon(
+                                  Icons.close,
+                                  size: 13,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
                   Expanded(
@@ -1540,23 +1850,69 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
   Widget _buildDocTabs(bool isDark) {
     final cs = Theme.of(context).colorScheme;
+    final bgColor = isDark
+        ? cs.surfaceContainerHighest
+        : cs.surfaceContainerLow;
     return Container(
       height: 30,
-      color: isDark ? cs.surfaceContainerHighest : cs.surfaceContainerLow,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: _openProcs.length,
-        itemBuilder: (_, i) {
-          final proc = _openProcs[i];
-          final active = proc.cdProcedimiento == _activeProcId;
-          return _DocTab(
-            proc: proc,
-            isActive: active,
-            isModified: _modifiedProcs.contains(proc.cdProcedimiento),
-            onTap: () => _switchToProc(proc),
-            onClose: _openProcs.length > 1 ? () => _closeDoc(proc) : null,
-          );
-        },
+      color: bgColor,
+      child: Stack(
+        children: [
+          ListView.builder(
+            controller: _tabsScrollCtrl,
+            scrollDirection: Axis.horizontal,
+            itemCount: _openProcs.length,
+            itemBuilder: (_, i) {
+              final proc = _openProcs[i];
+              final active = proc.cdProcedimiento == _activeProcId;
+              return Tooltip(
+                message: proc.cdProcedimiento,
+                waitDuration: _kTooltipWait,
+                child: _DocTab(
+                  proc: proc,
+                  isActive: active,
+                  isModified: _modifiedProcs.contains(proc.cdProcedimiento),
+                  onTap: () => _switchToProc(proc),
+                  onClose: _openProcs.length > 1 ? () => _closeDoc(proc) : null,
+                ),
+              );
+            },
+          ),
+          // Left overflow fade
+          if (_tabsCanScrollLeft)
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              child: IgnorePointer(
+                child: Container(
+                  width: 24,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [bgColor, bgColor.withValues(alpha: 0)],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          // Right overflow fade
+          if (_tabsCanScrollRight)
+            Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              child: IgnorePointer(
+                child: Container(
+                  width: 24,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [bgColor.withValues(alpha: 0), bgColor],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1688,8 +2044,17 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
             child: VerticalDivider(color: cs.outlineVariant, width: 12),
           ),
           // ── Opciones adicionales ─────────────────────────────────────────
+          // Theme quick-toggle dark/light
+          _buildThemeToggleBtn(cs),
           _buildOptionsGear(cs),
           _buildVarsButton(cs),
+          // Outline toggle
+          _ToggleBtn(
+            icon: Icons.account_tree_outlined,
+            tooltip: 'Outline — estructura del procedimiento',
+            active: _showOutline,
+            onPressed: _toggleOutline,
+          ),
           const Spacer(),
           // ── Badge de errores ──────────────────────────────────────────────
           _buildErrorBadge(cs),
@@ -1932,23 +2297,35 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     final vars = _filteredVariables();
     if (vars.isEmpty) return const SizedBox();
     return Tooltip(
-      message: 'Variables dinámicas (${vars.length})',
+      message: _varsDocked
+          ? 'Variables dinámicas — click derecho para desanclar panel'
+          : 'Variables dinámicas (${vars.length}) — click derecho para anclar panel',
       waitDuration: _kTooltipWait,
       preferBelow: true,
       decoration: _kTooltipDecoration,
       textStyle: _kTooltipTextStyle,
-      child: InkWell(
+      child: GestureDetector(
         key: _varsButtonKey,
-        borderRadius: BorderRadius.circular(4),
-        onTap: () => _showVarsOverlay(vars),
-        child: Padding(
+        onSecondaryTap: () {
+          setState(() => _varsDocked = !_varsDocked);
+          _savePrefs();
+        },
+        onTap: _varsDocked ? null : () => _showVarsOverlay(vars),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          decoration: BoxDecoration(
+            color: _varsDocked
+                ? cs.primaryContainer.withValues(alpha: 0.55)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+          ),
           child: Badge(
             label: Text('${vars.length}', style: const TextStyle(fontSize: 10)),
             child: Icon(
               Icons.data_object,
               size: 16,
-              color: cs.onSurfaceVariant,
+              color: _varsDocked ? cs.primary : cs.onSurfaceVariant,
             ),
           ),
         ),
@@ -1989,6 +2366,27 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     );
   }
 
+  // ── Theme picker (used by toolbar and gear menu) ──────────────────────────
+
+  void _showThemePickerDialog() {
+    showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'theme-picker',
+      barrierColor: Colors.black45,
+      transitionDuration: const Duration(milliseconds: 160),
+      transitionBuilder: (_, anim, _, child) =>
+          FadeTransition(opacity: anim, child: child),
+      pageBuilder: (_, _, _) => _ThemePickerDialog(
+        currentThemeId: editorThemeStore.themeId,
+        onSelected: (id) async {
+          await editorThemeStore.setTheme(id);
+          await _ctrl?.setTheme(editorThemeStore.monacoTheme);
+        },
+      ),
+    );
+  }
+
   Widget _buildErrorBadge(ColorScheme cs) {
     final procId = _activeProcId ?? '';
     final syntaxErrors = (_issuesPerProc[procId] ?? [])
@@ -1997,7 +2395,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     final compileErrors = (_compileErrorsPerProc[procId] ?? [])
         .where((e) => e.severity == MarkerSeverity.error)
         .length;
-    final n = syntaxErrors + compileErrors;
+    final backendErrors = (_backendIssuesPerProc[procId] ?? [])
+        .where((e) => e.severity == MarkerSeverity.error)
+        .length;
+    final n = syntaxErrors + compileErrors + backendErrors;
     final badge = Container(
       margin: const EdgeInsets.only(right: 6),
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
@@ -2061,6 +2462,50 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     );
   }
 
+  // dark/light pair map for the quick toggle button
+  static const _themePairs = <String, String>{
+    'oracle-dark': 'oracle-light',
+    'oracle-light': 'oracle-dark',
+    'vs-dark': 'vs',
+    'vs': 'vs-dark',
+    'hc-black': 'hc-light',
+    'hc-light': 'hc-black',
+    'github-dark': 'github-light',
+    'github-light': 'github-dark',
+    'solarized-dark': 'solarized-light',
+    'solarized-light': 'solarized-dark',
+  };
+
+  Widget _buildThemeToggleBtn(ColorScheme cs) {
+    final meta = editorThemeStore.currentMeta;
+    final isDarkTheme = meta.isDark;
+    return Tooltip(
+      message: isDarkTheme ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro',
+      waitDuration: _kTooltipWait,
+      preferBelow: false,
+      decoration: _kTooltipDecoration,
+      textStyle: _kTooltipTextStyle,
+      child: InkWell(
+        onTap: () async {
+          final target =
+              _themePairs[editorThemeStore.themeId] ??
+              (isDarkTheme ? 'oracle-light' : 'oracle-dark');
+          await editorThemeStore.setTheme(target);
+          await _ctrl?.setTheme(editorThemeStore.monacoTheme);
+        },
+        borderRadius: BorderRadius.circular(4),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+          child: Icon(
+            isDarkTheme ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+            size: 16,
+            color: cs.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildOptionsGear(ColorScheme cs) {
     final headerStyle = TextStyle(
       fontSize: 10,
@@ -2111,6 +2556,45 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         });
       },
       itemBuilder: (ctx) => [
+        // ── TEMA ────────────────────────────────────────────────────────
+        PopupMenuItem<_EditorOption>(
+          enabled: false,
+          height: 28,
+          child: Text('TEMA', style: headerStyle),
+        ),
+        PopupMenuItem<_EditorOption>(
+          onTap: () => WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _showThemePickerDialog(),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: editorThemeStore.currentMeta.swatch,
+                  borderRadius: BorderRadius.circular(2),
+                  border: Border.all(
+                    color: Theme.of(ctx).colorScheme.outlineVariant,
+                    width: 0.5,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                editorThemeStore.currentMeta.name,
+                style: const TextStyle(fontSize: 12),
+              ),
+              const Spacer(),
+              Icon(
+                Icons.chevron_right,
+                size: 14,
+                color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
         PopupMenuItem<_EditorOption>(
           enabled: false,
           height: 28,

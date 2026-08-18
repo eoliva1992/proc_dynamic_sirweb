@@ -55,8 +55,8 @@
     "semantic_hash": ""
   },
   "lib/widgets/code_editor_panel.dart": {
-    "mtime": 1786378325.8577979,
-    "ast_hash": "6930d14ee65f3326c044dbc14921d724",
+    "mtime": 1786390743.8333955,
+    "ast_hash": "260a4630dcbce7fc9bd024c02e1f0ca2",
     "semantic_hash": ""
   },
   "lib/widgets/config_badge.dart": {
@@ -240,7 +240,7 @@
     "semantic_hash": ""
   },
   "assets/monaco_editor.html": {
-    "mtime": 1786034085.6034565,
+    "mtime": 1786394362.9744065,
     "ast_hash": "de9506a6079d44491e3945561ff3cbaf",
     "semantic_hash": ""
   },
@@ -335,8 +335,8 @@
     "semantic_hash": ""
   },
   "lib/services/schema_service.dart": {
-    "mtime": 1786363987.1555367,
-    "ast_hash": "dcb243e955fac6f2eb1d869af738afb1",
+    "mtime": 1786415327.8567226,
+    "ast_hash": "fa9af7e0110a45c831c21ef25c86280b",
     "semantic_hash": ""
   },
   "lib/services/schema_service_clean.dart": {
@@ -465,8 +465,8 @@
     "semantic_hash": ""
   },
   "lib/widgets/object_source_page.dart": {
-    "mtime": 1786378325.8577979,
-    "ast_hash": "132e01bc8b8d97c91e061b910a3417ec",
+    "mtime": 1786423751.2529342,
+    "ast_hash": "8fd1a373206216007f2cd587f256ba83",
     "semantic_hash": ""
   },
   "lib/widgets/schema_object_details_sheet.dart": {

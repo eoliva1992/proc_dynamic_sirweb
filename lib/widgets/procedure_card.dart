@@ -11,6 +11,7 @@ class ProcedureCard extends StatefulWidget {
   final Procedimiento procedimiento;
   final VoidCallback onTap;
   final VoidCallback? onOpenInNewTab;
+  final VoidCallback? onViewSource;
   final String searchQuery;
 
   const ProcedureCard({
@@ -18,6 +19,7 @@ class ProcedureCard extends StatefulWidget {
     required this.procedimiento,
     required this.onTap,
     this.onOpenInNewTab,
+    this.onViewSource,
     this.searchQuery = '',
   });
 
@@ -157,6 +159,16 @@ class _ProcedureCardState extends State<ProcedureCard> {
       context: context,
       position: RelativeRect.fromLTRB(pos.dx, pos.dy, pos.dx + 1, pos.dy + 1),
       items: [
+        const PopupMenuItem(
+          value: _CardAction.viewSource,
+          child: Row(
+            children: [
+              Icon(Icons.code_rounded, size: 14),
+              SizedBox(width: 8),
+              Text('Ver fuente', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
         PopupMenuItem(
           value: _CardAction.openInNewTab,
           enabled: widget.onOpenInNewTab != null,
@@ -190,6 +202,7 @@ class _ProcedureCardState extends State<ProcedureCard> {
         ),
       ],
     ).then((action) {
+      if (action == _CardAction.viewSource) widget.onViewSource?.call();
       if (action == _CardAction.openInNewTab) widget.onOpenInNewTab?.call();
       if (action == _CardAction.copyName) {
         Clipboard.setData(
@@ -370,6 +383,26 @@ class _ProcedureCardState extends State<ProcedureCard> {
                       const SizedBox(width: 8),
                       _EstadoBadge(activo: proc.activo),
                       const SizedBox(width: 4),
+                      if (widget.onViewSource != null)
+                        AnimatedOpacity(
+                          duration: const Duration(milliseconds: 150),
+                          opacity: _hovered ? 1.0 : 0.25,
+                          child: Tooltip(
+                            message: 'Ver fuente Oracle',
+                            child: InkWell(
+                              onTap: widget.onViewSource,
+                              borderRadius: BorderRadius.circular(4),
+                              child: Padding(
+                                padding: const EdgeInsets.all(4),
+                                child: Icon(
+                                  Icons.code_rounded,
+                                  size: 14,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                       if (widget.onOpenInNewTab != null)
                         AnimatedOpacity(
                           duration: const Duration(milliseconds: 150),
@@ -440,7 +473,7 @@ class _FavStar extends StatelessWidget {
   }
 }
 
-enum _CardAction { openInNewTab, copyName, copyAsCall }
+enum _CardAction { viewSource, openInNewTab, copyName, copyAsCall }
 
 class _VersionBadge extends StatelessWidget {
   final int version;

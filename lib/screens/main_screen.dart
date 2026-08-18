@@ -48,6 +48,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   static const _minSidebarW = 180.0;
   static const _maxSidebarW = 540.0;
   late ReactionDisposer _tabReaction;
+  final Set<int> _togglingTabs = {};
 
   // LRU list of tab IDs kept alive in the IndexedStack (search tabs only)
   final List<int> _lruTabIds = [];
@@ -656,6 +657,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     if (confirmed != true || !mounted) return;
 
     // Use SirwebService directly to avoid provider state sync issues
+    setState(() => _togglingTabs.add(tab.tabId));
     try {
       final svc = SirwebService();
       if (newStatus) {
@@ -686,6 +688,8 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     } catch (e) {
       if (!mounted) return;
       AppToast.error(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _togglingTabs.remove(tab.tabId));
     }
   }
 
@@ -970,8 +974,10 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                 GestureDetector(
                   onHorizontalDragUpdate: (d) {
                     setState(() {
-                      _sidebarWidth = (_sidebarWidth + d.delta.dx)
-                          .clamp(_minSidebarW, _maxSidebarW);
+                      _sidebarWidth = (_sidebarWidth + d.delta.dx).clamp(
+                        _minSidebarW,
+                        _maxSidebarW,
+                      );
                     });
                   },
                   child: MouseRegion(
@@ -990,8 +996,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                 )
               else
                 SchemaSidebarToggle(
-                  onToggle: () =>
-                      setState(() => _schemaSidebarOpen = true),
+                  onToggle: () => setState(() => _schemaSidebarOpen = true),
                 ),
               Expanded(
                 child: Stack(
@@ -1265,45 +1270,70 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
               ),
             ),
             const SizedBox(width: 8),
-            // active/inactive toggle
-            Tooltip(
-              message: tab.procedimiento!.activo
-                  ? 'Activo — clic para desactivar'
-                  : 'Inactivo — clic para activar',
-              child: InkWell(
-                onTap: () => _toggleProcStatus(tab),
-                borderRadius: BorderRadius.circular(4),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: tab.procedimiento!.activo
-                        ? Colors.green.withValues(alpha: 0.12)
-                        : Colors.red.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(
-                      color: tab.procedimiento!.activo
-                          ? Colors.green.shade700
-                          : Colors.red.shade700,
-                      width: 0.5,
+            // active/inactive switch
+            if (_togglingTabs.contains(tab.tabId))
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 1.5),
+              )
+            else
+              Tooltip(
+                message: tab.procedimiento!.activo
+                    ? 'Activo — clic para desactivar'
+                    : 'Inactivo — clic para activar',
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      tab.procedimiento!.activo ? 'Activo' : 'Inactivo',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: tab.procedimiento!.activo
+                            ? Colors.green.shade400
+                            : Colors.red.shade400,
+                      ),
                     ),
-                  ),
-                  child: Text(
-                    tab.procedimiento!.activo ? 'Activo' : 'Inactivo',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: tab.procedimiento!.activo
-                          ? Colors.green.shade400
-                          : Colors.red.shade400,
+                    SizedBox(
+                      height: 20,
+                      width: 38,
+                      child: FittedBox(
+                        fit: BoxFit.contain,
+                        child: Switch(
+                          value: tab.procedimiento!.activo,
+                          onChanged: (_) => _toggleProcStatus(tab),
+                          thumbColor: WidgetStateProperty.resolveWith(
+                            (states) => states.contains(WidgetState.selected)
+                                ? Colors.green.shade400
+                                : Colors.red.shade400,
+                          ),
+                          trackColor: WidgetStateProperty.resolveWith(
+                            (states) => states.contains(WidgetState.selected)
+                                ? Colors.green.shade700.withValues(alpha: 0.4)
+                                : Colors.red.shade700.withValues(alpha: 0.4),
+                          ),
+                          trackOutlineColor: WidgetStateProperty.resolveWith(
+                            (states) => states.contains(WidgetState.selected)
+                                ? Colors.green.shade700
+                                : Colors.red.shade700,
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
-            ),
           ],
+          // Separator between proc-info group and env/user group
+          const SizedBox(width: 8),
+          SizedBox(
+            height: 20,
+            child: VerticalDivider(
+              width: 1,
+              color: Colors.grey.withValues(alpha: 0.3),
+            ),
+          ),
+          const SizedBox(width: 8),
           const Spacer(),
           // Active user indicator
           Observer(
@@ -1340,8 +1370,11 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           ),
           const SizedBox(width: 8),
           SizedBox(
-            height: 18,
-            child: VerticalDivider(width: 1, color: cs.outlineVariant),
+            height: 20,
+            child: VerticalDivider(
+              width: 1,
+              color: Colors.grey.withValues(alpha: 0.3),
+            ),
           ),
           const SizedBox(width: 8),
           // Create new procedure for the current tab's database
@@ -1651,10 +1684,17 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       ),
       actions: [
         Tooltip(
-          message: _schemaSidebarOpen ? 'Cerrar explorador de esquema' : 'Abrir explorador de esquema',
+          message: _schemaSidebarOpen
+              ? 'Cerrar explorador de esquema'
+              : 'Abrir explorador de esquema',
           child: IconButton(
-            onPressed: () => setState(() => _schemaSidebarOpen = !_schemaSidebarOpen),
-            icon: Icon(_schemaSidebarOpen ? Icons.menu_open_rounded : Icons.schema_outlined),
+            onPressed: () =>
+                setState(() => _schemaSidebarOpen = !_schemaSidebarOpen),
+            icon: Icon(
+              _schemaSidebarOpen
+                  ? Icons.menu_open_rounded
+                  : Icons.schema_outlined,
+            ),
             color: _schemaSidebarOpen ? Colors.white : Colors.white70,
           ),
         ),
@@ -1795,10 +1835,7 @@ class _MenuRow extends StatelessWidget {
             if (subtitle != null)
               Text(
                 subtitle!,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: cs.onSurfaceVariant,
-                ),
+                style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
               ),
           ],
         ),

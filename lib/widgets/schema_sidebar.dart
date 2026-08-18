@@ -6,6 +6,7 @@ import '../services/schema_recents_service.dart';
 import '../services/schema_service.dart';
 import 'schema_command_palette.dart';
 import 'schema_object_details_sheet.dart';
+import 'source_float_window.dart';
 
 const _kTypeColors = {
   'TABLE': Color(0xFF0078D4),
@@ -64,7 +65,9 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
   // Datos
   List<SchemaObjectRef> _recents = [];
   bool _recentsExpanded = false;
+  bool _recentsShowMore = false;
   bool _favoritesExpanded = false;
+  bool _favoritesShowMore = false;
   List<SchemaObjectRef> _favorites = [];
   Set<String> _favoriteKeys = {};
   SchemaMetadata? _meta;
@@ -510,6 +513,9 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
             expanded: _favoritesExpanded,
             onToggleExpand: () =>
                 setState(() => _favoritesExpanded = !_favoritesExpanded),
+            showMore: _favoritesShowMore,
+            onToggleShowMore: () =>
+                setState(() => _favoritesShowMore = !_favoritesShowMore),
           ),
         if (_filter.isEmpty && _recents.isNotEmpty)
           ..._buildSavedSection(
@@ -522,6 +528,9 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
             expanded: _recentsExpanded,
             onToggleExpand: () =>
                 setState(() => _recentsExpanded = !_recentsExpanded),
+            showMore: _recentsShowMore,
+            onToggleShowMore: () =>
+                setState(() => _recentsShowMore = !_recentsShowMore),
           ),
         ..._buildSchemaTree(meta, isDark),
       ],
@@ -537,10 +546,12 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
     required bool isFavoriteSection,
     bool expanded = false,
     VoidCallback? onToggleExpand,
+    bool showMore = false,
+    VoidCallback? onToggleShowMore,
   }) {
     const maxShow = 5;
     final hasMore = items.length > maxShow;
-    final shown = (!expanded && hasMore) ? items.take(maxShow).toList() : items;
+    final shown = (!showMore && hasMore) ? items.take(maxShow).toList() : items;
     return [
       SliverToBoxAdapter(
         child: _savedSectionHeader(
@@ -549,9 +560,31 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
           sectionColor,
           isDark,
           count: items.length,
+          expanded: expanded,
+          onToggle: onToggleExpand,
           onClear: isFavoriteSection
               ? null
               : () async {
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (_) => AlertDialog(
+                      title: const Text('Limpiar recientes'),
+                      content: const Text(
+                        '¿Eliminar todo el historial de recientes?',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('Cancelar'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: const Text('Eliminar'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (ok != true) return;
                   await SchemaRecentsService.instance.clearRecents(
                     ambiente: widget.ambiente,
                   );
@@ -559,33 +592,41 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
                 },
         ),
       ),
-      SliverList(
-        delegate: SliverChildBuilderDelegate(
-          (_, i) => _buildSavedCard(
-            shown[i],
-            isDark,
-            isFavoriteSection: isFavoriteSection,
+      if (expanded)
+        ...([
+          SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (_, i) => _buildSavedCard(
+                shown[i],
+                isDark,
+                isFavoriteSection: isFavoriteSection,
+              ),
+              childCount: shown.length,
+            ),
           ),
-          childCount: shown.length,
-        ),
-      ),
-      if (hasMore)
-        SliverToBoxAdapter(
-          child: GestureDetector(
-            onTap: onToggleExpand,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-              child: Text(
-                expanded ? 'Ver menos ↑' : '+ ${items.length - maxShow} más',
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: Color(0xFF0078D4),
-                  fontWeight: FontWeight.w500,
+          if (hasMore)
+            SliverToBoxAdapter(
+              child: GestureDetector(
+                onTap: onToggleShowMore,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 6,
+                  ),
+                  child: Text(
+                    showMore
+                        ? 'Ver menos ↑'
+                        : '+ ${items.length - maxShow} más',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF0078D4),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
-        ),
+        ]),
     ];
   }
 
@@ -595,66 +636,81 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
     Color color,
     bool isDark, {
     required int count,
+    bool expanded = false,
+    VoidCallback? onToggle,
     VoidCallback? onClear,
   }) {
     final divBg = isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA);
     final divLine = isDark ? const Color(0xFF3A3A3A) : const Color(0xFFE8E8E8);
-    return Container(
-      padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
-      decoration: BoxDecoration(
-        color: divBg,
-        border: Border(
-          top: BorderSide(color: divLine),
-          bottom: BorderSide(color: divLine),
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 12, color: color),
-          const SizedBox(width: 5),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 9.5,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.8,
-              color: isDark ? Colors.white38 : Colors.black38,
-            ),
+    return InkWell(
+      onTap: onToggle,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
+        decoration: BoxDecoration(
+          color: divBg,
+          border: Border(
+            top: BorderSide(color: divLine),
+            bottom: BorderSide(color: divLine),
           ),
-          const SizedBox(width: 5),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              '$count',
-              style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.bold,
-                color: color,
+        ),
+        child: Row(
+          children: [
+            AnimatedRotation(
+              turns: expanded ? 0.25 : 0,
+              duration: const Duration(milliseconds: 150),
+              child: Icon(
+                Icons.chevron_right,
+                size: 13,
+                color: isDark ? Colors.white38 : Colors.black38,
               ),
             ),
-          ),
-          const Spacer(),
-          if (onClear != null)
-            Tooltip(
-              message: 'Limpiar recientes',
-              child: InkWell(
-                onTap: onClear,
-                borderRadius: BorderRadius.circular(4),
-                child: Padding(
-                  padding: const EdgeInsets.all(4),
-                  child: Icon(
-                    Icons.delete_sweep_outlined,
-                    size: 13,
-                    color: isDark ? Colors.white24 : Colors.black26,
-                  ),
+            const SizedBox(width: 4),
+            Icon(icon, size: 12, color: color),
+            const SizedBox(width: 5),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 9.5,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
+                color: isDark ? Colors.white38 : Colors.black38,
+              ),
+            ),
+            const SizedBox(width: 5),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                  color: color,
                 ),
               ),
             ),
-        ],
+            const Spacer(),
+            if (onClear != null)
+              Tooltip(
+                message: 'Limpiar recientes',
+                child: InkWell(
+                  onTap: onClear,
+                  borderRadius: BorderRadius.circular(4),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.delete_sweep_outlined,
+                      size: 13,
+                      color: isDark ? Colors.white24 : Colors.black26,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -682,6 +738,14 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
               await SchemaRecentsService.instance.removeRecent(ref);
               _loadSaved();
             },
+      onOpenSource: _kSourceTypes.contains(ref.type)
+          ? () => openSourceWindow(
+              context,
+              name: ref.name,
+              objectType: ref.type,
+              ambiente: ref.ambiente,
+            )
+          : null,
     );
   }
 
@@ -832,6 +896,14 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
       isDark: isDark,
       isFavorite: isFav,
       onTap: () => _openObject(name, type, owner),
+      onOpenSource: _kSourceTypes.contains(type)
+          ? () => openSourceWindow(
+              context,
+              name: name,
+              objectType: type,
+              ambiente: widget.ambiente,
+            )
+          : null,
       onFavoriteToggle: () => _toggleFavorite(
         SchemaObjectRef(
           name: name,
@@ -862,6 +934,15 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
 
 // ── Tarjeta de reciente / favorito ───────────────────────────────────────────
 
+const _kSourceTypes = {
+  'PROCEDURE',
+  'FUNCTION',
+  'PACKAGE',
+  'TYPE',
+  'VIEW',
+  'TABLE',
+};
+
 class _SavedCard extends StatefulWidget {
   final SchemaObjectRef ref;
   final Color color;
@@ -872,6 +953,7 @@ class _SavedCard extends StatefulWidget {
   final VoidCallback onTap;
   final VoidCallback onFavoriteToggle;
   final VoidCallback? onRemove;
+  final VoidCallback? onOpenSource;
 
   const _SavedCard({
     required this.ref,
@@ -883,6 +965,7 @@ class _SavedCard extends StatefulWidget {
     required this.onTap,
     required this.onFavoriteToggle,
     this.onRemove,
+    this.onOpenSource,
   });
 
   @override
@@ -950,6 +1033,20 @@ class _SavedCardState extends State<_SavedCard> {
                   ),
                 ),
                 if (_hovered) ...[
+                  if (widget.onOpenSource != null)
+                    GestureDetector(
+                      onTap: widget.onOpenSource,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: Icon(
+                          Icons.code_rounded,
+                          size: 14,
+                          color: widget.isDark
+                              ? Colors.white38
+                              : Colors.black45,
+                        ),
+                      ),
+                    ),
                   // Toggle favorite star
                   GestureDetector(
                     onTap: widget.onFavoriteToggle,
@@ -1002,6 +1099,7 @@ class _SidebarRow extends StatefulWidget {
   final bool isFavorite;
   final VoidCallback onTap;
   final VoidCallback onFavoriteToggle;
+  final VoidCallback? onOpenSource;
 
   const _SidebarRow({
     required this.icon,
@@ -1012,6 +1110,7 @@ class _SidebarRow extends StatefulWidget {
     required this.isFavorite,
     required this.onTap,
     required this.onFavoriteToggle,
+    this.onOpenSource,
   });
 
   @override
@@ -1064,7 +1163,24 @@ class _SidebarRowState extends State<_SidebarRow> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (_hovered)
+              if (_hovered) ...[
+                if (widget.onOpenSource != null)
+                  GestureDetector(
+                    onTap: widget.onOpenSource,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Tooltip(
+                        message: 'Ver fuente',
+                        child: Icon(
+                          Icons.code_rounded,
+                          size: 14,
+                          color: widget.isDark
+                              ? Colors.white54
+                              : Colors.black45,
+                        ),
+                      ),
+                    ),
+                  ),
                 GestureDetector(
                   onTap: widget.onFavoriteToggle,
                   child: Padding(
@@ -1080,6 +1196,7 @@ class _SidebarRowState extends State<_SidebarRow> {
                     ),
                   ),
                 ),
+              ],
             ],
           ),
         ),

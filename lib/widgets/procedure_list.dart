@@ -4,6 +4,7 @@ import '../providers/procedimientos_provider.dart';
 import '../services/favorites_service.dart';
 import 'procedure_card.dart';
 import 'search_tab_state.dart';
+import 'source_float_window.dart';
 
 class ProcedureList extends StatefulWidget {
   final SearchTabState tabState;
@@ -450,12 +451,23 @@ class _ProcedureListState extends State<ProcedureList>
                   final card = ProcedureCard(
                     procedimiento: proc,
                     searchQuery: state.searchText,
-                    onTap: () =>
-                        (widget.onSelect ?? procedimientosProvider.seleccionar)(
-                          proc,
-                        ),
+                    onTap: () {
+                      state.addToHistory(proc.cdProcedimiento);
+                      (widget.onSelect ?? procedimientosProvider.seleccionar)(
+                        proc,
+                      );
+                    },
+                    onViewSource: () => openSourceWindow(
+                      context,
+                      name: proc.cdProcedimiento,
+                      objectType: 'PROCEDURE',
+                      ambiente: procedimientosProvider.ambiente,
+                    ),
                     onOpenInNewTab: widget.onOpenInNewTab != null
-                        ? () => widget.onOpenInNewTab!(proc)
+                        ? () {
+                            state.addToHistory(proc.cdProcedimiento);
+                            widget.onOpenInNewTab!(proc);
+                          }
                         : null,
                   );
                   return _animatedCard(card, index);

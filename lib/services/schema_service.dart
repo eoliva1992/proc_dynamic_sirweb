@@ -468,6 +468,74 @@ class SchemaService {
         .toList();
   }
 
+  Future<List<({String synonymName, bool isPublic, String owner})>> getSynonyms(
+    String objectName, {
+    String? ambiente,
+  }) async {
+    try {
+      final result = await _call('get_object_synonyms', {
+        'objectName': objectName.toUpperCase(),
+        if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+      });
+      final rawList = result['data'] as List? ?? [];
+      return rawList
+          .cast<Map<String, dynamic>>()
+          .map(
+            (e) => (
+              synonymName:
+                  (e['synonymName'] as String? ??
+                          e['synonym_name'] as String? ??
+                          e['name'] as String? ??
+                          '')
+                      .toUpperCase(),
+              isPublic: switch (e['synonymType'] ??
+                  e['type'] ??
+                  e['isPublic']) {
+                'PUBLIC' || true || 1 => true,
+                _ => false,
+              },
+              owner: (e['owner'] as String? ?? '').toUpperCase(),
+            ),
+          )
+          .where((s) => s.synonymName.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// DDL de una tabla Oracle vía DBMS_METADATA (endpoint get_table_ddl).
+  Future<
+    ({
+      String tableName,
+      String owner,
+      String createTable,
+      String? comments,
+      String? grants,
+    })
+  >
+  getTableDdl(String tableName, {String? ambiente}) async {
+    final result = await _call('get_table_ddl', {
+      'tableName': tableName.toUpperCase(),
+      if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+    });
+    if (result['success'] == false) {
+      throw Exception(
+        result['message']?.toString() ??
+            result['error']?.toString() ??
+            'Error obteniendo DDL de tabla',
+      );
+    }
+    final data = result['data'] as Map<String, dynamic>? ?? {};
+    return (
+      tableName: (data['tableName'] as String? ?? tableName).toUpperCase(),
+      owner: (data['owner'] as String? ?? '').toUpperCase(),
+      createTable: data['createTable'] as String? ?? '',
+      comments: data['comments'] as String?,
+      grants: data['grants'] as String?,
+    );
+  }
+
   /// Fuerza recarga desde el servidor en la próxima llamada (para todos los ambientes).
   void clearCache() => _caches.clear();
 

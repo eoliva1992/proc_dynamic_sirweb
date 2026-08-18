@@ -103,7 +103,7 @@ class SearchTabState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _addToHistory(String query) {
+  void addToHistory(String query) {
     if (query.trim().isEmpty) return;
     history = [query, ...history.where((h) => h != query)].take(8).toList();
     notifyListeners();
@@ -163,7 +163,7 @@ class SearchTabState extends ChangeNotifier {
     hasSearched = true;
     error = null;
     notifyListeners();
-    _addToHistory(busqueda);
+    addToHistory(busqueda);
     try {
       final r = await _service.listarProcedimientos(
         busqueda: busqueda,

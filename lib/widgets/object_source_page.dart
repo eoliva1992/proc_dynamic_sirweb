@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_monaco/flutter_monaco.dart' as fm;
@@ -72,6 +74,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
   bool _wordWrap = false;
   double _fontSize = 14;
   bool _showProblems = false;
+  bool _backendChecking = false;
   bool _showPackageNav = true;
   String? _activeSubprogram;
   List<PlSqlIssue> _specIssues = [];
@@ -82,20 +85,47 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
   List<({String name, String kind, int line})> _specSubprograms = [];
   final TextEditingController _navSearchCtrl = TextEditingController();
 
+  // Grants/owner from table DDL response — used in backup dialog for TABLE type
+  String? _tableDdlGrants;
+  String _tableDdlOwner = '';
+  String _tableDdlCreateTable = '';
+  String? _tableDdlComments;
+
   @override
   void initState() {
     super.initState();
-    SchemaService.instance
-        .getObjectSource(
-          widget.name,
-          widget.objectType,
-          ambiente: widget.ambiente,
-        )
+    final isTable = widget.objectType == 'TABLE';
+    final sourceFuture = isTable
+        ? SchemaService.instance
+              .getTableDdl(widget.name, ambiente: widget.ambiente)
+              .then((ddl) {
+                _tableDdlGrants = ddl.grants?.isNotEmpty == true
+                    ? ddl.grants
+                    : null;
+                _tableDdlOwner = ddl.owner;
+                _tableDdlCreateTable = ddl.createTable;
+                _tableDdlComments = ddl.comments?.isNotEmpty == true
+                    ? ddl.comments
+                    : null;
+                final parts = [
+                  ddl.createTable,
+                  if (ddl.comments != null && ddl.comments!.isNotEmpty)
+                    ddl.comments!,
+                ];
+                return (spec: parts.join('\n\n'), body: null as String?);
+              })
+        : SchemaService.instance.getObjectSource(
+            widget.name,
+            widget.objectType,
+            ambiente: widget.ambiente,
+          );
+    sourceFuture
         .then((data) {
           if (!mounted) return;
           setState(() {
             _data = data;
-            if (data.body != null) {
+            // Only PACKAGE has a meaningful spec/body split
+            if (data.body != null && widget.objectType == 'PACKAGE') {
               _tabCtrl = TabController(length: 2, vsync: this);
             }
           });
@@ -214,6 +244,279 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
     _specCtrl?.runJavaScript(
       'try{editor.getAction("actions.find").run();}catch(e){}',
     );
+  }
+
+  Future<void> _showBackupDialog() async {
+    final isTable = widget.objectType == 'TABLE';
+
+    var includeSpec = true;
+    var includeBody = _bodyText.isNotEmpty;
+    var includeTableComments = _tableDdlComments != null;
+    var includeSynonym = false;
+    var includeGrants = false;
+
+    final typeColor = kTypeColors[widget.objectType] ?? const Color(0xFF0078D4);
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) {
+          final hasBody = _bodyText.isNotEmpty;
+          final canSave =
+              includeSpec ||
+              (hasBody && includeBody) ||
+              (isTable && includeTableComments) ||
+              includeSynonym ||
+              includeGrants;
+
+          Widget checkRow(
+            String label,
+            bool value,
+            bool enabled,
+            ValueChanged<bool?> onChanged, {
+            String? subtitle,
+            IconData icon = Icons.check_box_outline_blank,
+          }) {
+            return InkWell(
+              onTap: enabled ? () => onChanged(!value) : null,
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: Checkbox(
+                        value: value,
+                        onChanged: enabled ? onChanged : null,
+                        activeColor: typeColor,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            label,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: enabled ? null : Colors.grey,
+                            ),
+                          ),
+                          if (subtitle != null)
+                            Text(
+                              subtitle,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade500,
+                                fontFamily: 'Consolas',
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          return AlertDialog(
+            title: Row(
+              children: [
+                Icon(Icons.download_outlined, size: 18, color: typeColor),
+                const SizedBox(width: 8),
+                const Text(
+                  'Generar backup SQL',
+                  style: TextStyle(fontSize: 15),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 360,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Seleccioná qué incluir en el script',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                  const SizedBox(height: 12),
+                  // ── Fuente ──────────────────────────────────────────────
+                  Text(
+                    'FUENTE',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                      color: typeColor,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  checkRow(
+                    isTable ? 'DDL de tabla' : 'Especificación',
+                    includeSpec,
+                    _specText.isNotEmpty,
+                    (v) => setDlg(() => includeSpec = v ?? false),
+                    subtitle: isTable
+                        ? 'CREATE TABLE + Índices + Constraints'
+                        : widget.objectType == 'PACKAGE'
+                        ? 'CREATE OR REPLACE PACKAGE ...'
+                        : null,
+                  ),
+                  if (isTable && _tableDdlComments != null)
+                    checkRow(
+                      'Comentarios',
+                      includeTableComments,
+                      true,
+                      (v) => setDlg(() => includeTableComments = v ?? false),
+                      subtitle: 'COMMENT ON TABLE ...',
+                    ),
+                  if (!isTable && hasBody)
+                    checkRow(
+                      'Cuerpo',
+                      includeBody,
+                      true,
+                      (v) => setDlg(() => includeBody = v ?? false),
+                      subtitle: 'CREATE OR REPLACE PACKAGE BODY ...',
+                    ),
+                  const SizedBox(height: 10),
+                  // ── Adicional ────────────────────────────────────────────
+                  Text(
+                    'ADICIONAL',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                      color: typeColor,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  checkRow(
+                    'Grant',
+                    includeGrants,
+                    true,
+                    (v) => setDlg(() => includeGrants = v ?? false),
+                    subtitle: isTable && _tableDdlGrants != null
+                        ? 'Grants del DDL de tabla'
+                        : 'GRANT EXECUTE ON OWNER.NAME TO PUBLIC',
+                  ),
+                  checkRow(
+                    'Sinónimo público',
+                    includeSynonym,
+                    true,
+                    (v) => setDlg(() => includeSynonym = v ?? false),
+                    subtitle:
+                        'CREATE OR REPLACE PUBLIC SYNONYM NAME FOR OWNER.NAME',
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton.icon(
+                onPressed: canSave
+                    ? () {
+                        Navigator.pop(ctx);
+                        _saveBackup(
+                          includeSpec: includeSpec,
+                          includeBody: includeBody && hasBody,
+                          includeTableComments: includeTableComments,
+                          includeSynonyms: includeSynonym,
+                          includeGrants: includeGrants,
+                        );
+                      }
+                    : null,
+                icon: const Icon(Icons.save_outlined, size: 16),
+                label: const Text('Guardar .sql'),
+                style: FilledButton.styleFrom(backgroundColor: typeColor),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // Resolves the schema owner for this object from the cached metadata or table DDL.
+  String _objectOwner() {
+    if (_tableDdlOwner.isNotEmpty) return _tableDdlOwner;
+    final cached = SchemaService.instance.getCached(ambiente: widget.ambiente);
+    return cached?.objects
+            .where((o) => o.name == widget.name.toUpperCase())
+            .firstOrNull
+            ?.owner ??
+        '';
+  }
+
+  Future<void> _saveBackup({
+    required bool includeSpec,
+    required bool includeBody,
+    bool includeTableComments = false,
+    required bool includeSynonyms,
+    required bool includeGrants,
+  }) async {
+    final parts = <String>[];
+    final isTable = widget.objectType == 'TABLE';
+
+    if (includeSpec) {
+      // For TABLE use the raw createTable; for others use the full specText
+      final source = isTable ? _tableDdlCreateTable : _specText;
+      if (source.isNotEmpty) parts.add('$source\n/');
+    }
+    if (includeTableComments && _tableDdlComments != null) {
+      parts.add('${_tableDdlComments!}\n/');
+    }
+    if (includeBody && _bodyText.isNotEmpty) {
+      parts.add('$_bodyText\n/');
+    }
+
+    if (includeSynonyms || includeGrants) {
+      final owner = _objectOwner();
+      final ref = owner.isNotEmpty ? '$owner.${widget.name}' : widget.name;
+      if (includeGrants) {
+        // For TABLE, use pre-built grants from DDL response; for others generate
+        if (widget.objectType == 'TABLE' && _tableDdlGrants != null) {
+          parts.add('${_tableDdlGrants!}\n/');
+        } else {
+          parts.add('GRANT EXECUTE ON $ref TO PUBLIC;\n/');
+        }
+      }
+      if (includeSynonyms) {
+        parts.add(
+          'CREATE OR REPLACE PUBLIC SYNONYM ${widget.name} FOR $ref;\n/',
+        );
+      }
+    }
+
+    if (parts.isEmpty) return;
+
+    final script = parts.join('\n\n');
+    final suggested =
+        '${widget.name.toLowerCase()}_${widget.ambiente.toLowerCase()}.sql';
+
+    try {
+      final path = await FilePicker.saveFile(
+        dialogTitle: 'Guardar backup SQL',
+        fileName: suggested,
+        type: FileType.custom,
+        allowedExtensions: ['sql'],
+      );
+      if (path == null) return;
+      await File(path).writeAsString(script, flush: true);
+      AppToast.success('Backup guardado: ${path.split(r"\\").last}');
+    } catch (e) {
+      AppToast.error('Error guardando backup: $e');
+    }
   }
 
   // Parses PROCEDURE/FUNCTION declarations with their 1-based line numbers.
@@ -419,6 +722,16 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
                   ),
                 ),
                 IconButton(
+                  tooltip: 'Generar backup SQL',
+                  icon: const Icon(Icons.download_outlined, size: 16),
+                  onPressed: _showBackupDialog,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                ),
+                IconButton(
                   tooltip: 'Buscar (Ctrl+F)',
                   icon: const Icon(Icons.search_rounded, size: 16),
                   onPressed: _triggerFind,
@@ -493,7 +806,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
         body: _data!.body,
         isDark: isDark,
         ambiente: widget.ambiente,
-        isPlSql: widget.objectType != 'VIEW',
+        isPlSql: widget.objectType != 'VIEW' && widget.objectType != 'TABLE',
         objectType: widget.objectType,
         tabCtrl: _tabCtrl!,
         minimap: _minimap,
@@ -523,6 +836,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
         onBodyErrorsChanged: (n) => setState(() => _bodyErrors = n),
         onSpecIssuesChanged: (issues) => setState(() => _specIssues = issues),
         onBodyIssuesChanged: (issues) => setState(() => _bodyIssues = issues),
+        onBackendChecking: (v) => setState(() => _backendChecking = v),
       );
       final showNav = _showPackageNav && _subprograms.isNotEmpty;
       return Row(
@@ -534,10 +848,11 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
     }
 
     return _MonacoSourceTab(
-      source: _data!.spec,
+      // For non-PACKAGE types, use body if spec is empty (some servers return body only)
+      source: _data!.spec.isNotEmpty ? _data!.spec : (_data!.body ?? ''),
       isDark: isDark,
       ambiente: widget.ambiente,
-      isPlSql: widget.objectType != 'VIEW',
+      isPlSql: widget.objectType != 'VIEW' && widget.objectType != 'TABLE',
       minimap: _minimap,
       wordWrap: _wordWrap,
       fontSize: _fontSize,
@@ -548,6 +863,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
       onTextChanged: (t) => _specText = t,
       onErrorCountChanged: (n) => setState(() => _specErrors = n),
       onIssuesChanged: (issues) => setState(() => _specIssues = issues),
+      onBackendChecking: (v) => setState(() => _backendChecking = v),
     );
   }
 
@@ -871,6 +1187,11 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
               tooltip: 'Copiar fuente',
               onPressed: _copyCurrentSource,
             ),
+            _ViewerIconBtn(
+              icon: Icons.download_outlined,
+              tooltip: 'Generar backup SQL',
+              onPressed: _showBackupDialog,
+            ),
             SizedBox(
               height: 16,
               child: VerticalDivider(color: cs.outlineVariant, width: 10),
@@ -878,53 +1199,81 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
           ],
           const Spacer(),
           // ── Errores + Compilar ─────────────────────────────────────────────
-          if (errCount > 0 || warnCount > 0)
-            GestureDetector(
-              onTap: () => setState(() => _showProblems = !_showProblems),
-              child: Container(
-                margin: const EdgeInsets.only(right: 6),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: errCount > 0
-                      ? Colors.red.shade400.withValues(alpha: 0.12)
-                      : Colors.orange.shade400.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(4),
+          if (_backendChecking)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.5,
+                  color: cs.onSurfaceVariant,
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (errCount > 0) ...[
-                      Icon(
-                        Icons.error_outline,
-                        size: 13,
-                        color: Colors.red.shade400,
-                      ),
-                      const SizedBox(width: 3),
-                      Text(
-                        '$errCount',
-                        style: TextStyle(
-                          fontSize: 11,
+              ),
+            ),
+          if (errCount > 0 || warnCount > 0)
+            Tooltip(
+              message: _showProblems
+                  ? 'Ocultar problemas'
+                  : 'Mostrar problemas',
+              waitDuration: const Duration(milliseconds: 400),
+              child: GestureDetector(
+                onTap: () => setState(() => _showProblems = !_showProblems),
+                child: Container(
+                  margin: const EdgeInsets.only(right: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: errCount > 0
+                        ? Colors.red.shade400.withValues(alpha: 0.12)
+                        : Colors.orange.shade400.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: errCount > 0
+                          ? Colors.red.shade400.withValues(alpha: 0.4)
+                          : Colors.orange.shade400.withValues(alpha: 0.4),
+                      width: 0.5,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (errCount > 0) ...[
+                        Icon(
+                          Icons.error_outline,
+                          size: 13,
                           color: Colors.red.shade400,
                         ),
-                      ),
-                    ],
-                    if (errCount > 0 && warnCount > 0) const SizedBox(width: 6),
-                    if (warnCount > 0) ...[
-                      Icon(
-                        Icons.warning_amber_rounded,
-                        size: 13,
-                        color: Colors.orange.shade400,
-                      ),
-                      const SizedBox(width: 3),
-                      Text(
-                        '$warnCount',
-                        style: TextStyle(
-                          fontSize: 11,
+                        const SizedBox(width: 3),
+                        Text(
+                          '$errCount',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.red.shade400,
+                          ),
+                        ),
+                      ],
+                      if (errCount > 0 && warnCount > 0)
+                        const SizedBox(width: 6),
+                      if (warnCount > 0) ...[
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          size: 13,
                           color: Colors.orange.shade400,
                         ),
-                      ),
+                        const SizedBox(width: 3),
+                        Text(
+                          '$warnCount',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.orange.shade400,
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -1007,51 +1356,151 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
   }
 
   Widget _buildCompileBtn({bool compact = false}) {
+    final typeColor = kTypeColors[widget.objectType] ?? const Color(0xFF0078D4);
     final size = compact ? 18.0 : 22.0;
     return switch (_compileStatus) {
+      _ViewerCompileStatus.idle when !compact => GestureDetector(
+        onTap: _compile,
+        child: Tooltip(
+          message: 'Compilar (F5)',
+          waitDuration: const Duration(milliseconds: 400),
+          child: Container(
+            height: 26,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              color: typeColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(5),
+              border: Border.all(
+                color: typeColor.withValues(alpha: 0.35),
+                width: 0.5,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.play_arrow_rounded, size: 14, color: typeColor),
+                const SizedBox(width: 4),
+                Text(
+                  'Compilar',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: typeColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
       _ViewerCompileStatus.idle => IconButton(
         tooltip: 'Compilar',
-        icon: Icon(Icons.play_arrow_rounded, size: size),
+        icon: Icon(Icons.play_arrow_rounded, size: size, color: typeColor),
         onPressed: _compile,
-        padding: compact ? EdgeInsets.zero : null,
-        constraints: compact
-            ? const BoxConstraints(minWidth: 32, minHeight: 32)
-            : null,
-        color: compact ? const Color(0xFF0078D4) : null,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
       ),
       _ViewerCompileStatus.compiling => Padding(
-        padding: EdgeInsets.symmetric(horizontal: compact ? 7 : 12),
+        padding: EdgeInsets.symmetric(horizontal: compact ? 7 : 10),
         child: SizedBox(
           width: compact ? 14 : 18,
           height: compact ? 14 : 18,
           child: CircularProgressIndicator(
             strokeWidth: 2,
-            color: compact ? const Color(0xFF0078D4) : Colors.white,
+            color: compact ? typeColor : typeColor,
           ),
         ),
       ),
-      _ViewerCompileStatus.ok => IconButton(
-        tooltip: 'Compilado — compilar de nuevo',
-        icon: Icon(
-          Icons.check_circle_outline,
-          size: size,
-          color: const Color(0xFF4CAF50),
-        ),
-        onPressed: _compile,
-        padding: compact ? EdgeInsets.zero : null,
-        constraints: compact
-            ? const BoxConstraints(minWidth: 32, minHeight: 32)
-            : null,
-      ),
-      _ViewerCompileStatus.error => IconButton(
-        tooltip: 'Compilación falló — compilar de nuevo',
-        icon: Icon(Icons.error_outline, size: size, color: Colors.orange),
-        onPressed: _compile,
-        padding: compact ? EdgeInsets.zero : null,
-        constraints: compact
-            ? const BoxConstraints(minWidth: 32, minHeight: 32)
-            : null,
-      ),
+      _ViewerCompileStatus.ok =>
+        compact
+            ? IconButton(
+                tooltip: 'Compilado — compilar de nuevo',
+                icon: Icon(
+                  Icons.check_circle_outline,
+                  size: size,
+                  color: const Color(0xFF4CAF50),
+                ),
+                onPressed: _compile,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              )
+            : GestureDetector(
+                onTap: _compile,
+                child: Container(
+                  height: 26,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4CAF50).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(
+                      color: const Color(0xFF4CAF50).withValues(alpha: 0.35),
+                      width: 0.5,
+                    ),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.check_circle_outline,
+                        size: 14,
+                        color: Color(0xFF4CAF50),
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        'Compilado',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF4CAF50),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+      _ViewerCompileStatus.error =>
+        compact
+            ? IconButton(
+                tooltip: 'Compilación falló — compilar de nuevo',
+                icon: Icon(
+                  Icons.error_outline,
+                  size: size,
+                  color: Colors.orange,
+                ),
+                onPressed: _compile,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              )
+            : GestureDetector(
+                onTap: _compile,
+                child: Container(
+                  height: 26,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(
+                      color: Colors.orange.withValues(alpha: 0.35),
+                      width: 0.5,
+                    ),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.error_outline, size: 14, color: Colors.orange),
+                      SizedBox(width: 4),
+                      Text(
+                        'Error — reintentar',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.orange,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
     };
   }
 
@@ -1131,7 +1580,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
       alignment: Alignment.bottomCenter,
       child: _showProblems
           ? Container(
-              height: 160,
+              height: 200,
               decoration: BoxDecoration(
                 color: isDark
                     ? const Color(0xFF1E1E1E)
@@ -1168,6 +1617,17 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
                         if (warnCount > 0) ...[
                           const SizedBox(width: 4),
                           _ProblemBadge(count: warnCount, isError: false),
+                        ],
+                        if (_backendChecking) ...[
+                          const SizedBox(width: 6),
+                          SizedBox(
+                            width: 10,
+                            height: 10,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.5,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
                         ],
                         const Spacer(),
                         InkWell(
@@ -1260,9 +1720,12 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
                                           issue.source,
                                           style: TextStyle(
                                             fontSize: 10,
-                                            color: issue.source == 'Oracle'
-                                                ? Colors.orange[400]
-                                                : cs.onSurfaceVariant,
+                                            color: switch (issue.source) {
+                                              'Oracle' || 'Oracle-DDL' =>
+                                                Colors.orange[400],
+                                              'PL/SQL' => cs.primary,
+                                              _ => cs.onSurfaceVariant,
+                                            },
                                           ),
                                         ),
                                       ),
@@ -1475,6 +1938,7 @@ class _MonacoSourceTab extends StatefulWidget {
   final void Function(String text)? onTextChanged;
   final void Function(int errorCount)? onErrorCountChanged;
   final void Function(List<PlSqlIssue> issues)? onIssuesChanged;
+  final void Function(bool checking)? onBackendChecking;
 
   const _MonacoSourceTab({
     required this.source,
@@ -1488,6 +1952,7 @@ class _MonacoSourceTab extends StatefulWidget {
     this.onTextChanged,
     this.onErrorCountChanged,
     this.onIssuesChanged,
+    this.onBackendChecking,
   });
 
   @override
@@ -1498,10 +1963,32 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     with AutomaticKeepAliveClientMixin {
   fm.MonacoController? _ctrl;
   fm.MonacoCompletionRegistration? _kwReg;
+  fm.MonacoCompletionRegistration? _schemaReg;
   bool _contentReady = false;
   Timer? _debounce;
-  int _checkGen =
-      0; // increments on each new check; stale responses are discarded
+  int _checkGen = 0;
+  String _editorFullText = '';
+  int? _fromExtractHash;
+  Map<String, String> _fromExtractResult = {};
+
+  static final _reDotPrefix = RegExp(r'(\w+)\.$');
+  static final _reWordEnd = RegExp(r'(\w+)$');
+  static final _reFromBlock = RegExp(
+    r'FROM\s+([\s\S]*?)(?=\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|$)',
+    caseSensitive: false,
+  );
+  static final _reAliasBlock = RegExp(
+    r'\b(\w+)\s+(?:AS\s+)?(\w+)\b',
+    caseSensitive: false,
+  );
+  static final _reFromSimple = RegExp(
+    r'\bFROM\s+(\w+)(?:\s*,|\s*$|\s+(?:WHERE|GROUP|ORDER|HAVING|JOIN))',
+    caseSensitive: false,
+  );
+  static final _reJoin = RegExp(
+    r'\bJOIN\s+(\w+)(?:\s+AS\s+|\s+)(\w+)?',
+    caseSensitive: false,
+  );
 
   @override
   bool get wantKeepAlive => true;
@@ -1510,6 +1997,7 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
   void dispose() {
     _debounce?.cancel();
     _kwReg?.dispose();
+    _schemaReg?.dispose();
     editorThemeStore.removeListener(_onEditorThemeChanged);
     super.dispose();
   }
@@ -1523,9 +2011,9 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     widget.onControllerReady?.call(ctrl);
     editorThemeStore.addListener(_onEditorThemeChanged);
 
-    // Push content first so the user sees text immediately
+    // Push content directly via the document API (monacoSetValue is not available in flutter_monaco)
     if (widget.source.isNotEmpty) {
-      await ctrl.runJavaScript('monacoSetValue(${jsonEncode(widget.source)})');
+      await ctrl.document.setText(widget.source);
     }
     if (mounted) setState(() => _contentReady = true);
 
@@ -1544,6 +2032,7 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     await ctrl.setTheme(editorThemeStore.monacoTheme);
 
     _loadSchema(ctrl);
+    _registerSchemaCompletions(ctrl);
 
     await ctrl.runJavaScript(
       'try { window.flutterMonaco.updateOptions({'
@@ -1573,7 +2062,165 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     } catch (_) {}
   }
 
-  // Debounce scales with size — larger files need more idle time before validation fires
+  void _registerSchemaCompletions(fm.MonacoController ctrl) {
+    _schemaReg?.dispose();
+    _schemaReg = null;
+    SchemaService.instance
+        .getMetadata(ambiente: widget.ambiente)
+        .then((schema) async {
+          if (!mounted) return;
+          _schemaReg = await ctrl.registerCompletions(
+            id: 'source-tab-schema',
+            languages: [fm.MonacoLanguage.sql, fm.MonacoLanguage('plsql')],
+            triggerCharacters: ['.', ' '],
+            provider: (request) async {
+              final line = request.lineText ?? '';
+              final trigger = request.triggerCharacter;
+              final fullText = _editorFullText;
+              if (trigger == '.' || line.endsWith('.')) {
+                final dotMatch = _reDotPrefix.firstMatch(line);
+                if (dotMatch != null) {
+                  final realTable =
+                      _extractFromTables(fullText)[dotMatch
+                          .group(1)!
+                          .toUpperCase()] ??
+                      dotMatch.group(1)!.toUpperCase();
+                  final cols = await SchemaService.instance.getColumns(
+                    realTable,
+                    ambiente: widget.ambiente,
+                  );
+                  return fm.CompletionList(
+                    suggestions: cols
+                        .map(
+                          (c) => fm.CompletionItem(
+                            label: c.name,
+                            kind: fm.CompletionItemKind.field,
+                            detail: '${c.dataType} · $realTable',
+                            insertText: c.name,
+                            sortText: '0${c.name}',
+                          ),
+                        )
+                        .toList(),
+                  );
+                }
+              }
+              final upper = _wordBefore(line).toUpperCase();
+              final suggestions = <fm.CompletionItem>[];
+              for (final t in _extractFromTables(fullText).values.toSet()) {
+                final cols =
+                    schema.cachedColumns[t] ??
+                    await SchemaService.instance.getColumns(
+                      t,
+                      ambiente: widget.ambiente,
+                    );
+                suggestions.addAll(
+                  cols
+                      .where((c) => upper.isEmpty || c.name.startsWith(upper))
+                      .map(
+                        (c) => fm.CompletionItem(
+                          label: c.name,
+                          kind: fm.CompletionItemKind.field,
+                          detail: '${c.dataType} · $t',
+                          sortText: '1${c.name}',
+                        ),
+                      ),
+                );
+              }
+              suggestions.addAll(
+                schema.tables
+                    .where((t) => upper.isEmpty || t.startsWith(upper))
+                    .map(
+                      (t) => fm.CompletionItem(
+                        label: t,
+                        kind: fm.CompletionItemKind.classType,
+                        detail: 'TABLE',
+                        sortText: '2$t',
+                      ),
+                    ),
+              );
+              suggestions.addAll(
+                schema.views
+                    .where((v) => upper.isEmpty || v.startsWith(upper))
+                    .map(
+                      (v) => fm.CompletionItem(
+                        label: v,
+                        kind: fm.CompletionItemKind.interfaceType,
+                        detail: 'VIEW',
+                        sortText: '3$v',
+                      ),
+                    ),
+              );
+              suggestions.addAll(
+                schema.objects
+                    .where((o) => upper.isEmpty || o.name.startsWith(upper))
+                    .map(
+                      (o) => fm.CompletionItem(
+                        label: o.name,
+                        kind: o.type == 'FUNCTION'
+                            ? fm.CompletionItemKind.functionType
+                            : o.type == 'PACKAGE'
+                            ? fm.CompletionItemKind.module
+                            : fm.CompletionItemKind.method,
+                        detail: o.type,
+                        sortText: '4${o.name}',
+                      ),
+                    ),
+              );
+              return fm.CompletionList(
+                suggestions: suggestions.take(50).toList(),
+              );
+            },
+          );
+        })
+        .catchError((_) {});
+  }
+
+  Map<String, String> _extractFromTables(String sql) {
+    final hash = sql.hashCode ^ sql.length;
+    if (hash == _fromExtractHash) return _fromExtractResult;
+    final result = <String, String>{};
+    void add(String table, String? alias) {
+      final t = table.toUpperCase();
+      result[t] = t;
+      if (alias != null && alias.isNotEmpty) result[alias.toUpperCase()] = t;
+    }
+
+    const reserved = {
+      'ON',
+      'WHERE',
+      'SET',
+      'AND',
+      'OR',
+      'JOIN',
+      'LEFT',
+      'RIGHT',
+      'INNER',
+      'OUTER',
+      'FULL',
+      'CROSS',
+      'GROUP',
+      'ORDER',
+      'HAVING',
+    };
+    final fromBlock = _reFromBlock.firstMatch(sql)?.group(1) ?? '';
+    for (final m in _reAliasBlock.allMatches(fromBlock)) {
+      if (!reserved.contains(m.group(2)!.toUpperCase()))
+        add(m.group(1)!, m.group(2));
+    }
+    for (final m in _reFromSimple.allMatches(sql)) {
+      add(m.group(1)!, null);
+    }
+    for (final m in _reJoin.allMatches(sql)) {
+      add(m.group(1)!, m.group(2));
+    }
+    _fromExtractHash = sql.hashCode ^ sql.length;
+    _fromExtractResult = result;
+    return result;
+  }
+
+  String _wordBefore(String line) =>
+      _reWordEnd.firstMatch(line)?.group(1) ?? '';
+
   void _scheduleCheck(String code) {
     _debounce?.cancel();
     final gen = ++_checkGen;
@@ -1591,44 +2238,49 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
   Future<void> _checkSyntax(String code, int gen) async {
     final ctrl = _ctrl;
     if (ctrl == null || code.isEmpty) return;
-    final errors = await SchemaService.instance.validateSyntax(
-      code,
-      'PROCEDURE',
-      ambiente: widget.ambiente,
-    );
-    if (!mounted || gen != _checkGen) return; // user typed again — discard
-    final issues = errors
-        .map(
-          (e) => PlSqlIssue(
-            line: e.line,
-            col: e.position,
-            endCol: e.position + 1,
-            message: e.text,
-            severity: e.attribute == 'ERROR'
-                ? fm.MarkerSeverity.error
-                : fm.MarkerSeverity.warning,
+    widget.onBackendChecking?.call(true);
+    try {
+      final errors = await SchemaService.instance.validateSyntax(
+        code,
+        'PROCEDURE',
+        ambiente: widget.ambiente,
+      );
+      if (!mounted || gen != _checkGen) return; // user typed again — discard
+      final issues = errors
+          .map(
+            (e) => PlSqlIssue(
+              line: e.line,
+              col: e.position,
+              endCol: e.position + 1,
+              message: e.text,
+              severity: e.attribute == 'ERROR'
+                  ? fm.MarkerSeverity.error
+                  : fm.MarkerSeverity.warning,
+              source: 'Oracle',
+            ),
+          )
+          .toList();
+      widget.onErrorCountChanged?.call(
+        issues.where((e) => e.severity == fm.MarkerSeverity.error).length,
+      );
+      widget.onIssuesChanged?.call(issues);
+      await ctrl.document.setMarkers([
+        for (final e in issues)
+          fm.MarkerData(
+            range: fm.Range(
+              startLine: e.line,
+              startColumn: e.col,
+              endLine: e.line,
+              endColumn: e.endCol,
+            ),
+            message: e.message,
+            severity: e.severity,
             source: 'Oracle',
           ),
-        )
-        .toList();
-    widget.onErrorCountChanged?.call(
-      issues.where((e) => e.severity == fm.MarkerSeverity.error).length,
-    );
-    widget.onIssuesChanged?.call(issues);
-    await ctrl.document.setMarkers([
-      for (final e in issues)
-        fm.MarkerData(
-          range: fm.Range(
-            startLine: e.line,
-            startColumn: e.col,
-            endLine: e.line,
-            endColumn: e.endCol,
-          ),
-          message: e.message,
-          severity: e.severity,
-          source: 'Oracle',
-        ),
-    ], owner: 'plsql-checker');
+      ], owner: 'plsql-checker');
+    } finally {
+      if (mounted) widget.onBackendChecking?.call(false);
+    }
   }
 
   @override
@@ -1642,7 +2294,7 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     return Stack(
       children: [
         fm.MonacoEditor(
-          initialText: '', // content pushed via monacoSetValue in onReady
+          initialText: widget.source.isNotEmpty ? widget.source : '',
           options: fm.EditorOptions(
             language: fm.MonacoLanguage.sql,
             theme: widget.isDark ? fm.MonacoTheme.vsDark : fm.MonacoTheme.vs,
@@ -1658,6 +2310,7 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
           contentDebounce: const Duration(milliseconds: 600),
           onReady: _onReady,
           onContentChanged: (text) {
+            _editorFullText = text;
             widget.onTextChanged?.call(text);
             if (widget.isPlSql) _scheduleCheck(text);
           },
@@ -1693,6 +2346,7 @@ class _MultiDocSourceEditor extends StatefulWidget {
   final void Function(int)? onBodyErrorsChanged;
   final void Function(List<PlSqlIssue>)? onSpecIssuesChanged;
   final void Function(List<PlSqlIssue>)? onBodyIssuesChanged;
+  final void Function(bool checking)? onBackendChecking;
 
   const _MultiDocSourceEditor({
     required this.spec,
@@ -1712,6 +2366,7 @@ class _MultiDocSourceEditor extends StatefulWidget {
     this.onBodyErrorsChanged,
     this.onSpecIssuesChanged,
     this.onBodyIssuesChanged,
+    this.onBackendChecking,
   });
 
   @override
@@ -1723,6 +2378,7 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
   fm.MonacoDocument? _specDoc;
   fm.MonacoDocument? _bodyDoc;
   fm.MonacoCompletionRegistration? _kwReg;
+  fm.MonacoCompletionRegistration? _schemaReg;
   bool _specReady = false;
   bool _bodyReady = false;
   Timer? _debounce;
@@ -1730,6 +2386,27 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
   bool _isBody = false;
   String _currentSpecCode = '';
   String _currentBodyCode = '';
+  int? _fromExtractHash;
+  Map<String, String> _fromExtractResult = {};
+
+  static final _reDotPrefix = RegExp(r'(\w+)\.$');
+  static final _reWordEnd = RegExp(r'(\w+)$');
+  static final _reFromBlock = RegExp(
+    r'FROM\s+([\s\S]*?)(?=\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|$)',
+    caseSensitive: false,
+  );
+  static final _reAliasBlock = RegExp(
+    r'\b(\w+)\s+(?:AS\s+)?(\w+)\b',
+    caseSensitive: false,
+  );
+  static final _reFromSimple = RegExp(
+    r'\bFROM\s+(\w+)(?:\s*,|\s*$|\s+(?:WHERE|GROUP|ORDER|HAVING|JOIN))',
+    caseSensitive: false,
+  );
+  static final _reJoin = RegExp(
+    r'\bJOIN\s+(\w+)(?:\s+AS\s+|\s+)(\w+)?',
+    caseSensitive: false,
+  );
 
   @override
   void initState() {
@@ -1742,6 +2419,7 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
     widget.tabCtrl.removeListener(_onTabChanged);
     _debounce?.cancel();
     _kwReg?.dispose();
+    _schemaReg?.dispose();
     editorThemeStore.removeListener(_onEditorThemeChanged2);
     super.dispose();
   }
@@ -1804,6 +2482,7 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
     await ctrl.setTheme(editorThemeStore.monacoTheme);
 
     _loadSchema(ctrl);
+    _registerSchemaCompletions(ctrl);
 
     await ctrl.runJavaScript(
       'try { window.flutterMonaco.updateOptions({'
@@ -1857,6 +2536,165 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
     } catch (_) {}
   }
 
+  void _registerSchemaCompletions(fm.MonacoController ctrl) {
+    _schemaReg?.dispose();
+    _schemaReg = null;
+    SchemaService.instance
+        .getMetadata(ambiente: widget.ambiente)
+        .then((schema) async {
+          if (!mounted) return;
+          _schemaReg = await ctrl.registerCompletions(
+            id: 'multi-doc-schema',
+            languages: [fm.MonacoLanguage.sql, fm.MonacoLanguage('plsql')],
+            triggerCharacters: ['.', ' '],
+            provider: (request) async {
+              final line = request.lineText ?? '';
+              final trigger = request.triggerCharacter;
+              final fullText = _isBody ? _currentBodyCode : _currentSpecCode;
+              if (trigger == '.' || line.endsWith('.')) {
+                final dotMatch = _reDotPrefix.firstMatch(line);
+                if (dotMatch != null) {
+                  final realTable =
+                      _extractFromTables(fullText)[dotMatch
+                          .group(1)!
+                          .toUpperCase()] ??
+                      dotMatch.group(1)!.toUpperCase();
+                  final cols = await SchemaService.instance.getColumns(
+                    realTable,
+                    ambiente: widget.ambiente,
+                  );
+                  return fm.CompletionList(
+                    suggestions: cols
+                        .map(
+                          (c) => fm.CompletionItem(
+                            label: c.name,
+                            kind: fm.CompletionItemKind.field,
+                            detail: '${c.dataType} · $realTable',
+                            insertText: c.name,
+                            sortText: '0${c.name}',
+                          ),
+                        )
+                        .toList(),
+                  );
+                }
+              }
+              final upper = _wordBefore(line).toUpperCase();
+              final suggestions = <fm.CompletionItem>[];
+              for (final t in _extractFromTables(fullText).values.toSet()) {
+                final cols =
+                    schema.cachedColumns[t] ??
+                    await SchemaService.instance.getColumns(
+                      t,
+                      ambiente: widget.ambiente,
+                    );
+                suggestions.addAll(
+                  cols
+                      .where((c) => upper.isEmpty || c.name.startsWith(upper))
+                      .map(
+                        (c) => fm.CompletionItem(
+                          label: c.name,
+                          kind: fm.CompletionItemKind.field,
+                          detail: '${c.dataType} · $t',
+                          sortText: '1${c.name}',
+                        ),
+                      ),
+                );
+              }
+              suggestions.addAll(
+                schema.tables
+                    .where((t) => upper.isEmpty || t.startsWith(upper))
+                    .map(
+                      (t) => fm.CompletionItem(
+                        label: t,
+                        kind: fm.CompletionItemKind.classType,
+                        detail: 'TABLE',
+                        sortText: '2$t',
+                      ),
+                    ),
+              );
+              suggestions.addAll(
+                schema.views
+                    .where((v) => upper.isEmpty || v.startsWith(upper))
+                    .map(
+                      (v) => fm.CompletionItem(
+                        label: v,
+                        kind: fm.CompletionItemKind.interfaceType,
+                        detail: 'VIEW',
+                        sortText: '3$v',
+                      ),
+                    ),
+              );
+              suggestions.addAll(
+                schema.objects
+                    .where((o) => upper.isEmpty || o.name.startsWith(upper))
+                    .map(
+                      (o) => fm.CompletionItem(
+                        label: o.name,
+                        kind: o.type == 'FUNCTION'
+                            ? fm.CompletionItemKind.functionType
+                            : o.type == 'PACKAGE'
+                            ? fm.CompletionItemKind.module
+                            : fm.CompletionItemKind.method,
+                        detail: o.type,
+                        sortText: '4${o.name}',
+                      ),
+                    ),
+              );
+              return fm.CompletionList(
+                suggestions: suggestions.take(50).toList(),
+              );
+            },
+          );
+        })
+        .catchError((_) {});
+  }
+
+  Map<String, String> _extractFromTables(String sql) {
+    final hash = sql.hashCode ^ sql.length;
+    if (hash == _fromExtractHash) return _fromExtractResult;
+    final result = <String, String>{};
+    void add(String table, String? alias) {
+      final t = table.toUpperCase();
+      result[t] = t;
+      if (alias != null && alias.isNotEmpty) result[alias.toUpperCase()] = t;
+    }
+
+    const reserved = {
+      'ON',
+      'WHERE',
+      'SET',
+      'AND',
+      'OR',
+      'JOIN',
+      'LEFT',
+      'RIGHT',
+      'INNER',
+      'OUTER',
+      'FULL',
+      'CROSS',
+      'GROUP',
+      'ORDER',
+      'HAVING',
+    };
+    final fromBlock = _reFromBlock.firstMatch(sql)?.group(1) ?? '';
+    for (final m in _reAliasBlock.allMatches(fromBlock)) {
+      if (!reserved.contains(m.group(2)!.toUpperCase()))
+        add(m.group(1)!, m.group(2));
+    }
+    for (final m in _reFromSimple.allMatches(sql)) {
+      add(m.group(1)!, null);
+    }
+    for (final m in _reJoin.allMatches(sql)) {
+      add(m.group(1)!, m.group(2));
+    }
+    _fromExtractHash = sql.hashCode ^ sql.length;
+    _fromExtractResult = result;
+    return result;
+  }
+
+  String _wordBefore(String line) =>
+      _reWordEnd.firstMatch(line)?.group(1) ?? '';
+
   // Debounce scales with size — larger files need more idle time before validation fires
   void _scheduleCheck(String code, {required bool isBody}) {
     _debounce?.cancel();
@@ -1885,56 +2723,61 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
   }) async {
     final ctrl = _ctrl;
     if (ctrl == null || code.isEmpty) return;
-    // PACKAGE BODY requires a different objectType for the backend validator
-    final objType = (isBody && widget.objectType == 'PACKAGE')
-        ? 'PACKAGE BODY'
-        : widget.objectType;
-    final errors = await SchemaService.instance.validateSyntax(
-      code,
-      objType,
-      ambiente: widget.ambiente,
-    );
-    if (!mounted || gen != _checkGen) return; // user typed again — discard
-    final doc = isBody ? _bodyDoc : _specDoc;
-    if (doc == null) return;
-    final issues = errors
-        .map(
-          (e) => PlSqlIssue(
-            line: e.line,
-            col: e.position,
-            endCol: e.position + 1,
-            message: e.text,
-            severity: e.attribute == 'ERROR'
-                ? fm.MarkerSeverity.error
-                : fm.MarkerSeverity.warning,
+    widget.onBackendChecking?.call(true);
+    try {
+      // PACKAGE BODY requires a different objectType for the backend validator
+      final objType = (isBody && widget.objectType == 'PACKAGE')
+          ? 'PACKAGE BODY'
+          : widget.objectType;
+      final errors = await SchemaService.instance.validateSyntax(
+        code,
+        objType,
+        ambiente: widget.ambiente,
+      );
+      if (!mounted || gen != _checkGen) return; // user typed again — discard
+      final doc = isBody ? _bodyDoc : _specDoc;
+      if (doc == null) return;
+      final issues = errors
+          .map(
+            (e) => PlSqlIssue(
+              line: e.line,
+              col: e.position,
+              endCol: e.position + 1,
+              message: e.text,
+              severity: e.attribute == 'ERROR'
+                  ? fm.MarkerSeverity.error
+                  : fm.MarkerSeverity.warning,
+              source: 'Oracle',
+            ),
+          )
+          .toList();
+      final errCount = issues
+          .where((e) => e.severity == fm.MarkerSeverity.error)
+          .length;
+      if (isBody) {
+        widget.onBodyErrorsChanged?.call(errCount);
+        widget.onBodyIssuesChanged?.call(issues);
+      } else {
+        widget.onSpecErrorsChanged?.call(errCount);
+        widget.onSpecIssuesChanged?.call(issues);
+      }
+      await doc.setMarkers([
+        for (final e in issues)
+          fm.MarkerData(
+            range: fm.Range(
+              startLine: e.line,
+              startColumn: e.col,
+              endLine: e.line,
+              endColumn: e.endCol,
+            ),
+            message: e.message,
+            severity: e.severity,
             source: 'Oracle',
           ),
-        )
-        .toList();
-    final errCount = issues
-        .where((e) => e.severity == fm.MarkerSeverity.error)
-        .length;
-    if (isBody) {
-      widget.onBodyErrorsChanged?.call(errCount);
-      widget.onBodyIssuesChanged?.call(issues);
-    } else {
-      widget.onSpecErrorsChanged?.call(errCount);
-      widget.onSpecIssuesChanged?.call(issues);
+      ], owner: 'plsql-checker');
+    } finally {
+      if (mounted) widget.onBackendChecking?.call(false);
     }
-    await doc.setMarkers([
-      for (final e in issues)
-        fm.MarkerData(
-          range: fm.Range(
-            startLine: e.line,
-            startColumn: e.col,
-            endLine: e.line,
-            endColumn: e.endCol,
-          ),
-          message: e.message,
-          severity: e.severity,
-          source: 'Oracle',
-        ),
-    ], owner: 'plsql-checker');
   }
 
   @override
