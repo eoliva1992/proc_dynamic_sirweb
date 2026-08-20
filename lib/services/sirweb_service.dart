@@ -109,10 +109,8 @@ class SirwebService {
     int pagina = 1,
   }) async {
     final result = await _call('listar_procedimientos', {
-      if (busqueda != null && busqueda.isNotEmpty) ...{
+      if (busqueda != null && busqueda.isNotEmpty)
         'cdProcedimiento': '%$busqueda%',
-        'deTexto': '%$busqueda%',
-      },
       if (configuracion != null && configuracion.isNotEmpty)
         'configuracion': configuracion,
       if (estado != null && estado.isNotEmpty) 'estado': estado,

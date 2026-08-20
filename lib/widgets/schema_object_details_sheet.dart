@@ -1,4 +1,7 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../screens/schema_object_diff_page.dart';
 import '../services/schema_recents_service.dart';
@@ -97,6 +100,18 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
   void _openSource() {
     Navigator.of(context).pop();
     openSourceWindow(context, name: name, objectType: type, ambiente: ambiente);
+  }
+
+  void _openBackup() {
+    showDialog<void>(
+      context: context,
+      builder: (_) => _ObjectBackupDialog(
+        name: name,
+        objectType: type,
+        ambiente: ambiente,
+        color: _tc(type),
+      ),
+    );
   }
 
   void _openDiff() {
@@ -227,6 +242,14 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
             ),
           const SizedBox(width: 4),
           _LabeledAction(
+            icon: Icons.download_outlined,
+            label: 'Backup',
+            color: color,
+            isDark: isDark,
+            onTap: _openBackup,
+          ),
+          const SizedBox(width: 4),
+          _LabeledAction(
             icon: Icons.compare_arrows_rounded,
             label: 'Comparar',
             color: color,
@@ -308,6 +331,328 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
+
+// ── Backup dialog invocable from the details modal ───────────────────────────
+
+class _ObjectBackupDialog extends StatefulWidget {
+  final String name;
+  final String objectType;
+  final String ambiente;
+  final Color color;
+  const _ObjectBackupDialog({
+    required this.name,
+    required this.objectType,
+    required this.ambiente,
+    required this.color,
+  });
+  @override
+  State<_ObjectBackupDialog> createState() => _ObjectBackupDialogState();
+}
+
+class _ObjectBackupDialogState extends State<_ObjectBackupDialog> {
+  bool _loading = true;
+  Object? _loadError;
+
+  // Loaded source parts
+  String _specText = '';
+  String _bodyText = '';
+  String _tableDdlCreateTable = '';
+  String? _tableDdlComments;
+  String? _tableDdlGrants;
+  String _tableDdlOwner = '';
+
+  // Checkbox state
+  late bool _includeSpec;
+  late bool _includeBody;
+  late bool _includeTableComments;
+  bool _includeSynonym = false;
+  bool _includeGrants = false;
+
+  bool get _isTable => widget.objectType == 'TABLE';
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchSource();
+  }
+
+  Future<void> _fetchSource() async {
+    try {
+      if (_isTable) {
+        final ddl = await SchemaService.instance.getTableDdl(
+          widget.name,
+          ambiente: widget.ambiente,
+        );
+        _tableDdlCreateTable = ddl.createTable;
+        _tableDdlComments = ddl.comments?.isNotEmpty == true
+            ? ddl.comments
+            : null;
+        _tableDdlGrants = ddl.grants?.isNotEmpty == true ? ddl.grants : null;
+        _tableDdlOwner = ddl.owner;
+        _specText = ddl.createTable;
+      } else {
+        final src = await SchemaService.instance.getObjectSource(
+          widget.name,
+          widget.objectType,
+          ambiente: widget.ambiente,
+        );
+        _specText = src.spec;
+        _bodyText = src.body ?? '';
+      }
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _includeSpec = _specText.isNotEmpty;
+          _includeBody = _bodyText.isNotEmpty;
+          _includeTableComments = _tableDdlComments != null;
+        });
+      }
+    } catch (e) {
+      if (mounted)
+        setState(() {
+          _loading = false;
+          _loadError = e;
+        });
+    }
+  }
+
+  String _objectOwner() {
+    if (_tableDdlOwner.isNotEmpty) return _tableDdlOwner;
+    final cached = SchemaService.instance.getCached(ambiente: widget.ambiente);
+    return cached?.objects
+            .where((o) => o.name == widget.name.toUpperCase())
+            .firstOrNull
+            ?.owner ??
+        '';
+  }
+
+  Future<void> _save() async {
+    final parts = <String>[];
+    if (_isTable) {
+      if (_includeSpec && _tableDdlCreateTable.isNotEmpty)
+        parts.add('$_tableDdlCreateTable\n/');
+      if (_includeTableComments && _tableDdlComments != null)
+        parts.add('${_tableDdlComments!}\n/');
+    } else {
+      if (_includeSpec && _specText.isNotEmpty) parts.add('$_specText\n/');
+      if (_includeBody && _bodyText.isNotEmpty) parts.add('$_bodyText\n/');
+    }
+    if (_includeGrants) {
+      if (_isTable && _tableDdlGrants != null) {
+        parts.add('${_tableDdlGrants!}\n/');
+      } else {
+        final owner = _objectOwner();
+        final ref = owner.isNotEmpty ? '$owner.${widget.name}' : widget.name;
+        parts.add('GRANT EXECUTE ON $ref TO PUBLIC;\n/');
+      }
+    }
+    if (_includeSynonym) {
+      final owner = _objectOwner();
+      final ref = owner.isNotEmpty ? '$owner.${widget.name}' : widget.name;
+      parts.add('CREATE OR REPLACE PUBLIC SYNONYM ${widget.name} FOR $ref;\n/');
+    }
+    if (parts.isEmpty) return;
+    final script = parts.join('\n\n');
+    final suggested =
+        '${widget.name.toLowerCase()}_${widget.ambiente.toLowerCase()}.sql';
+    if (!mounted) return;
+    Navigator.of(context).pop();
+    try {
+      final path = await FilePicker.saveFile(
+        dialogTitle: 'Guardar backup SQL',
+        fileName: suggested,
+        type: FileType.custom,
+        allowedExtensions: ['sql'],
+      );
+      if (path == null) return;
+      await File(path).writeAsString(script, flush: true);
+      AppToast.success('Backup guardado: ${path.split(r"\\").last}');
+    } catch (e) {
+      AppToast.error('Error guardando backup: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = widget.color;
+
+    Widget checkRow(
+      String label,
+      bool value,
+      bool enabled,
+      ValueChanged<bool?> onChanged, {
+      String? subtitle,
+    }) {
+      return InkWell(
+        onTap: enabled ? () => onChanged(!value) : null,
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: Checkbox(
+                  value: value,
+                  onChanged: enabled ? onChanged : null,
+                  activeColor: color,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: enabled ? null : Colors.grey,
+                      ),
+                    ),
+                    if (subtitle != null)
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade500,
+                          fontFamily: 'Consolas',
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final canSave =
+        !_loading &&
+        _loadError == null &&
+        (_includeSpec ||
+            (_isTable && _includeTableComments) ||
+            (!_isTable && _includeBody) ||
+            _includeSynonym ||
+            _includeGrants);
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          Icon(Icons.download_outlined, size: 18, color: color),
+          const SizedBox(width: 8),
+          const Text('Generar backup SQL', style: TextStyle(fontSize: 15)),
+        ],
+      ),
+      content: SizedBox(
+        width: 360,
+        child: _loading
+            ? const SizedBox(
+                height: 80,
+                child: Center(child: CircularProgressIndicator()),
+              )
+            : _loadError != null
+            ? Text(
+                'Error cargando fuente: $_loadError',
+                style: const TextStyle(color: Colors.red, fontSize: 12),
+              )
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Seleccioná qué incluir en el script',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'FUENTE',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                      color: color,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  checkRow(
+                    _isTable ? 'DDL de tabla' : 'Especificación',
+                    _includeSpec,
+                    _specText.isNotEmpty,
+                    (v) => setState(() => _includeSpec = v ?? false),
+                    subtitle: _isTable
+                        ? 'CREATE TABLE + Índices + Constraints'
+                        : widget.objectType == 'PACKAGE'
+                        ? 'CREATE OR REPLACE PACKAGE ...'
+                        : null,
+                  ),
+                  if (_isTable && _tableDdlComments != null)
+                    checkRow(
+                      'Comentarios',
+                      _includeTableComments,
+                      true,
+                      (v) => setState(() => _includeTableComments = v ?? false),
+                      subtitle: 'COMMENT ON TABLE ...',
+                    ),
+                  if (!_isTable && _bodyText.isNotEmpty)
+                    checkRow(
+                      'Cuerpo',
+                      _includeBody,
+                      true,
+                      (v) => setState(() => _includeBody = v ?? false),
+                      subtitle: 'CREATE OR REPLACE PACKAGE BODY ...',
+                    ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'ADICIONAL',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                      color: color,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  checkRow(
+                    'Grant',
+                    _includeGrants,
+                    true,
+                    (v) => setState(() => _includeGrants = v ?? false),
+                    subtitle: _isTable && _tableDdlGrants != null
+                        ? 'Grants del DDL de tabla'
+                        : 'GRANT EXECUTE ON OWNER.NAME TO PUBLIC',
+                  ),
+                  checkRow(
+                    'Sinónimo público',
+                    _includeSynonym,
+                    true,
+                    (v) => setState(() => _includeSynonym = v ?? false),
+                    subtitle:
+                        'CREATE OR REPLACE PUBLIC SYNONYM NAME FOR OWNER.NAME',
+                  ),
+                ],
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton.icon(
+          onPressed: canSave ? _save : null,
+          icon: const Icon(Icons.save_outlined, size: 16),
+          label: const Text('Guardar .sql'),
+          style: FilledButton.styleFrom(backgroundColor: color),
+        ),
+      ],
+    );
+  }
+}
 
 class _LabeledAction extends StatefulWidget {
   final IconData icon;

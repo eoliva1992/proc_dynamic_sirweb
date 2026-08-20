@@ -56,7 +56,18 @@ Future<void> main(List<String> args) async {
   await editorThemeStore.loadFromPrefs();
   await FavoritesService.load();
   unawaited(SchemaService.instance.loadMetadata());
-  runApp(const ProcDynamicApp());
+
+  // Catch any unhandled async errors: show on-screen instead of closing the app
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    debugPrint('FlutterError: ${details.exception}\n${details.stack}');
+  };
+  runZonedGuarded(() => runApp(const ProcDynamicApp()), (error, stack) {
+    debugPrint('Unhandled error: $error\n$stack');
+    FlutterError.reportError(
+      FlutterErrorDetails(exception: error, stack: stack),
+    );
+  });
 }
 
 class ProcDynamicApp extends StatelessWidget {

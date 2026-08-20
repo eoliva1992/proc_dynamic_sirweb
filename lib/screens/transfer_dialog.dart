@@ -8,9 +8,13 @@ import 'multi_transfer_dialog.dart';
 /// Pushes TransferDiffPage for single target, shows MultiTransferDialog for multiple.
 class TransferDialog extends StatefulWidget {
   final Procedimiento sourceProc;
-  final String sourceCode; // current editor text (may be unsaved)
+  final String sourceCode;
   final String sourceAmbiente;
   final String cdUsuario;
+  // Called just before pushing the diff route — used to suspend the main editor
+  final Future<void> Function()? onBeforePush;
+  // Called after the diff route returns — used to resume the main editor
+  final VoidCallback? onAfterReturn;
 
   const TransferDialog({
     super.key,
@@ -18,6 +22,8 @@ class TransferDialog extends StatefulWidget {
     required this.sourceCode,
     required this.sourceAmbiente,
     required this.cdUsuario,
+    this.onBeforePush,
+    this.onAfterReturn,
   });
 
   @override
@@ -32,32 +38,41 @@ class _TransferDialogState extends State<TransferDialog> {
       .toList();
 
   Future<void> _continue() async {
-    if (_selected.isEmpty) return;
-    if (_selected.length == 1) {
-      if (!mounted) return;
-      Navigator.of(context).pop();
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => TransferDiffPage(
+    if (_selected.isEmpty || !mounted) return;
+    // Capture all state before pop — context is deactivated once the dialog dismisses
+    final nav = Navigator.of(context);
+    final rootCtx = nav.context;
+    final single = _selected.length == 1;
+    final targetAmbiente = _selected.first;
+    final targets = _selected.toList();
+    nav.pop();
+    // Let the pop animation settle before pushing the next route
+    await Future<void>.delayed(Duration.zero);
+    if (single) {
+      await widget.onBeforePush?.call();
+      await nav.push(
+        PageRouteBuilder<void>(
+          pageBuilder: (_, __, ___) => TransferDiffPage(
             sourceProc: widget.sourceProc,
             sourceCode: widget.sourceCode,
             sourceAmbiente: widget.sourceAmbiente,
-            targetAmbiente: _selected.first,
+            targetAmbiente: targetAmbiente,
             cdUsuario: widget.cdUsuario,
           ),
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
         ),
       );
+      widget.onAfterReturn?.call();
     } else {
-      if (!mounted) return;
-      Navigator.of(context).pop();
       await showDialog<void>(
-        context: context,
+        context: rootCtx,
         barrierDismissible: false,
         builder: (_) => MultiTransferDialog(
           sourceProc: widget.sourceProc,
           sourceCode: widget.sourceCode,
           sourceAmbiente: widget.sourceAmbiente,
-          targetAmbientes: _selected.toList(),
+          targetAmbientes: targets,
           cdUsuario: widget.cdUsuario,
         ),
       );

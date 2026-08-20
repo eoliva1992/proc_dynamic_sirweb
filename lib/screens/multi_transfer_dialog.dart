@@ -55,10 +55,12 @@ class _MultiTransferDialogState extends State<MultiTransferDialog> {
 
     for (final state in _states) {
       if (withBackup) {
+        if (!mounted) return;
         setState(() => state.status = _Status.backingUp);
         await _tryBackup(state.ambiente);
       }
 
+      if (!mounted) return;
       setState(() => state.status = _Status.transferring);
       final result = await TransferService.transfer(
         cdProcedimiento: widget.sourceProc.cdProcedimiento,
@@ -67,12 +69,14 @@ class _MultiTransferDialogState extends State<MultiTransferDialog> {
         cdUsuario: widget.cdUsuario,
         targetAmbiente: state.ambiente,
       );
+      if (!mounted) return;
       setState(() {
         state.status = result.success ? _Status.done : _Status.error;
         state.message = result.message;
       });
     }
 
+    if (!mounted) return;
     setState(() {
       _running = false;
       _done = true;

@@ -95,11 +95,13 @@ class _EnvDiffPageState extends State<EnvDiffPage> {
         widget.sourceProc.cdProcedimiento,
         ambiente: _targetAmbiente,
       );
+      if (!mounted) return;
       setState(() {
         _targetCode = proc.deTexto;
         _loading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = '$_targetAmbiente: procedimiento no encontrado';
         _loading = false;

@@ -125,6 +125,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   MonacoActionRegistration? _saveAction;
   MonacoActionRegistration? _compileAction;
   MonacoActionRegistration? _gotoDefAction;
+  MonacoActionRegistration? _copyAction;
+  MonacoActionRegistration? _cutAction;
+  MonacoActionRegistration? _pasteAction;
   Timer? _saveTimer;
   Timer? _draftDebounce;
   _SaveStatus _saveStatus = _SaveStatus.idle;
@@ -202,6 +205,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _saveTimer?.cancel();
     _draftDebounce?.cancel();
     _gotoDefAction?.dispose();
+    _copyAction?.dispose();
+    _cutAction?.dispose();
+    _pasteAction?.dispose();
     _selectionSub?.cancel();
     _tabsScrollCtrl
       ..removeListener(_onTabsScroll)
@@ -333,6 +339,62 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       ),
       () async {
         await _goToDefinitionAtCursor();
+      },
+    );
+
+    // Clipboard bridge: navigator.clipboard is blocked on file:// (WebView2).
+    // These actions override Ctrl+C/X/V so Flutter's native clipboard is used.
+    const _selJs =
+        r'(()=>{ try { const s=window.editor.getSelection(); '
+        r'if(!s||s.isEmpty())return null; '
+        r'return window.editor.getModel().getValueInRange(s)||null; '
+        r'} catch(e){return null;} })()';
+
+    _copyAction = await ctrl.addAction(
+      MonacoActionDescriptor(
+        id: MonacoAction('custom.clipboard.copy'),
+        label: 'Copiar',
+        keybindings: [MonacoKeybinding(ctrlCmd: true, key: MonacoKey.keyC)],
+      ),
+      () async {
+        final text = await ctrl.evaluateJavaScript<String>(_selJs);
+        if (text != null && text.isNotEmpty) {
+          await Clipboard.setData(ClipboardData(text: text));
+        }
+      },
+    );
+
+    _cutAction = await ctrl.addAction(
+      MonacoActionDescriptor(
+        id: MonacoAction('custom.clipboard.cut'),
+        label: 'Cortar',
+        keybindings: [MonacoKeybinding(ctrlCmd: true, key: MonacoKey.keyX)],
+      ),
+      () async {
+        final text = await ctrl.evaluateJavaScript<String>(_selJs);
+        if (text != null && text.isNotEmpty) {
+          await Clipboard.setData(ClipboardData(text: text));
+          await ctrl.runJavaScript(
+            'try { window.editor.executeEdits("cut",[{range:window.editor.getSelection(),text:"",forceMoveMarkers:true}]); } catch(e) {}',
+          );
+        }
+      },
+    );
+
+    _pasteAction = await ctrl.addAction(
+      MonacoActionDescriptor(
+        id: MonacoAction('custom.clipboard.paste'),
+        label: 'Pegar',
+        keybindings: [MonacoKeybinding(ctrlCmd: true, key: MonacoKey.keyV)],
+      ),
+      () async {
+        final data = await Clipboard.getData(Clipboard.kTextPlain);
+        final text = data?.text;
+        if (text == null || text.isEmpty) return;
+        final escaped = jsonEncode(text);
+        await ctrl.runJavaScript(
+          'try { window.editor.executeEdits("paste",[{range:window.editor.getSelection(),text:$escaped,forceMoveMarkers:true}]); } catch(e) {}',
+        );
       },
     );
 

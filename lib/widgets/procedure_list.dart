@@ -230,6 +230,31 @@ class _ProcedureListState extends State<ProcedureList>
                       ),
                     ),
                   ],
+                  // Offer to retry including inactive procedures when default filter is active
+                  if ((state.estado ?? '1') == '1' && state.config == null) ...[
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: () => state.buscar(
+                        busqueda: state.searchText,
+                        cfg: null,
+                        est: '',
+                        ambiente: procedimientosProvider.ambiente,
+                      ),
+                      icon: const Icon(Icons.search_rounded, size: 14),
+                      label: const Text(
+                        'Buscar en inactivos también',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.grey.shade400,
+                        side: BorderSide(color: Colors.grey.shade600),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                      ),
+                    ),
+                  ],
                 ] else ...[
                   Text(
                     'Buscá un procedimiento',

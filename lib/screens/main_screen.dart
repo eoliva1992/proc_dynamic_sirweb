@@ -9,6 +9,7 @@ import 'package:window_manager/window_manager.dart';
 import '../models/procedimiento.dart';
 import '../providers/procedimientos_provider.dart';
 import '../services/backup_service.dart';
+import '../services/editor_draft_service.dart';
 import '../services/schema_service.dart';
 import '../services/sirweb_service.dart';
 import '../widgets/ambiente_selector.dart';
@@ -49,6 +50,8 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   static const _maxSidebarW = 540.0;
   late ReactionDisposer _tabReaction;
   final Set<int> _togglingTabs = {};
+  // Tabs whose editor is suspended (WebView2 removed) during diff navigation
+  final Set<int> _suspendedTabs = {};
 
   // LRU list of tab IDs kept alive in the IndexedStack (search tabs only)
   final List<int> _lruTabIds = [];
@@ -98,6 +101,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         procedimientosProvider.error,
       ),
       (state) {
+        if (!mounted) return;
         if (_syncingActiveTab) return;
         // Only handle explicit tracked loads (ambiente change, new procedure).
         // onSelect manages its own lifecycle via async/await.
@@ -1168,17 +1172,24 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             )
           else
             Expanded(
-              child: CodeEditorPanel(
-                key: ValueKey('editor_${tab.tabId}'),
-                procedimiento: tab.procedimiento!,
-                ambiente: tab.ambiente,
-                onDirtyChanged: (dirty) {
-                  if (tab.isDirty != dirty) setState(() => tab.isDirty = dirty);
-                },
-                onSave: (code) => _saveTabProcedure(tab, code),
-                onCompile: (code) => _compileTabProcedure(tab, code),
-                onCodeChanged: (code) => tab.currentEditorCode = code,
-              ),
+              child: _suspendedTabs.contains(tab.tabId)
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        color: Color(0xFF0078D4),
+                      ),
+                    )
+                  : CodeEditorPanel(
+                      key: ValueKey('editor_${tab.tabId}'),
+                      procedimiento: tab.procedimiento!,
+                      ambiente: tab.ambiente,
+                      onDirtyChanged: (dirty) {
+                        if (tab.isDirty != dirty)
+                          setState(() => tab.isDirty = dirty);
+                      },
+                      onSave: (code) => _saveTabProcedure(tab, code),
+                      onCompile: (code) => _compileTabProcedure(tab, code),
+                      onCodeChanged: (code) => tab.currentEditorCode = code,
+                    ),
             ),
         ],
       ),
@@ -1421,7 +1432,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       tooltip: 'Más acciones',
       padding: EdgeInsets.zero,
       icon: Icon(Icons.more_vert, size: 16, color: cs.onSurfaceVariant),
-      onSelected: (action) => _handleEditorAction(action, tab),
+      onSelected: (action) => unawaited(_handleEditorAction(action, tab)),
       itemBuilder: (_) => [
         const PopupMenuItem(
           value: _EditorAction.transfer,
@@ -1480,20 +1491,52 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             sourceCode: tab.currentEditorCode ?? proc.deTexto,
             sourceAmbiente: tab.ambiente,
             cdUsuario: procedimientosProvider.cdUsuario,
+            onBeforePush: () async {
+              // Save draft and remove Monaco WebView2 so only one exists during diff
+              await EditorDraftService.save(
+                proc.cdProcedimiento,
+                tab.ambiente,
+                tab.currentEditorCode ?? proc.deTexto,
+              );
+              if (mounted) setState(() => _suspendedTabs.add(tab.tabId));
+              await Future<void>.delayed(const Duration(milliseconds: 80));
+            },
+            onAfterReturn: () {
+              if (mounted) setState(() => _suspendedTabs.remove(tab.tabId));
+            },
           ),
         );
+        // Also remove in case dialog was cancelled without pushing
+        if (mounted) setState(() => _suspendedTabs.remove(tab.tabId));
 
       case _EditorAction.compare:
-        await Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => EnvDiffPage(
-              sourceProc: proc,
-              sourceAmbiente: tab.ambiente,
-              cdUsuario: procedimientosProvider.cdUsuario,
-              currentSourceCode: tab.currentEditorCode ?? proc.deTexto,
+        try {
+          // Save draft and remove Monaco WebView2 so only one exists during diff
+          await EditorDraftService.save(
+            proc.cdProcedimiento,
+            tab.ambiente,
+            tab.currentEditorCode ?? proc.deTexto,
+          );
+          if (mounted) setState(() => _suspendedTabs.add(tab.tabId));
+          await Future<void>.delayed(const Duration(milliseconds: 80));
+          await Navigator.of(context).push(
+            PageRouteBuilder<void>(
+              pageBuilder: (_, __, ___) => EnvDiffPage(
+                sourceProc: proc,
+                sourceAmbiente: tab.ambiente,
+                cdUsuario: procedimientosProvider.cdUsuario,
+                currentSourceCode: tab.currentEditorCode ?? proc.deTexto,
+              ),
+              transitionDuration: Duration.zero,
+              reverseTransitionDuration: Duration.zero,
             ),
-          ),
-        );
+          );
+        } catch (e) {
+          if (mounted)
+            AppToast.error(e.toString().replaceFirst('Exception: ', ''));
+        } finally {
+          if (mounted) setState(() => _suspendedTabs.remove(tab.tabId));
+        }
 
       case _EditorAction.backup:
         if (procedimientosProvider.cdUsuario.trim().isEmpty) {

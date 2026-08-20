@@ -139,12 +139,8 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
   }
 
   Future<void> _loadSaved() async {
-    final recents = await SchemaRecentsService.instance.getRecents(
-      ambiente: widget.ambiente,
-    );
-    final favs = await SchemaRecentsService.instance.getFavorites(
-      ambiente: widget.ambiente,
-    );
+    final recents = await SchemaRecentsService.instance.getRecents();
+    final favs = await SchemaRecentsService.instance.getFavorites();
     if (!mounted) return;
     setState(() {
       _recents = recents;
