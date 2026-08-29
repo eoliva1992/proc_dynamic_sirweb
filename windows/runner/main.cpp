@@ -4,6 +4,9 @@
 
 #include "flutter_window.h"
 #include "utils.h"
+#include "sub_window_registrant.h"
+
+#include <desktop_multi_window/desktop_multi_window_plugin.h>
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
@@ -16,6 +19,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // Initialize COM, so that it is available for use in the library and/or
   // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+
+  // Register plugins for sub-windows created by desktop_multi_window.
+  // This callback is invoked each time a new sub-window engine is started.
+  // window_manager is excluded on purpose — see sub_window_registrant.cc.
+  DesktopMultiWindowSetWindowCreatedCallback([](void* flutter_view_controller) {
+    auto* controller =
+        reinterpret_cast<flutter::FlutterViewController*>(flutter_view_controller);
+    RegisterSubWindowPlugins(controller->engine());
+  });
 
   flutter::DartProject project(L"data");
 

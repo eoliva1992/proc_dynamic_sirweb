@@ -1,16 +1,23 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_monaco/flutter_monaco.dart';
 import 'package:mobx/mobx.dart' show reaction, ReactionDisposer;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/dato_info.dart';
+import '../models/evento_info.dart';
 import '../models/procedimiento.dart';
+import '../models/snippet.dart';
 import '../models/variable_dinamica.dart';
 import '../providers/procedimientos_provider.dart';
 import '../services/schema_service.dart';
+import '../services/sirweb_service.dart';
+import '../services/snippet_service.dart';
 import '_editor_oracle_theme.dart';
 import '_editor_themes.dart';
 import '_editor_plsql_checker.dart';
@@ -23,6 +30,9 @@ import 'source_float_window.dart';
 part '_editor_toolbar_widgets.dart';
 part '_editor_variables_overlay.dart';
 part '_editor_outline_panel.dart';
+part '_editor_snippets_overlay.dart';
+part '_editor_info_evento_modal.dart';
+part '_editor_info_dato_modal.dart';
 
 enum _SaveStatus { idle, saving, saved, error }
 
@@ -74,6 +84,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   bool _ready = false;
   MonacoController? _ctrl;
   Timer? _debounce;
+  Timer? _backendDebounce;
+  Timer? _declareDebounce;
 
   // Multi-documento: un editor, múltiples modelos con undo stack independiente
   final Map<String, MonacoDocument> _docs = {};
@@ -85,10 +97,14 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   MonacoCompletionRegistration? _completionReg;
   MonacoCompletionRegistration? _variablesReg;
   MonacoCompletionRegistration? _schemaReg; // tablas, columnas, objetos Oracle
+  MonacoCompletionRegistration? _snippetsReg;
+  MonacoCompletionRegistration? _declareVarsReg; // variables del bloque DECLARE
   String _editorFullText = '';
   // Cache for _extractFromTables — avoids regex on full text for each keystroke
   int? _fromExtractHash;
   Map<String, String> _fromExtractResult = {};
+  // Precomputed map from schema objects; rebuilt once when schema loads
+  Map<String, String>? _cachedSchemaObjTypes;
   ReactionDisposer? _variablesReaction;
 
   // ── Opciones del editor (persisten en SharedPreferences) ──────────────
@@ -112,10 +128,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   bool _contextMenu = true;
 
   // ── Estado de sesión (no persiste entre reinicios) ─────────────────
-  bool _antlrReady = false;
   final Set<String> _modifiedProcs = {};
   final Map<String, int> _errorCounts = {};
-  final Map<String, List<PlSqlIssue>> _issuesPerProc = {};
   final Map<String, List<PlSqlIssue>> _compileErrorsPerProc = {};
   final Map<String, List<PlSqlIssue>> _backendIssuesPerProc = {};
   bool _backendChecking = false;
@@ -125,6 +139,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   MonacoActionRegistration? _saveAction;
   MonacoActionRegistration? _compileAction;
   MonacoActionRegistration? _gotoDefAction;
+  MonacoActionRegistration? _infoEventoAction;
+  MonacoActionRegistration? _infoDatoAction;
   MonacoActionRegistration? _copyAction;
   MonacoActionRegistration? _cutAction;
   MonacoActionRegistration? _pasteAction;
@@ -192,10 +208,14 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   @override
   void dispose() {
     _debounce?.cancel();
+    _backendDebounce?.cancel();
+    _declareDebounce?.cancel();
     editorThemeStore.removeListener(_onEditorThemeChanged);
     _completionReg?.dispose();
     _variablesReg?.dispose();
     _schemaReg?.dispose();
+    _snippetsReg?.dispose();
+    _declareVarsReg?.dispose();
     _variablesReaction?.call();
     _errorDecos?.dispose();
     _zoomInAction?.dispose();
@@ -205,6 +225,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _saveTimer?.cancel();
     _draftDebounce?.cancel();
     _gotoDefAction?.dispose();
+    _infoEventoAction?.dispose();
+    _infoDatoAction?.dispose();
     _copyAction?.dispose();
     _cutAction?.dispose();
     _pasteAction?.dispose();
@@ -259,6 +281,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     );
 
     await _registerVariableCompletions();
+    await _registerSnippetCompletions();
+    await _registerDeclareVarCompletions();
     _variablesReaction = reaction(
       (_) => procedimientosProvider.variablesDinamicas.toList(),
       (_) {
@@ -269,12 +293,71 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     // Completion dinámico: tablas, columnas y objetos Oracle
     _registerSchemaCompletions(ctrl);
 
-    // Tab acepta sugerencias, Enter NO (solo nueva línea)
+    // Tab acepta sugerencias, Enter NO (solo nueva línea).
+    // Also force quickSuggestions on so completions fire while typing identifiers.
     await ctrl.runJavaScript(
-      'try { window.flutterMonaco.updateOptions({'
+      'try { window.editor.updateOptions({'
       '  acceptSuggestionOnEnter: "off",'
-      '  tabCompletion: "on"'
+      '  tabCompletion: "on",'
+      '  wordBasedSuggestions: "currentDocument",'
+      '  quickSuggestions: { other: true, comments: false, strings: false }'
       '}); } catch(e) {}',
+    );
+
+    // forceFocus (editor-api.js) calls window.focus → document.body.focus →
+    // ed.focus → ta.focus in that order. document.body.focus() runs FIRST and
+    // is enough to blur the find-widget input before our other patches fire.
+    // Block all four paths when .find-widget.visible is present, then use a
+    // focusout fallback to return focus to the find input as a safety net.
+    await ctrl.runJavaScript(
+      '(function(){'
+      '  function isFindOpen(){'
+      '    var fw=document.querySelector(".find-widget");'
+      '    return !!fw&&fw.classList.contains("visible");'
+      '  }'
+      '  function patchEl(el){'
+      '    if(!el||el._fp) return;'
+      '    el._fp=true;'
+      '    var o=el.focus.bind(el);'
+      '    el.focus=function(opts){ if(!isFindOpen()) o(opts); };'
+      '  }'
+      // Block document.body.focus() — this is the first call in forceFocus
+      '  if(!document.body._fp){'
+      '    document.body._fp=true;'
+      '    var ob=document.body.focus.bind(document.body);'
+      '    document.body.focus=function(){ if(!isFindOpen()) ob(); };'
+      '  }'
+      '  function tryPatch(){'
+      '    patchEl(document.querySelector(".monaco-editor .inputarea"));'
+      '    patchEl(document.querySelector(".monaco-editor .native-edit-context"));'
+      '    if(window.editor&&!window.editor._fp){'
+      '      window.editor._fp=true;'
+      '      var oe=window.editor.focus.bind(window.editor);'
+      '      window.editor.focus=function(){ if(!isFindOpen()) oe(); };'
+      '    }'
+      '  }'
+      '  tryPatch();'
+      '  var obs=new MutationObserver(tryPatch);'
+      '  obs.observe(document.body,{childList:true,subtree:true});'
+      // Fallback: if find input loses focus while widget is open, return it
+      '  document.addEventListener("focusout",function(e){'
+      '    if(!isFindOpen()) return;'
+      '    var inp=document.querySelector(".find-widget .find-part input");'
+      '    if(!inp||e.target!==inp) return;'
+      '    setTimeout(function(){ if(isFindOpen()) inp.focus(); },0);'
+      '  },true);'
+      // Ctrl+F: wait for .visible class to be added, then focus the input
+      '  document.addEventListener("keydown",function(e){'
+      '    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="f"){'
+      '      requestAnimationFrame(function(){'
+      '        requestAnimationFrame(function(){'
+      '          var inp=document.querySelector(".find-widget .find-part input");'
+      '          if(inp) inp.focus();'
+      '        });'
+      '      });'
+      '    }'
+      '  },true);'
+      '})()',
     );
 
     // Conjunto de decoraciones para líneas con errores
@@ -338,7 +421,33 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         contextMenuOrder: 1.5,
       ),
       () async {
-        await _goToDefinitionAtCursor();
+        unawaited(_goToDefinitionAtCursor());
+      },
+    );
+
+    _infoEventoAction = await ctrl.addAction(
+      MonacoActionDescriptor(
+        id: MonacoAction('custom.info.evento'),
+        label: 'Información del evento',
+        keybindings: [MonacoKeybinding(alt: true, key: MonacoKey.keyI)],
+        contextMenuGroupId: 'navigation',
+        contextMenuOrder: 1.6,
+      ),
+      () async {
+        unawaited(_showInfoEventoAtCursor());
+      },
+    );
+
+    _infoDatoAction = await ctrl.addAction(
+      MonacoActionDescriptor(
+        id: MonacoAction('custom.info.dato'),
+        label: 'Información del dato',
+        keybindings: [MonacoKeybinding(alt: true, key: MonacoKey.keyD)],
+        contextMenuGroupId: 'navigation',
+        contextMenuOrder: 1.7,
+      ),
+      () async {
+        unawaited(_showInfoDatoAtCursor());
       },
     );
 
@@ -406,40 +515,51 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       }
     });
 
-    if (mounted) {
-      setState(() {
-        if (_showOutline) {
-          _outlineItems = _parseOutlineItems(_editorFullText);
-        }
+    // Capture the word under the pointer when the context menu opens so it
+    // survives the menu interaction and is readable after the menu closes.
+    await ctrl.runJavaScript(
+      'try {'
+      '  window._fmContextWord = "";'
+      '  window.editor.onContextMenu(function(e) {'
+      '    try {'
+      '      var pos = (e.target && e.target.position)'
+      '        || window.editor.getPosition();'
+      '      if (!pos) return;'
+      '      var w = window.editor.getModel().getWordAtPosition(pos);'
+      '      window._fmContextWord = w ? w.word : "";'
+      '    } catch(_) {}'
+      '  });'
+      '} catch(ex) {}',
+    );
+
+    if (mounted && _showOutline) {
+      compute(_parseOutlineItems, _editorFullText).then((items) {
+        if (mounted) setState(() => _outlineItems = items);
       });
     }
-
-    // Delay ANTLR injection so 6MB JS eval doesn't block initial typing
-    Future.delayed(const Duration(seconds: 5), () {
-      if (mounted && _ctrl != null) _injectAntlrBundle(_ctrl!);
-    });
   }
 
-  // Synchronous toggle: show/hide panel immediately, then refresh from live editor
   void _toggleOutline() {
     if (_showOutline) {
       setState(() => _showOutline = false);
       _savePrefs();
       return;
     }
+    // Show panel immediately, populate asynchronously
+    setState(() => _showOutline = true);
+    _savePrefs();
     final cached = _editorFullText.isNotEmpty
         ? _editorFullText
         : widget.procedimiento.deTexto;
-    setState(() {
-      _showOutline = true;
-      _outlineItems = _parseOutlineItems(cached);
+    compute(_parseOutlineItems, cached).then((items) {
+      if (mounted) setState(() => _outlineItems = items);
     });
-    _savePrefs();
     // Refresh from live Monaco text in case there are unsaved edits
     _ctrl?.document.getText().then((text) {
-      if (text.isNotEmpty && mounted) {
-        setState(() => _outlineItems = _parseOutlineItems(text));
-      }
+      if (text.isEmpty || !mounted) return;
+      compute(_parseOutlineItems, text).then((items) {
+        if (mounted) setState(() => _outlineItems = items);
+      });
     });
   }
 
@@ -453,16 +573,6 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         _tabsCanScrollLeft = canLeft;
         _tabsCanScrollRight = canRight;
       });
-    }
-  }
-
-  Future<void> _injectAntlrBundle(MonacoController ctrl) async {
-    try {
-      final src = await rootBundle.loadString('assets/plsql_checker.js');
-      await ctrl.runJavaScript(src);
-      if (mounted) setState(() => _antlrReady = true);
-    } catch (_) {
-      // Bundle no disponible — el checker manual sigue activo
     }
   }
 
@@ -520,7 +630,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       _editorFullText = text;
       widget.onCodeChanged?.call(text);
       if (_showOutline) {
-        setState(() => _outlineItems = _parseOutlineItems(text));
+        compute(_parseOutlineItems, text).then((items) {
+          if (mounted) setState(() => _outlineItems = items);
+        });
       }
     }
     if (mounted) setState(() => _activeProcId = proc.cdProcedimiento);
@@ -545,114 +657,40 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
   // ── Checkers de sintaxis ───────────────────────────────────────────────
 
-  List<PlSqlIssue> _parseAntlrResult(String json) {
-    try {
-      final list = jsonDecode(json) as List<dynamic>;
-      return [
-        for (final e in list)
-          PlSqlIssue(
-            line: (e['line'] as num).toInt(),
-            col: (e['col'] as num).toInt(),
-            endCol: (e['col'] as num).toInt() + 1,
-            message: e['msg'] as String,
-          ),
-      ];
-    } catch (_) {
-      return [];
-    }
-  }
-
   void _scheduleCheck(String code) {
     if (_isActiveJs) return;
-    _debounce?.cancel();
-    _debounce = Timer(
-      const Duration(milliseconds: 1200),
-      () => _checkPlSql(code),
+    _backendDebounce?.cancel();
+    _backendDebounce = Timer(
+      const Duration(seconds: 3),
+      () => unawaited(_runBackendValidation(code, _activeProcId ?? '')),
     );
   }
 
-  Future<void> _checkPlSql(String code) async {
-    final ctrl = _ctrl;
-    if (ctrl == null) return;
-    final procId = _activeProcId ?? '';
-
-    List<PlSqlIssue> issues;
-    // Skip ANTLR for very large files — Dart fallback is much faster
-    if (_antlrReady && code.length < 40000) {
-      try {
-        // Read text directly from Monaco model — avoids jsonEncode + bridge transfer
-        final raw = await ctrl.evaluateJavaScript<String>(
-          'try{__checkPlSql(window.editor.getValue())}catch(e){null}',
-        );
-        issues = raw != null ? _parseAntlrResult(raw) : checkPlSqlSyntax(code);
-      } catch (_) {
-        issues = checkPlSqlSyntax(code);
-      }
-    } else {
-      issues = checkPlSqlSyntax(code);
-    }
-
-    if (mounted) {
-      setState(() {
-        final id = _activeProcId ?? '';
-        final compileErrors = _compileErrorsPerProc[id] ?? [];
-        _issuesPerProc[id] = issues;
-        // Mantener el total combinado sintaxis + Oracle al actualizar
-        _errorCounts[id] = [
-          ...issues,
-          ...compileErrors,
-          ...(_backendIssuesPerProc[id] ?? []),
-        ].where((e) => e.severity == MarkerSeverity.error).length;
-      });
-    }
-
-    // Markers — squiggles rojos en el texto (sintaxis + errores de compilación Oracle)
-    await ctrl.document.setMarkers([
-      for (final e in [
-        ...issues,
-        ...(_compileErrorsPerProc[procId] ?? []),
-        ...(_backendIssuesPerProc[procId] ?? []),
-      ])
-        MarkerData(
-          range: Range(
-            startLine: e.line,
-            startColumn: e.col,
-            endLine: e.line,
-            endColumn: e.endCol,
-          ),
-          message: e.message,
-          severity: e.severity,
-          source: e.source,
-        ),
-    ], owner: 'plsql-checker');
-
-    // Decoraciones — fondo rojo suave en la línea entera + indicador en minimap/overview
-    await _errorDecos?.set([
-      for (final e in issues)
-        DecorationOptions.line(
-          range: Range.lines(e.line, e.line),
-          className: 'plsql-error-line',
-          additionalOptions: {
-            'overviewRuler': {'color': '#FF4444', 'position': 4},
-            'minimap': {'color': '#FF4444', 'position': 1},
-          },
-        ),
-    ]);
-    unawaited(_runBackendValidation(code, procId));
-  }
+  // Files above this threshold skip the Oracle DDL validation to avoid large payloads
+  static const _kBackendSizeLimit = 80000;
 
   Future<void> _runBackendValidation(String code, String procId) async {
+    if (code.length > _kBackendSizeLimit) {
+      if (mounted) setState(() => _backendIssuesPerProc.remove(procId));
+      return;
+    }
+    final proc = _openProcs.cast<Procedimiento?>().firstWhere(
+      (p) => p?.cdProcedimiento == procId,
+      orElse: () => null,
+    );
+    if (proc == null) return;
     _backendCheckVersion++;
     final version = _backendCheckVersion;
     if (!mounted) return;
     setState(() => _backendChecking = true);
     try {
-      final objectType = inferObjectType(code);
-      final results = await SchemaService.instance.validateSyntax(
-        code,
-        objectType,
-        ambiente: widget.ambiente,
-      );
+      final results = await SchemaService.instance
+          .compilarProcedimientoDinamico(
+            procId,
+            code,
+            proc.inConfiguracion,
+            ambiente: widget.ambiente,
+          );
       if (!mounted || version != _backendCheckVersion) return;
       final issues = results
           .map(
@@ -671,7 +709,6 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       setState(() {
         _backendIssuesPerProc[procId] = issues;
         _errorCounts[procId] = [
-          ...(_issuesPerProc[procId] ?? []),
           ...(_compileErrorsPerProc[procId] ?? []),
           ...issues,
         ].where((e) => e.severity == MarkerSeverity.error).length;
@@ -681,7 +718,6 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         if (ctrl != null) {
           await ctrl.document.setMarkers([
             for (final e in [
-              ...(_issuesPerProc[procId] ?? []),
               ...(_compileErrorsPerProc[procId] ?? []),
               ...issues,
             ])
@@ -752,6 +788,12 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           if (!mounted) return;
           final ctrl = _ctrl;
           if (ctrl == null) return;
+
+          // Rebuild once; reused every frame by _EditorOutlinePanel in build()
+          _cachedSchemaObjTypes = schema.objects.fold(
+            <String, String>{},
+            (map, o) => map!..[o.name.toUpperCase()] = o.type,
+          );
 
           _schemaReg = await ctrl.registerCompletions(
             id: 'oracle-schema',
@@ -966,6 +1008,88 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     );
   }
 
+  Future<void> _registerSnippetCompletions() async {
+    final ctrl = _ctrl;
+    if (ctrl == null) return;
+    await _snippetsReg?.dispose();
+    _snippetsReg = null;
+    final snippets = await SnippetService.instance.loadAll();
+    if (snippets.isEmpty) return;
+    _snippetsReg = await ctrl.registerStaticCompletions(
+      id: 'user-snippets',
+      languages: [
+        MonacoLanguage.sql,
+        MonacoLanguage('plsql'),
+        MonacoLanguage.javascript,
+      ],
+      triggerCharacters: [' '],
+      items: [
+        for (final s in snippets)
+          CompletionItem(
+            label: s.prefix,
+            kind: CompletionItemKind.snippet,
+            detail: s.name,
+            documentation: s.description.isNotEmpty ? s.description : null,
+            insertText: s.body,
+            insertTextRules: {InsertTextRule.insertAsSnippet},
+            // Sort above built-in keywords so user snippets appear first
+            sortText: '0${s.prefix}',
+          ),
+      ],
+    );
+  }
+
+  Future<void> _registerDeclareVarCompletions() async {
+    final ctrl = _ctrl;
+    if (ctrl == null || _isActiveJs) return;
+    final code = _editorFullText.isNotEmpty
+        ? _editorFullText
+        : widget.procedimiento.deTexto;
+    // Reuse the outline parser — already handles all DECLARE formats correctly
+    final outlineItems = await compute(_parseOutlineItems, code);
+    await _declareVarsReg?.dispose();
+    _declareVarsReg = null;
+    final seen = <String>{};
+    final items = <CompletionItem>[];
+    for (final item in outlineItems) {
+      if (item.type != _OutlineItemType.variable &&
+          item.type != _OutlineItemType.cursor) {
+        continue;
+      }
+      if (!seen.add(item.name.toUpperCase())) continue;
+      items.add(
+        CompletionItem(
+          label: item.name,
+          kind: CompletionItemKind.variable,
+          insertText: item.name,
+          sortText: '0${item.name}',
+        ),
+      );
+    }
+    if (items.isEmpty) return;
+    _declareVarsReg = await ctrl.registerStaticCompletions(
+      id: 'plsql-declare-vars',
+      languages: [MonacoLanguage.sql, MonacoLanguage('plsql')],
+      triggerCharacters: [':', ' ', '.', '('],
+      items: items,
+    );
+  }
+
+  void _openSnippetsManager() {
+    showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'snippets-dismiss',
+      barrierColor: Colors.black45,
+      transitionDuration: const Duration(milliseconds: 160),
+      transitionBuilder: (_, anim, _, child) =>
+          FadeTransition(opacity: anim, child: child),
+      pageBuilder: (_, _, _) => const _SnippetsManagerDialog(),
+    ).then((_) {
+      if (mounted) _registerSnippetCompletions();
+    });
+  }
+
   // ── Guardar ────────────────────────────────────────────────────────────
 
   Future<void> _saveCurrentDocument() async {
@@ -1005,18 +1129,14 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         setState(() {
           _compileErrorsPerProc[procId] = compileIssues;
           _errorCounts[procId] =
-              ((_issuesPerProc[procId] ?? []) +
-                      compileIssues +
-                      (_backendIssuesPerProc[procId] ?? []))
+              (compileIssues + (_backendIssuesPerProc[procId] ?? []))
                   .where((e) => e.severity == MarkerSeverity.error)
                   .length;
         });
-        final syntaxIssues = _issuesPerProc[procId] ?? [];
         final ctrl = _ctrl;
         if (ctrl != null) {
           await ctrl.document.setMarkers([
             for (final e in [
-              ...syntaxIssues,
               ...compileIssues,
               ...(_backendIssuesPerProc[procId] ?? []),
             ])
@@ -1041,13 +1161,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         // Clear previous compile errors on a now-clean save
         setState(() => _compileErrorsPerProc.remove(procId));
         final ctrl = _ctrl;
-        final syntaxIssues = _issuesPerProc[procId] ?? [];
         if (ctrl != null) {
           await ctrl.document.setMarkers([
-            for (final e in [
-              ...syntaxIssues,
-              ...(_backendIssuesPerProc[procId] ?? []),
-            ])
+            for (final e in [...(_backendIssuesPerProc[procId] ?? [])])
               MarkerData(
                 range: Range(
                   startLine: e.line,
@@ -1089,9 +1205,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         _lastSaveError = msg;
         _compileErrorsPerProc[procId] = serverErrors;
         _errorCounts[procId] =
-            ((_issuesPerProc[procId] ?? []) +
-                    serverErrors +
-                    (_backendIssuesPerProc[procId] ?? []))
+            (serverErrors + (_backendIssuesPerProc[procId] ?? []))
                 .where((e) => e.severity == MarkerSeverity.error)
                 .length;
         _showProblemsPanel = true;
@@ -1099,10 +1213,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       // Aplicar squiggles y decoraciones en Monaco para ver los errores en el código
       final editorCtrl = _ctrl;
       if (editorCtrl != null) {
-        final syntaxIssues = _issuesPerProc[procId] ?? [];
         await editorCtrl.document.setMarkers([
           for (final e in [
-            ...syntaxIssues,
             ...serverErrors,
             ...(_backendIssuesPerProc[procId] ?? []),
           ])
@@ -1153,11 +1265,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       final procId = _activeProcId ?? '';
       if (rawCompileErrors.isNotEmpty) {
         final compileIssues = parseOracleCompileErrors(rawCompileErrors);
-        final syntaxIssues = _issuesPerProc[procId] ?? [];
         setState(() {
           _compileErrorsPerProc[procId] = compileIssues;
           _errorCounts[procId] = ([
-            ...syntaxIssues,
             ...compileIssues,
             ...(_backendIssuesPerProc[procId] ?? []),
           ]).where((e) => e.severity == MarkerSeverity.error).length;
@@ -1166,7 +1276,6 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         });
         await ctrl.document.setMarkers([
           for (final e in [
-            ...syntaxIssues,
             ...compileIssues,
             ...(_backendIssuesPerProc[procId] ?? []),
           ])
@@ -1219,7 +1328,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       setState(() {
         _compileStatus = _CompileStatus.error;
         _compileErrorsPerProc[procId] = errors;
-        _errorCounts[procId] = ((_issuesPerProc[procId] ?? []) + errors)
+        _errorCounts[procId] = errors
             .where((e) => e.severity == MarkerSeverity.error)
             .length;
         _showProblemsPanel = true;
@@ -1232,19 +1341,45 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
   // ── Go to Definition ──────────────────────────────────────────────────
 
-  Future<void> _goToDefinitionAtCursor() async {
-    final ctrl = _ctrl;
-    if (ctrl == null || !mounted) return;
+  /// Extracts the identifier word at the cached cursor position from the in-memory text.
+  String? _wordAtCachedPosition() {
+    if (_editorFullText.isEmpty) return null;
+    final lines = _editorFullText.split('\n');
+    final line0 = _lastCursorLine - 1; // convert 1-based to 0-based
+    if (line0 < 0 || line0 >= lines.length) return null;
+    final line = lines[line0];
+    final col = (_lastCursorCol - 1).clamp(0, line.length);
+    int start = col;
+    while (start > 0 && _isWordChar(line[start - 1])) {
+      start--;
+    }
+    int end = col;
+    while (end < line.length && _isWordChar(line[end])) {
+      end++;
+    }
+    if (start == end) return null;
+    return line.substring(start, end);
+  }
 
-    // Use cached position — avoids bridge round-trip that fails when context menu is open
-    final word = await ctrl.evaluateJavaScript<String>(
-      '(()=>{ try {'
-      '  const w=window.editor.getModel()'
-      '    .getWordAtPosition(new monaco.Position($_lastCursorLine,$_lastCursorCol));'
-      '  return w ? w.word : "";'
-      '} catch(e){return "";} })()',
-    );
-    if (word == null || word.isEmpty || !mounted) return;
+  bool _isWordChar(String c) => RegExp(r'\w').hasMatch(c);
+
+  /// Returns the word captured at right-click time from the JS context-menu
+  /// listener. Falls back to pure-Dart extraction from the cached text.
+  Future<String?> _wordAtContextMenu() async {
+    final ctrl = _ctrl;
+    if (ctrl != null) {
+      final js = await ctrl.evaluateJavaScript<String>(
+        '(window._fmContextWord || "")',
+      );
+      if (js != null && js.isNotEmpty) return js;
+    }
+    return _wordAtCachedPosition();
+  }
+
+  Future<void> _goToDefinitionAtCursor() async {
+    if (!mounted) return;
+    final word = await _wordAtContextMenu();
+    if (word == null || word.isEmpty) return;
 
     final upperWord = word.toUpperCase();
     final objects =
@@ -1252,19 +1387,47 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         [];
     final candidates = objects.where((o) => o.name == upperWord).toList();
 
-    if (candidates.isNotEmpty) {
-      openSourceWindow(
-        context,
-        name: candidates.first.name,
-        objectType: candidates.first.type,
-        ambiente: widget.ambiente,
-      );
-    } else {
-      AppToast.info('No se encontró definición para "$word"');
-    }
+    // Defer so the Monaco context menu has fully closed before showing Flutter UI
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (candidates.isNotEmpty) {
+        openSourceWindow(
+          context,
+          name: candidates.first.name,
+          objectType: candidates.first.type,
+          ambiente: widget.ambiente,
+        );
+      } else {
+        AppToast.info('No se encontró definición para "$word"');
+      }
+    });
   }
 
-  // ── Diff ───────────────────────────────────────────────────────────────
+  // ── InfoEvento ─────────────────────────────────────────────────────────────
+
+  Future<void> _showInfoEventoAtCursor() async {
+    if (!mounted) return;
+    final word = await _wordAtContextMenu();
+    if (word == null || word.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted)
+        unawaited(_showInfoEventoModal(context, word, widget.ambiente));
+    });
+  }
+
+  // ── InfoDato ──────────────────────────────────────────────────────────────
+
+  Future<void> _showInfoDatoAtCursor() async {
+    if (!mounted) return;
+    final word = await _wordAtContextMenu();
+    if (word == null || word.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted)
+        unawaited(_showInfoDatoModal(context, word, widget.ambiente));
+    });
+  }
+
+  // ── Diff ──────────────────────────────────────────────────────────────────
 
   Future<void> _openDiff() async {
     final ctrl = _ctrl;
@@ -1305,11 +1468,21 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       widget.onDirtyChanged?.call(true);
     }
     _scheduleCheck(code);
+    _scheduleDeclareVarCompletions();
     _scheduleDraftSave(id, code);
     if (_showOutline) {
-      final items = _parseOutlineItems(code);
-      setState(() => _outlineItems = items);
+      compute(_parseOutlineItems, code).then((items) {
+        if (mounted) setState(() => _outlineItems = items);
+      });
     }
+  }
+
+  void _scheduleDeclareVarCompletions() {
+    _declareDebounce?.cancel();
+    _declareDebounce = Timer(
+      const Duration(milliseconds: 1500),
+      () => unawaited(_registerDeclareVarCompletions()),
+    );
   }
 
   void _scheduleDraftSave(String? id, String code) {
@@ -1568,101 +1741,108 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
         // Editor Monaco + overlay de schema
         Expanded(
-          child: Stack(
-            children: [
-              Row(
-                children: [
-                  // Monaco editor — takes all remaining width
-                  Expanded(
-                    child: MonacoEditor(
-                      initialText: widget.procedimiento.deTexto,
-                      options: EditorOptions(
-                        language: _langFor(widget.procedimiento),
-                        theme: oracleDarkTheme,
-                        fontSize: _fontSize,
-                        minimap: MonacoMinimapOptions(enabled: _minimap),
-                        wordWrap: _wordWrap
-                            ? MonacoWordWrap.on
-                            : MonacoWordWrap.off,
-                        lineNumbers: _lineNumbers
-                            ? MonacoLineNumbers.on
-                            : MonacoLineNumbers.off,
-                        renderWhitespace: _renderWhitespace
-                            ? RenderWhitespace.all
-                            : RenderWhitespace.none,
-                        tabSize: 2,
-                        bracketPairColorization: _bracketPairColorization,
-                        stickyScroll: MonacoStickyScroll(
-                          enabled: _stickyScroll,
+          child: RepaintBoundary(
+            child: Stack(
+              children: [
+                Row(
+                  children: [
+                    // Monaco editor — takes all remaining width
+                    Expanded(
+                      child: MonacoEditor(
+                        initialText: widget.procedimiento.deTexto,
+                        options: EditorOptions(
+                          language: _langFor(widget.procedimiento),
+                          theme: oracleDarkTheme,
+                          fontSize: _fontSize,
+                          minimap: MonacoMinimapOptions(enabled: _minimap),
+                          wordWrap: _wordWrap
+                              ? MonacoWordWrap.on
+                              : MonacoWordWrap.off,
+                          lineNumbers: _lineNumbers
+                              ? MonacoLineNumbers.on
+                              : MonacoLineNumbers.off,
+                          renderWhitespace: _renderWhitespace
+                              ? RenderWhitespace.all
+                              : RenderWhitespace.none,
+                          tabSize: 2,
+                          bracketPairColorization: _bracketPairColorization,
+                          stickyScroll: MonacoStickyScroll(
+                            enabled: _stickyScroll,
+                          ),
+                          folding: _folding,
+                          readOnly: _readOnly,
+                          smoothScrolling: _smoothScrolling,
+                          mouseWheelZoom: _mouseWheelZoom,
+                          formatOnPaste: _formatOnPaste,
+                          quickSuggestions: _quickSuggestions,
+                          parameterHints: _parameterHints,
+                          hover: _hover,
+                          links: _links,
+                          occurrencesHighlight: _occurrencesHighlight,
+                          contextMenu: _contextMenu,
                         ),
-                        folding: _folding,
-                        readOnly: _readOnly,
-                        smoothScrolling: _smoothScrolling,
-                        mouseWheelZoom: _mouseWheelZoom,
-                        formatOnPaste: _formatOnPaste,
-                        quickSuggestions: _quickSuggestions,
-                        parameterHints: _parameterHints,
-                        hover: _hover,
-                        links: _links,
-                        occurrencesHighlight: _occurrencesHighlight,
-                        contextMenu: _contextMenu,
+                        showStatusBar: true,
+                        page: const MonacoPageConfig(
+                          customCss:
+                              '.plsql-error-line { background: rgba(255,68,68,0.1) !important; }',
+                        ),
+                        contentDebounce: const Duration(milliseconds: 600),
+                        onReady: _onReady,
+                        onContentChanged: _onContentChanged,
+                        onError: (err, _) => debugPrint('Monaco error: $err'),
                       ),
-                      showStatusBar: true,
-                      page: const MonacoPageConfig(
-                        customCss:
-                            '.plsql-error-line { background: rgba(255,68,68,0.1) !important; }',
+                    ),
+                    // Docked variables panel
+                    if (_varsDocked)
+                      Builder(
+                        builder: (context) {
+                          final dockedVars = _filteredVariables();
+                          if (dockedVars.isEmpty) {
+                            return const SizedBox.shrink();
+                          }
+                          return _VarsDockedPanel(
+                            vars: dockedVars,
+                            onSelected: (v) async {
+                              final ctrl = _ctrl;
+                              if (ctrl == null) return;
+                              final pos = await ctrl.getCursorPosition();
+                              if (pos != null) {
+                                await ctrl.document.insert(
+                                  pos,
+                                  ':${v.cdVariable}',
+                                );
+                              }
+                            },
+                            onUnpin: () {
+                              setState(() => _varsDocked = false);
+                              _savePrefs();
+                            },
+                          );
+                        },
                       ),
-                      contentDebounce: const Duration(milliseconds: 600),
-                      onReady: _onReady,
-                      onContentChanged: _onContentChanged,
-                      onError: (err, _) => debugPrint('Monaco error: $err'),
-                    ),
-                  ),
-                  // Docked variables panel
-                  if (_varsDocked && _filteredVariables().isNotEmpty)
-                    _VarsDockedPanel(
-                      vars: _filteredVariables(),
-                      onSelected: (v) async {
-                        final ctrl = _ctrl;
-                        if (ctrl == null) return;
-                        final pos = await ctrl.getCursorPosition();
-                        if (pos != null) {
-                          await ctrl.document.insert(pos, ':${v.cdVariable}');
-                        }
-                      },
-                      onUnpin: () {
-                        setState(() => _varsDocked = false);
-                        _savePrefs();
-                      },
-                    ),
-                  // Outline sidebar
-                  if (_showOutline)
-                    _EditorOutlinePanel(
-                      items: _outlineItems,
-                      code: _editorFullText,
-                      ambiente: widget.ambiente,
-                      schemaObjects: SchemaService.instance
-                          .getCached(ambiente: widget.ambiente)
-                          ?.objects
-                          .fold(<String, String>{}, (map, o) {
-                            map![o.name.toUpperCase()] = o.type;
-                            return map;
-                          }),
-                      onItemTap: (line) async {
-                        await _ctrl?.revealLine(line, center: true);
-                        await _ctrl?.setCursorPosition(
-                          Position(line: line, column: 1),
-                        );
-                      },
-                      onClose: () {
-                        setState(() => _showOutline = false);
-                        _savePrefs();
-                      },
-                    ),
-                ],
-              ),
-              // Overlay flotante — indicador de schema (esquina inferior izquierda)
-            ],
+                    // Outline sidebar
+                    if (_showOutline)
+                      _EditorOutlinePanel(
+                        items: _outlineItems,
+                        code: _editorFullText,
+                        ambiente: widget.ambiente,
+                        schemaObjects: _cachedSchemaObjTypes,
+                        onItemTap: (line) async {
+                          await _ctrl?.revealLine(line, center: true);
+                          await _ctrl?.setCursorPosition(
+                            Position(line: line, column: 1),
+                          );
+                        },
+                        onClose: () {
+                          setState(() => _showOutline = false);
+                          _savePrefs();
+                        },
+                      ),
+                  ],
+                ),
+                // Overlay flotante — indicador de schema (esquina inferior izquierda)
+              ],
+            ),
           ),
         ),
         // Panel de problemas (sintaxis + compilación Oracle)
@@ -1675,10 +1855,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final procId = _activeProcId ?? '';
-    final syntaxIssues = _issuesPerProc[procId] ?? [];
     final compileIssues = _compileErrorsPerProc[procId] ?? [];
     final backendIssues = _backendIssuesPerProc[procId] ?? [];
-    final allIssues = [...compileIssues, ...syntaxIssues, ...backendIssues]
+    final allIssues = [...compileIssues, ...backendIssues]
       ..sort((a, b) => a.line.compareTo(b.line));
     final errorCount = allIssues
         .where((e) => e.severity == MarkerSeverity.error)
@@ -2117,6 +2296,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
             active: _showOutline,
             onPressed: _toggleOutline,
           ),
+          _ToolBtn(
+            icon: Icons.code_rounded,
+            tooltip: 'Snippets de usuario',
+            onPressed: _openSnippetsManager,
+          ),
           const Spacer(),
           // ── Badge de errores ──────────────────────────────────────────────
           _buildErrorBadge(cs),
@@ -2451,16 +2635,13 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
   Widget _buildErrorBadge(ColorScheme cs) {
     final procId = _activeProcId ?? '';
-    final syntaxErrors = (_issuesPerProc[procId] ?? [])
-        .where((e) => e.severity == MarkerSeverity.error)
-        .length;
     final compileErrors = (_compileErrorsPerProc[procId] ?? [])
         .where((e) => e.severity == MarkerSeverity.error)
         .length;
     final backendErrors = (_backendIssuesPerProc[procId] ?? [])
         .where((e) => e.severity == MarkerSeverity.error)
         .length;
-    final n = syntaxErrors + compileErrors + backendErrors;
+    final n = compileErrors + backendErrors;
     final badge = Container(
       margin: const EdgeInsets.only(right: 6),
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),

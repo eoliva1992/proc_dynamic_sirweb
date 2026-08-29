@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../services/schema_recents_service.dart';
 import '../services/schema_service.dart';
+import 'ambiente_selector.dart';
+import 'app_toast.dart';
 import 'schema_command_palette.dart';
 import 'schema_object_details_sheet.dart';
 import 'source_float_window.dart';
@@ -59,6 +61,9 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
   String _filter = '';
   Timer? _debounce;
 
+  // Ambiente propio del sidebar — independiente del tab activo
+  late String _ambiente;
+
   // Qué tipos mostrar (null = todos)
   final _activeFilters = <String>{};
 
@@ -79,6 +84,7 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
   @override
   void initState() {
     super.initState();
+    _ambiente = widget.ambiente;
     _searchCtrl.addListener(_onSearchChanged);
     SchemaService.instance.status.addListener(_onSchemaStatus);
     _loadMeta();
@@ -88,10 +94,7 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
   @override
   void didUpdateWidget(SchemaSidebar old) {
     super.didUpdateWidget(old);
-    if (old.ambiente != widget.ambiente) {
-      _loadMeta();
-      _loadSaved();
-    }
+    // El ambiente ya es gestionado internamente; no se sincroniza con el tab.
   }
 
   @override
@@ -116,7 +119,7 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
   }
 
   void _loadMeta() {
-    final cached = SchemaService.instance.getCached(ambiente: widget.ambiente);
+    final cached = SchemaService.instance.getCached(ambiente: _ambiente);
     if (cached != null && mounted) {
       setState(() {
         _meta = cached;
@@ -124,7 +127,7 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
       });
     } else if (!_metaLoaded) {
       SchemaService.instance
-          .getMetadata(ambiente: widget.ambiente)
+          .getMetadata(ambiente: _ambiente)
           .then((m) {
             if (mounted)
               setState(() {
@@ -150,7 +153,7 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
   }
 
   bool _isFavorite(String name) =>
-      _favoriteKeys.contains('$name::${widget.ambiente}');
+      _favoriteKeys.contains('$name::$_ambiente');
 
   Future<void> _toggleFavorite(SchemaObjectRef ref) async {
     if (_isFavorite(ref.name)) {
@@ -167,15 +170,76 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
         name: name,
         type: type,
         owner: owner,
-        ambiente: widget.ambiente,
+        ambiente: _ambiente,
       ),
     );
     showObjectDetails(
       context,
       name: name,
       type: type,
-      ambiente: widget.ambiente,
+      ambiente: _ambiente,
     );
+    _loadSaved();
+  }
+
+  // ── Cambio de ambiente ────────────────────────────────────────────────────
+
+  void _handleAmbienteChange(String newAmbiente) {
+    if (newAmbiente == _ambiente) return;
+    if (newAmbiente == 'Prod') {
+      showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.red, size: 20),
+              SizedBox(width: 8),
+              Text('Cambiar a Producción'),
+            ],
+          ),
+          content: const Text(
+            'Estás a punto de cambiar al ambiente de Producción.\n'
+            'Las modificaciones afectarán datos reales.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red.shade700,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Confirmar'),
+            ),
+          ],
+        ),
+      ).then((confirmed) {
+        if (confirmed == true) _applyAmbienteChange(newAmbiente);
+      });
+    } else {
+      if (newAmbiente == 'QA' || newAmbiente == 'Replica') {
+        AppToast.warning(
+          '$newAmbiente — los cambios pueden afectar datos compartidos',
+          duration: const Duration(seconds: 4),
+        );
+      }
+      _applyAmbienteChange(newAmbiente);
+    }
+  }
+
+  void _applyAmbienteChange(String newAmbiente) {
+    setState(() {
+      _ambiente = newAmbiente;
+      _meta = null;
+      _metaLoaded = false;
+      _recents = [];
+      _favorites = [];
+      _favoriteKeys = {};
+    });
+    _loadMeta();
     _loadSaved();
   }
 
@@ -223,23 +287,24 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
       child: Row(
         children: [
           const Icon(Icons.schema_outlined, size: 16, color: Colors.white),
-          const SizedBox(width: 8),
-          const Expanded(
-            child: Text(
-              'Esquema',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
+          const SizedBox(width: 6),
+          const Text(
+            'Esquema',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
             ),
           ),
+          const SizedBox(width: 6),
+          _buildAmbienteChip(),
+          const Spacer(),
           // Ctrl+K quick access
           Tooltip(
             message: 'Búsqueda rápida (Ctrl+K)',
             child: InkWell(
               onTap: () =>
-                  showSchemaCommandPalette(context, ambiente: widget.ambiente),
+                  showSchemaCommandPalette(context, ambiente: _ambiente),
               borderRadius: BorderRadius.circular(4),
               child: const Padding(
                 padding: EdgeInsets.all(4),
@@ -294,6 +359,74 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildAmbienteChip() {
+    final color = AmbienteSelector.colorForAmbiente(_ambiente);
+    final icon = AmbienteSelector.iconForAmbiente(_ambiente);
+    return PopupMenuButton<String>(
+      tooltip: 'Cambiar ambiente del explorador',
+      offset: const Offset(0, 34),
+      onSelected: _handleAmbienteChange,
+      itemBuilder: (_) => AmbienteSelector.ambientes.map((a) {
+        final c = AmbienteSelector.colorForAmbiente(a);
+        return PopupMenuItem<String>(
+          value: a,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: c,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(AmbienteSelector.iconForAmbiente(a), size: 13, color: c),
+              const SizedBox(width: 6),
+              Text(
+                a,
+                style: TextStyle(color: c, fontWeight: FontWeight.bold),
+              ),
+              if (a == _ambiente) ...[
+                const SizedBox(width: 8),
+                Icon(Icons.check, size: 13, color: c),
+              ],
+            ],
+          ),
+        );
+      }).toList(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.25),
+          borderRadius: BorderRadius.circular(5),
+          border: Border.all(
+            color: color.withValues(alpha: 0.6),
+            width: 0.8,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 11, color: Colors.white),
+            const SizedBox(width: 4),
+            Text(
+              _ambiente,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 2),
+            const Icon(Icons.arrow_drop_down, size: 13, color: Colors.white70),
+          ],
+        ),
       ),
     );
   }
@@ -365,17 +498,14 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final chipSize = ((constraints.maxWidth - 10) / types.length)
-              .floorToDouble()
-              .clamp(24.0, 32.0);
           return Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               ...types.map((t) {
                 final active = _activeFilters.contains(t);
                 final color = _kTypeColors[t]!;
                 final icon = _kTypeIcons[t]!;
-                return Tooltip(
+                return Expanded(
+                  child: Tooltip(
                   message: _kTypeLabels[t]!,
                   child: GestureDetector(
                     onTap: () => setState(() {
@@ -387,8 +517,8 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
                     }),
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 130),
-                      width: chipSize,
                       height: 28,
+                      margin: const EdgeInsets.symmetric(horizontal: 1),
                       decoration: BoxDecoration(
                         color: active
                             ? color.withValues(alpha: 0.16)
@@ -411,6 +541,7 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
                             : (isDark ? Colors.white38 : Colors.black38),
                       ),
                     ),
+                  ),
                   ),
                 );
               }),
@@ -739,7 +870,7 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
               context,
               name: ref.name,
               objectType: ref.type,
-              ambiente: ref.ambiente,
+              ambiente: _ambiente,
             )
           : null,
     );
@@ -785,7 +916,8 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
           : names.where((n) => n.toLowerCase().contains(_filter)).toList();
       if (filtered.isEmpty) continue;
 
-      final isCollapsed = _collapsed[type] ?? true; // collapsed by default
+      // Auto-expand when search is active
+      final isCollapsed = _filter.isEmpty ? (_collapsed[type] ?? true) : false;
       result.add(
         SliverToBoxAdapter(
           child: _buildTypeSection(type, filtered.length, isCollapsed, isDark),
@@ -889,6 +1021,7 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
       color: color,
       name: name,
       type: type,
+      highlight: _filter,
       isDark: isDark,
       isFavorite: isFav,
       onTap: () => _openObject(name, type, owner),
@@ -897,7 +1030,7 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
               context,
               name: name,
               objectType: type,
-              ambiente: widget.ambiente,
+              ambiente: _ambiente,
             )
           : null,
       onFavoriteToggle: () => _toggleFavorite(
@@ -905,7 +1038,7 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
           name: name,
           type: type,
           owner: owner,
-          ambiente: widget.ambiente,
+          ambiente: _ambiente,
         ),
       ),
     );
@@ -915,7 +1048,7 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
     setState(() => _metaLoaded = false);
     try {
       final fresh = await SchemaService.instance.refreshAmbiente(
-        widget.ambiente,
+        _ambiente,
       );
       if (mounted)
         setState(() {
@@ -1091,6 +1224,7 @@ class _SidebarRow extends StatefulWidget {
   final Color color;
   final String name;
   final String type;
+  final String highlight;
   final bool isDark;
   final bool isFavorite;
   final VoidCallback onTap;
@@ -1102,6 +1236,7 @@ class _SidebarRow extends StatefulWidget {
     required this.color,
     required this.name,
     required this.type,
+    required this.highlight,
     required this.isDark,
     required this.isFavorite,
     required this.onTap,
@@ -1115,6 +1250,41 @@ class _SidebarRow extends StatefulWidget {
 
 class _SidebarRowState extends State<_SidebarRow> {
   bool _hovered = false;
+
+  Widget _buildHighlightedName(String name, String query, bool isDark) {
+    final baseStyle = TextStyle(
+      fontSize: 12,
+      fontFamily: 'Consolas',
+      color: isDark ? const Color(0xFFD4D4D4) : Colors.black87,
+    );
+    if (query.isEmpty) {
+      return Text(name, style: baseStyle, overflow: TextOverflow.ellipsis);
+    }
+    final lower = name.toLowerCase();
+    final idx = lower.indexOf(query);
+    if (idx < 0) {
+      return Text(name, style: baseStyle, overflow: TextOverflow.ellipsis);
+    }
+    return RichText(
+      overflow: TextOverflow.ellipsis,
+      text: TextSpan(
+        style: baseStyle,
+        children: [
+          if (idx > 0) TextSpan(text: name.substring(0, idx)),
+          TextSpan(
+            text: name.substring(idx, idx + query.length),
+            style: const TextStyle(
+              backgroundColor: Color(0xFFFFCC00),
+              color: Colors.black,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          if (idx + query.length < name.length)
+            TextSpan(text: name.substring(idx + query.length)),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1147,16 +1317,10 @@ class _SidebarRowState extends State<_SidebarRow> {
               Icon(widget.icon, size: 13, color: widget.color),
               const SizedBox(width: 7),
               Expanded(
-                child: Text(
+                child: _buildHighlightedName(
                   widget.name,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontFamily: 'Consolas',
-                    color: widget.isDark
-                        ? const Color(0xFFD4D4D4)
-                        : Colors.black87,
-                  ),
-                  overflow: TextOverflow.ellipsis,
+                  widget.highlight,
+                  widget.isDark,
                 ),
               ),
               if (_hovered) ...[

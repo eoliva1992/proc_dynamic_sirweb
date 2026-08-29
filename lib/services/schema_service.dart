@@ -336,8 +336,7 @@ class SchemaService {
         .toList();
   }
 
-  /// Validates PL/SQL syntax without persisting changes to Oracle.
-  /// Backend tool 'validate_syntax_ddl': CREATE with temp name → read USER_ERRORS → DROP.
+  /// Valida la sintaxis de un objeto Oracle estático (PROCEDURE, PACKAGE, etc.) sin persistir.
   Future<List<({int line, int position, String text, String attribute})>>
   validateSyntax(String source, String objectType, {String? ambiente}) async {
     try {
@@ -359,6 +358,40 @@ class SchemaService {
           )
           .toList();
     } catch (_) {
+      return [];
+    }
+  }
+
+  /// Compila el procedimiento dinámico en Oracle sin guardarlo (DROP inmediato).
+  /// Usa PCK_PROCEDIMIENTO.COMPILAR_PROCEDIMIENTO en el servidor.
+  Future<List<({int line, int position, String text, String attribute})>>
+  compilarProcedimientoDinamico(
+    String cdProcedimiento,
+    String deTexto,
+    String inConfiguracion, {
+    String? ambiente,
+  }) async {
+    try {
+      final result = await _call('compilar_procedimiento_dinamico', {
+        'cdProcedimiento': cdProcedimiento,
+        'deTexto': deTexto,
+        'inConfiguracion': inConfiguracion,
+        if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+      });
+      final rawList = result['data'] as List? ?? [];
+      return rawList
+          .cast<Map<String, dynamic>>()
+          .map(
+            (e) => (
+              line: (e['line'] as num).toInt(),
+              position: (e['position'] as num).toInt(),
+              text: e['text'] as String? ?? '',
+              attribute: e['attribute'] as String? ?? 'ERROR',
+            ),
+          )
+          .toList();
+    } catch (e) {
+      debugPrint('[SchemaService] compilarProcedimientoDinamico error: $e');
       return [];
     }
   }

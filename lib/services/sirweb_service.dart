@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../models/procedimiento.dart';
 import '../models/configuracion_tipo.dart';
+import '../models/dato_info.dart';
+import '../models/evento_info.dart';
+import '../models/procedimiento.dart';
 import '../models/variable_dinamica.dart';
 
 class SirwebService {
@@ -241,5 +243,119 @@ class SirwebService {
       'cdUsuario': cdUsuario,
       if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
     });
+  }
+
+  /// Carga solo el encabezado del evento (definición y tipo).
+  Future<EventoInfo> infoEventoHeader(
+    String cdEvento, {
+    String? ambiente,
+  }) async {
+    final result = await _call('info_evento', {
+      'cdEvento': cdEvento,
+      if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+    });
+    return EventoInfo.fromSeparateResponses(cdEvento, result, {
+      'data': <dynamic>[],
+    });
+  }
+
+  /// Busca registros en DATO con filtros opcionales.
+  Future<List<DatoInfo>> buscarDato({
+    int? cdDato,
+    String? deDato,
+    String? tpDato,
+    int? cdTabla,
+    int? inUso,
+    String? ambiente,
+  }) async {
+    final result = await _call('buscar_dato', {
+      if (cdDato != null) 'cdDato': cdDato,
+      if (deDato != null) 'deDato': deDato,
+      if (tpDato != null) 'tpDato': tpDato,
+      if (cdTabla != null) 'cdTabla': cdTabla,
+      if (inUso != null) 'inUso': inUso,
+      if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+    });
+    final data = result['data'];
+    final rawList = data is List
+        ? data
+        : (data is Map<String, dynamic>
+              ? (data['items'] as List<dynamic>? ?? <dynamic>[])
+              : <dynamic>[]);
+    return rawList
+        .whereType<Map<String, dynamic>>()
+        .map(DatoInfo.fromJson)
+        .toList();
+  }
+
+  /// Definición de tabla desde TABLADEFINICION.
+  Future<TablaDefinicion> infoTabla(int cdTabla, {String? ambiente}) async {
+    final result = await _call('info_tabla', {
+      'cdTabla': cdTabla,
+      if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+    });
+    final data = result['data'];
+    if (data is Map<String, dynamic>) return TablaDefinicion.fromJson(data);
+    return TablaDefinicion.fromJson(result);
+  }
+
+  /// Valores de tabla desde TABLAINFORMACION.
+  Future<List<ValorTabla>> valoresTabla(
+    int cdTabla, {
+    String? deIndiceDato,
+    String? fechaDesde,
+    String? fechaHasta,
+    int? inSuspendido,
+    String? ambiente,
+  }) async {
+    final result = await _call('valores_tabla', {
+      'cdTabla': cdTabla,
+      if (deIndiceDato != null) 'deIndiceDato': deIndiceDato,
+      if (fechaDesde != null) 'fechaDesde': fechaDesde,
+      if (fechaHasta != null) 'fechaHasta': fechaHasta,
+      if (inSuspendido != null) 'inSuspendido': inSuspendido,
+      if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+    });
+    final data = result['data'];
+    final rawList = data is List
+        ? data
+        : (data is Map<String, dynamic>
+              ? (data['items'] as List<dynamic>? ??
+                    data['valores'] as List<dynamic>? ??
+                    <dynamic>[])
+              : <dynamic>[]);
+    return rawList
+        .whereType<Map<String, dynamic>>()
+        .map(ValorTabla.fromJson)
+        .toList();
+  }
+
+  /// Consulta los valores del evento filtrando por índice (servidor).
+  Future<List<EventoValor>> valoresEvento(
+    String cdEvento, {
+    required String deIndiceEvento,
+    String? ambiente,
+    String? fechaDesde,
+    String? fechaHasta,
+  }) async {
+    final result = await _call('valores_evento', {
+      'cdEvento': cdEvento,
+      'deIndiceEvento': deIndiceEvento,
+      if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+      if (fechaDesde != null) 'fechaDesde': fechaDesde,
+      if (fechaHasta != null) 'fechaHasta': fechaHasta,
+    });
+    final data = result['data'];
+    final rawList = data is List<dynamic>
+        ? data
+        : (data is Map<String, dynamic>
+              ? (data['items'] as List<dynamic>? ??
+                    data['valores'] as List<dynamic>? ??
+                    <dynamic>[])
+              : <dynamic>[]);
+    return rawList
+        .whereType<Map<String, dynamic>>()
+        .map(EventoValor.fromJson)
+        .toList();
   }
 }

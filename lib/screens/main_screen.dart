@@ -156,9 +156,11 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
 
   @override
   void onWindowClose() async {
-    closeAllSourceWindows();
+    // windowManager.destroy() calls PostQuitMessage(0) which terminates the
+    // entire Win32 message loop — if desktop_multi_window sub-windows close
+    // while that races, the whole process dies. exit(0) is sufficient and
+    // avoids the PostQuitMessage path entirely.
     SchemaService.instance.dispose();
-    await windowManager.destroy();
     exit(0);
   }
 

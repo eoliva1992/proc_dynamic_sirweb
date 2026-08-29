@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:toastification/toastification.dart';
@@ -9,65 +10,78 @@ import 'services/favorites_service.dart';
 import 'services/schema_service.dart';
 import 'widgets/_editor_themes.dart';
 import 'widgets/object_source_page.dart';
-import 'widgets/source_float_window.dart';
 
 Future<void> main(List<String> args) async {
-  WidgetsFlutterBinding.ensureInitialized();
+  // ── Sub-window: visor de código fuente (proceso OS independiente) ──────────
+  // Lanzado desde source_float_window.dart via Process.start.
+  // Al ser un proceso separado, exit(0) solo termina ESTA ventana, no la principal.
+  // Args: ['multi_window', <placeholder>, argumentsJson]
+  if (args.firstOrNull == 'multi_window') {
+    // Para la sub-ventana se inicializa el binding aquí, fuera de runZonedGuarded,
+    // lo cual es correcto porque runApp también se llama aquí (misma zona).
+    WidgetsFlutterBinding.ensureInitialized();
 
-  // Ensure clean exit when flutter run is stopped (Ctrl+C / VS Code stop)
-  // Without this, WebView2 leaves locks that block the next run.
-  ProcessSignal.sigint.watch().listen((_) {
-    closeAllSourceWindows();
-    exit(0);
-  });
+    final argumentsJson = args.length > 2 ? args[2] : '';
+    final data = argumentsJson.isNotEmpty
+        ? jsonDecode(argumentsJson) as Map<String, dynamic>
+        : <String, dynamic>{};
+    await editorThemeStore.loadFromPrefs();
 
-  // ── Secondary window: source viewer ──────────────────────────────────────
-  final sourceArg = args.where((a) => a.startsWith('--source=')).firstOrNull;
-  if (sourceArg != null) {
-    final params = sourceArg.substring('--source='.length).split('::');
-    if (params.length >= 3) {
-      await windowManager.ensureInitialized();
-      final WindowOptions opts = WindowOptions(
-        size: const Size(920, 680),
-        center: true,
-        title: '${params[0]} \u2014 ${params[1]}',
-        minimumSize: const Size(480, 320),
-        skipTaskbar: false,
-      );
-      windowManager.waitUntilReadyToShow(opts, () async {
+    await windowManager.ensureInitialized();
+    const windowOptions = WindowOptions(
+      size: Size(1060, 700),
+      center: true,
+      skipTaskbar: false,
+      titleBarStyle: TitleBarStyle.normal,
+    );
+    unawaited(
+      windowManager.waitUntilReadyToShow(windowOptions, () async {
         await windowManager.show();
         await windowManager.focus();
-      });
-      await editorThemeStore.loadFromPrefs();
-      runApp(
-        SourceViewerApp(
-          name: params[0],
-          objectType: params[1],
-          ambiente: params[2],
-        ),
-      );
-      return;
-    }
+      }),
+    );
+
+    runApp(
+      SourceViewerApp(
+        name: data['name'] as String? ?? '',
+        objectType: data['objectType'] as String? ?? '',
+        ambiente: data['ambiente'] as String? ?? '',
+      ),
+    );
+    return;
   }
 
-  // ── Main window ───────────────────────────────────────────────────────────
-  await windowManager.ensureInitialized();
-  await themeStore.loadFromPrefs();
-  await editorThemeStore.loadFromPrefs();
-  await FavoritesService.load();
-  unawaited(SchemaService.instance.loadMetadata());
+  // ── Ventana principal ────────────────────────────────────────────────────────
+  // Se inicializa TODO dentro de runZonedGuarded para evitar el "Zone mismatch"
+  // de Flutter 3.13+: ensureInitialized y runApp deben estar en la misma zona.
+  runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
 
-  // Catch any unhandled async errors: show on-screen instead of closing the app
-  FlutterError.onError = (details) {
-    FlutterError.presentError(details);
-    debugPrint('FlutterError: ${details.exception}\n${details.stack}');
-  };
-  runZonedGuarded(() => runApp(const ProcDynamicApp()), (error, stack) {
-    debugPrint('Unhandled error: $error\n$stack');
-    FlutterError.reportError(
-      FlutterErrorDetails(exception: error, stack: stack),
-    );
-  });
+      // Graceful exit on Ctrl+C / flutter run stop
+      ProcessSignal.sigint.watch().listen((_) => exit(0));
+
+      await windowManager.ensureInitialized();
+      await themeStore.loadFromPrefs();
+      await editorThemeStore.loadFromPrefs();
+      await FavoritesService.load();
+      unawaited(SchemaService.instance.loadMetadata());
+
+      // Catch any unhandled Flutter framework errors: show on-screen instead of closing
+      FlutterError.onError = (details) {
+        FlutterError.presentError(details);
+        debugPrint('FlutterError: ${details.exception}\n${details.stack}');
+      };
+
+      runApp(const ProcDynamicApp());
+    },
+    (error, stack) {
+      debugPrint('Unhandled error: $error\n$stack');
+      FlutterError.reportError(
+        FlutterErrorDetails(exception: error, stack: stack),
+      );
+    },
+  );
 }
 
 class ProcDynamicApp extends StatelessWidget {

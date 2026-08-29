@@ -1,24 +1,13 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../widgets/ambiente_selector.dart';
 import 'app_toast.dart';
 import 'object_source_page.dart';
-
-// Tracks live child source-viewer processes so they can be killed on main-window close.
-final _childProcesses = <Process>{};
-
-/// Kills every child source-viewer window spawned by this session.
-void closeAllSourceWindows() {
-  for (final p in _childProcesses) {
-    try {
-      p.kill();
-    } catch (_) {}
-  }
-  _childProcesses.clear();
-}
 
 /// Abre el código fuente en una ventana OS separada (Windows desktop).
 /// En web/otros platforms, abre un overlay interno.
@@ -29,7 +18,7 @@ void openSourceWindow(
   required String ambiente,
 }) {
   if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-    _openNewProcess(
+    _openNativeWindow(
       context,
       name: name,
       objectType: objectType,
@@ -45,32 +34,37 @@ void openSourceWindow(
   }
 }
 
-void _openNewProcess(
+Future<void> _openNativeWindow(
   BuildContext context, {
   required String name,
   required String objectType,
   required String ambiente,
-}) {
+}) async {
   try {
-    // normal mode keeps streams piped (not shared) so the child's VM service URI
-    // never appears on the parent's stdout — that was causing Flutter tooling to
-    // lose connection on hot restart. Drain streams to prevent pipe-buffer deadlock.
-    Process.start(Platform.resolvedExecutable, [
-      '--source=$name::$objectType::$ambiente',
-    ]).then((process) {
-      process.stdout.listen(null);
-      process.stderr.listen(null);
-      _childProcesses.add(process);
-      process.exitCode.then((_) => _childProcesses.remove(process));
-    });
+    // desktop_multi_window creates the window in-process (same OS process,
+    // new FlutterViewController). hiddenAtLaunch: false → native SW_SHOW is
+    // called immediately in MultiWindowManager::Create(), bypassing the
+    // window_manager SW_HIDE lifecycle entirely.
+    await WindowController.create(
+      WindowConfiguration(
+        arguments: jsonEncode({
+          'name': name,
+          'objectType': objectType,
+          'ambiente': ambiente,
+        }),
+        hiddenAtLaunch: false,
+      ),
+    );
   } catch (e) {
     AppToast.error('No se pudo abrir la ventana: $e');
-    _openOverlay(
-      context,
-      name: name,
-      objectType: objectType,
-      ambiente: ambiente,
-    );
+    if (context.mounted) {
+      _openOverlay(
+        context,
+        name: name,
+        objectType: objectType,
+        ambiente: ambiente,
+      );
+    }
   }
 }
 
@@ -168,10 +162,10 @@ class _SourceFloatWindowState extends State<_SourceFloatWindow>
           Positioned(
             left: _pos.dx,
             top: _pos.dy,
-            child: SizeTransition(
-              sizeFactor: _heightAnim,
-              axis: Axis.vertical,
-              axisAlignment: -1,
+              child: SizeTransition(
+                sizeFactor: _heightAnim,
+                axis: Axis.vertical,
+                alignment: Alignment.topCenter,
               child: Container(
                 width: _size.width,
                 height: _minimized ? _titleH : _size.height,
