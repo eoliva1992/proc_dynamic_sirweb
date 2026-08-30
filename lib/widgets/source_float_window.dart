@@ -1,22 +1,36 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../widgets/ambiente_selector.dart';
 import 'app_toast.dart';
 import 'object_source_page.dart';
+import 'source_tab_controller.dart';
 
-/// Abre el código fuente en una ventana OS separada (Windows desktop).
-/// En web/otros platforms, abre un overlay interno.
+/// Abre el código fuente de un objeto Oracle.
+///
+/// Estrategia (en orden de preferencia):
+/// 1. Si hay un [SourceTabController] en el árbol → abre un nuevo tab en la
+///    ventana principal (sin procesos OS extra, funciona en debug y release).
+/// 2. Si no hay controller (llamado desde la sub-ventana de fuente o contexto
+///    externo) → lanza un proceso OS independiente.
+/// 3. Si falla el proceso → abre overlay flotante interno.
 void openSourceWindow(
   BuildContext context, {
   required String name,
   required String objectType,
   required String ambiente,
 }) {
+  // Camino principal: tab en la ventana principal
+  final controller = SourceTabController.maybeOf(context);
+  if (controller != null) {
+    controller.openTab(name: name, objectType: objectType, ambiente: ambiente);
+    return;
+  }
+
+  // Fallback: proceso OS separado (p.ej. desde la sub-ventana misma)
   if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
     _openNativeWindow(
       context,
@@ -41,20 +55,34 @@ Future<void> _openNativeWindow(
   required String ambiente,
 }) async {
   try {
-    // desktop_multi_window creates the window in-process (same OS process,
-    // new FlutterViewController). hiddenAtLaunch: false → native SW_SHOW is
-    // called immediately in MultiWindowManager::Create(), bypassing the
-    // window_manager SW_HIDE lifecycle entirely.
-    await WindowController.create(
-      WindowConfiguration(
-        arguments: jsonEncode({
-          'name': name,
-          'objectType': objectType,
-          'ambiente': ambiente,
-        }),
-        hiddenAtLaunch: false,
-      ),
+    final exe = Platform.resolvedExecutable;
+    final cwd = File(exe).parent.path;
+
+    // No usamos ProcessStartMode.detached porque en Windows eso activa la flag
+    // DETACHED_PROCESS que bloquea la asignación de consola. En modo debug la
+    // Dart VM necesita esa consola para su VM-service; sin ella el proceso hijo
+    // muere silenciosamente antes de mostrar la ventana.
+    // En release tampoco se necesita: el exe tiene subsistema WIN32, nunca
+    // muestra consola.  El proceso hijo sigue vivo aunque la ventana principal
+    // se cierre (comportamiento normal de Win32 para procesos GUI).
+    final process = await Process.start(
+      exe,
+      [
+        'multi_window',
+        '', // placeholder windowId (no se usa)
+        jsonEncode({'name': name, 'objectType': objectType, 'ambiente': ambiente}),
+      ],
+      workingDirectory: cwd,
     );
+
+    // En debug: volcamos stderr del proceso hijo al log de la app principal
+    // para poder diagnosticar fallos sin adjuntar un segundo debugger.
+    if (kDebugMode) {
+      process.stderr.listen((bytes) {
+        final msg = String.fromCharCodes(bytes).trim();
+        if (msg.isNotEmpty) debugPrint('[sub-window stderr] $msg');
+      });
+    }
   } catch (e) {
     AppToast.error('No se pudo abrir la ventana: $e');
     if (context.mounted) {

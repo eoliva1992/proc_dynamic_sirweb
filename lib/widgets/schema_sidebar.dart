@@ -288,12 +288,15 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
         children: [
           const Icon(Icons.schema_outlined, size: 16, color: Colors.white),
           const SizedBox(width: 6),
-          const Text(
-            'Esquema',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
+          const Flexible(
+            child: Text(
+              'Esquema',
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           const SizedBox(width: 6),

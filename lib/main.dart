@@ -21,25 +21,35 @@ Future<void> main(List<String> args) async {
     // lo cual es correcto porque runApp también se llama aquí (misma zona).
     WidgetsFlutterBinding.ensureInitialized();
 
+    // Captura errores de Flutter en el proceso hijo y los imprime (visibles en
+    // debug porque el proceso ya no es DETACHED_PROCESS).
+    FlutterError.onError = (details) {
+      FlutterError.presentError(details);
+      debugPrint('[sub-window] FlutterError: ${details.exception}\n${details.stack}');
+    };
+
+    // ── Estrategia pre-resize (sin hide/show) ───────────────────────────────
+    // Llamamos setSize ANTES de runApp, cuando la superficie de render aún no
+    // existe. Flutter la crea directamente al tamaño correcto → sin flash
+    // blanco ni reinicios de superficie.
+    try {
+      await windowManager.ensureInitialized();
+      await windowManager.setSize(const Size(1060, 700));
+      await windowManager.center();
+    } catch (e) {
+      debugPrint('[sub-window] windowManager init error: $e');
+    }
+
     final argumentsJson = args.length > 2 ? args[2] : '';
     final data = argumentsJson.isNotEmpty
         ? jsonDecode(argumentsJson) as Map<String, dynamic>
         : <String, dynamic>{};
-    await editorThemeStore.loadFromPrefs();
 
-    await windowManager.ensureInitialized();
-    const windowOptions = WindowOptions(
-      size: Size(1060, 700),
-      center: true,
-      skipTaskbar: false,
-      titleBarStyle: TitleBarStyle.normal,
-    );
-    unawaited(
-      windowManager.waitUntilReadyToShow(windowOptions, () async {
-        await windowManager.show();
-        await windowManager.focus();
-      }),
-    );
+    try {
+      await editorThemeStore.loadFromPrefs();
+    } catch (e) {
+      debugPrint('[sub-window] loadFromPrefs error: $e');
+    }
 
     runApp(
       SourceViewerApp(
@@ -48,6 +58,14 @@ Future<void> main(List<String> args) async {
         ambiente: data['ambiente'] as String? ?? '',
       ),
     );
+
+    // Solo enfocamos después del primer frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        await windowManager.focus();
+      } catch (_) {}
+    });
+
     return;
   }
 

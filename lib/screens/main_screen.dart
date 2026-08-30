@@ -18,12 +18,13 @@ import '../widgets/code_editor_panel.dart';
 import '../widgets/config_badge.dart';
 import '../widgets/_editor_themes.dart';
 import '../widgets/new_procedure_dialog.dart';
+import '../widgets/object_source_page.dart';
 import '../widgets/schema_command_palette.dart';
 import '../widgets/schema_sidebar.dart';
 import '../widgets/schema_status_overlay.dart';
 import '../widgets/app_toast.dart';
 import '../widgets/search_tab_view.dart';
-import '../widgets/source_float_window.dart';
+import '../widgets/source_tab_controller.dart';
 import 'env_diff_page.dart';
 import 'transfer_dialog.dart';
 
@@ -68,6 +69,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
 
   bool _isLive(AppTab tab) {
     return tab.procedimiento != null ||
+        tab.inSourceViewMode || // los tabs de fuente siempre viven en el stack
         tab.loading ||
         _lruTabIds.contains(tab.tabId);
   }
@@ -454,6 +456,34 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     _markTabLive(_activeTab);
     procedimientosProvider.setProcedimientoActual(null);
     procedimientosProvider.setAmbiente(_tabs[_activeTab].ambiente);
+  }
+
+  /// Abre un objeto Oracle como tab de visor de fuente.
+  /// Si ya existe un tab para ese objeto+ambiente, lo activa en lugar de duplicarlo.
+  void _addSourceTab({
+    required String name,
+    required String objectType,
+    required String ambiente,
+  }) {
+    // Buscar si ya existe un tab para este objeto
+    final existing = _tabs.indexWhere(
+      (t) =>
+          t.sourceViewer?.name == name &&
+          t.sourceViewer?.objectType == objectType &&
+          t.sourceViewer?.ambiente == ambiente,
+    );
+    if (existing >= 0) {
+      _activateTab(existing);
+      return;
+    }
+    final tab = AppTab(ambiente: ambiente)
+      ..sourceViewer = (name: name, objectType: objectType, ambiente: ambiente);
+    setState(() {
+      _tabs.add(tab);
+      _activeTab = _tabs.length - 1;
+    });
+    _markTabLive(_activeTab);
+    // No sync provider — los tabs de fuente son independientes del editor
   }
 
   void _onTabAmbienteChanged(AppTab tab, String newAmbiente) {
@@ -945,7 +975,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
 
   @override
   Widget build(BuildContext context) {
-    return CallbackShortcuts(
+    return SourceTabController(
+      openTab: _addSourceTab,
+      child: CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyT, control: true):
             _addSearchTab,
@@ -1040,17 +1072,41 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                       bottom: 12,
                       child: SchemaStatusOverlay(),
                     ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+                   ],
+                 ),
+               ),
+             ],
+           ),
+         ),
+       ),     // Focus
+     ),       // CallbackShortcuts
+   ); // SourceTabController
+ }
 
-  Widget _buildTabContent(AppTab tab) {
+   Widget _buildTabContent(AppTab tab) {
+     // ── Visor de código fuente Oracle ────────────────────────────────────────
+    if (tab.inSourceViewMode) {
+      final sv = tab.sourceViewer!;
+      return ObjectSourcePage(
+        // Incluir ambiente en el key fuerza un remount (→ recarga desde Oracle)
+        // cada vez que el usuario cambia el ambiente.
+        key: ValueKey('src_${tab.tabId}_${sv.ambiente}'),
+        name: sv.name,
+        objectType: sv.objectType,
+        ambiente: sv.ambiente,
+        onAmbienteChanged: (newAmbiente) {
+          setState(() {
+            tab.sourceViewer = (
+              name: sv.name,
+              objectType: sv.objectType,
+              ambiente: newAmbiente,
+            );
+            tab.ambiente = newAmbiente; // actualiza la badge del tab bar
+          });
+        },
+      );
+    }
+
     if (tab.inSearchMode) {
       return SearchTabView(
         key: ValueKey('s_${tab.tabId}'),
@@ -1261,6 +1317,34 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                 fontSize: 12,
                 color: boldColor,
                 fontWeight: FontWeight.w600,
+              ),
+            ),
+            // Botón copiar nombre
+            Tooltip(
+              message: 'Copiar nombre',
+              child: InkWell(
+                borderRadius: BorderRadius.circular(4),
+                onTap: () {
+                  Clipboard.setData(
+                    ClipboardData(
+                      text: tab.procedimiento!.cdProcedimiento,
+                    ),
+                  );
+                  AppToast.success(
+                    'Nombre copiado: ${tab.procedimiento!.cdProcedimiento}',
+                  );
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 3,
+                    vertical: 4,
+                  ),
+                  child: Icon(
+                    Icons.copy_rounded,
+                    size: 12,
+                    color: mutedColor.withValues(alpha: 0.5),
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 6),

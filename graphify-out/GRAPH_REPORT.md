@@ -1,16 +1,16 @@
-# Graph Report - proc_dynamic_sirweb  (2026-08-28)
+# Graph Report - proc_dynamic_sirweb  (2026-08-29)
 
 ## Corpus Check
-- 98 files · ~1,020,617 words
+- 98 files · ~1,021,094 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 47366 nodes · 88301 edges · 2718 communities (1662 shown, 1056 thin omitted)
-- Extraction: 92% EXTRACTED · 8% INFERRED · 0% AMBIGUOUS · INFERRED: 7276 edges (avg confidence: 0.55)
+- 47372 nodes · 88332 edges · 2736 communities (1653 shown, 1083 thin omitted)
+- Extraction: 92% EXTRACTED · 8% INFERRED · 0% AMBIGUOUS · INFERRED: 7274 edges (avg confidence: 0.55)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `bdf76798`
+- Built from commit: `36c41718`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -42,7 +42,6 @@
 - Tableview_nameContext
 - Create_materialized_viewContext
 - Regular_idContext
-- .expression
 - Tableview_nameContext
 - Permanent_tablespace_clauseContext
 - NumericContext
@@ -98,7 +97,6 @@
 - Other_functionContext
 - evento_info.dart
 - .tableview_name
-- .force_keystore
 - schema_sidebar.dart
 - Delete_statementContext
 - Alter_userContext
@@ -133,6 +131,7 @@
 - Error_logging_clauseContext
 - Native_datatype_elementContext
 - Move_table_partitionContext
+- Subpartition_templateContext
 - Native_datatype_elementContext
 - Expressions_Context
 - Type_specContext
@@ -365,6 +364,7 @@
 - With_backup_clauseContext
 - .sempred
 - Split_table_partitionContext
+- Grouping_sets_elementsContext
 - Storage_clauseContext
 - Over_clause_keywordContext
 - Redundancy_clauseContext
@@ -491,7 +491,6 @@
 - .where_clause
 - System_actionContext
 - u
-- Cursor_declarationContext
 - Database_clauseContext
 - .exitRule
 - External_table_recordsContext
@@ -561,7 +560,6 @@
 - i
 - Default_settings_clauseContext
 - .enterRule
-- Index_partitioning_clauseContext
 - Json_value_on_mismatch_clauseContext
 - ke
 - List_values_clauseContext
@@ -605,6 +603,8 @@
 - Secret_management_clausesContext
 - Type_function_specContext
 - Alter_interval_partitionContext
+- Anonymous_blockContext
+- .exitRule
 - Comment_on_columnContext
 - Insert_into_clauseContext
 - .exitRule
@@ -612,6 +612,7 @@
 - Default_temp_tablespaceContext
 - Delete_secret_sepsContext
 - .enterRule
+- Drop_indexContext
 - .toString
 - Overriding_function_specContext
 - Hier_attr_nameContext
@@ -641,6 +642,7 @@
 - Backup_keystoreContext
 - Cell_reference_optionsContext
 - .create_trigger
+- Create_inmemory_join_groupContext
 - Add_volume_clauseContext
 - Default_temp_tablespaceContext
 - Diskgroup_alias_clausesContext
@@ -664,6 +666,7 @@
 - Compute_clausesContext
 - Outer_join_signContext
 - .exitRule
+- Where_clauseContext
 - C_agent_in_clauseContext
 - Call_statementContext
 - Cav_using_clauseContext
@@ -671,16 +674,17 @@
 - External_table_data_propsContext
 - Controlfile_clausesContext
 - Package_obj_bodyContext
-- Create_datafile_clauseContext
-- .exitRule
 - Create_zonemap_on_tableContext
 - Cycle_clauseContext
+- Set_time_zone_clauseContext
 - Deferred_segment_creationContext
-- Supplemental_table_loggingContext
 - .enterRule
+- Supplemental_table_loggingContext
 - Diskgroup_template_clausesContext
 - Dml_event_elementContext
 - Sql_macro_bodyContext
+- Drop_materialized_zonemapContext
+- Drop_rollback_segmentContext
 - Using_clauseContext
 - Selection_directiveContext
 - Forall_statementContext
@@ -703,13 +707,11 @@
 - Streaming_clauseContext
 - Bitmap_join_index_clauseContext
 - .enterPragma_clause
-- Property_clausesContext
 - Reference_modelContext
 - Sql_plus_commandContext
 - Xmltype_view_clauseContext
 - SubqueryContext
 - Table_collection_expressionContext
-- Table_type_defContext
 - Type_bodyContext
 - Undo_tablespaceContext
 - Unpivot_in_elementsContext
@@ -742,12 +744,14 @@
 - Standby_database_clausesContext
 - Subav_factoring_clauseContext
 - manifest.json
+- Add_rem_container_dataContext
 - Administer_key_managementContext
 - Alter_indexContext
 - Alter_mapping_table_clauseContext
 - Pipe_row_statementContext
 - Synonym_nameContext
 - Rename_table_partitionContext
+- Alter_tablespace_setContext
 - .enterRule
 - Associate_statisticsContext
 - Attributes_clauseContext
@@ -760,6 +764,7 @@
 - Set_container_dataContext
 - Continue_statementContext
 - Cache_or_nocacheContext
+- Alter_operatorContext
 - Create_pmem_filestoreContext
 - .enterRule
 - Cursor_expressionContext
@@ -774,6 +779,7 @@
 - Elsif_partContext
 - Execute_immediateContext
 - Exit_statementContext
+- .enterRule
 - Fact_columns_clauseContext
 - Flashback_archive_clauseContext
 - .composite_hash_partitions
@@ -783,10 +789,11 @@
 - Insert_into_clauseContext
 - .exitRule
 - Json_on_null_clauseContext
+- .enterRule
 - Level_hier_clauseContext
 - Levels_clauseContext
 - Listagg_overflow_clauseContext
-- Numeric_negativeContext
+- Lock_modeContext
 - Func_decl_in_typeContext
 - Maximize_standby_db_clauseContext
 - Measures_clauseContext
@@ -801,7 +808,6 @@
 - Qualified_disk_clauseContext
 - Quota_clauseContext
 - Record_type_defContext
-- Ref_cursor_type_defContext
 - Referencing_elementContext
 - Relies_on_partContext
 - .exitReplay_upgrade_clauses
@@ -812,20 +818,17 @@
 - Subquery_operation_partContext
 - Supplemental_db_loggingContext
 - Table_elementContext
-- Table_indexed_by_partContext
 - Trigger_when_clauseContext
 - Type_definitionContext
 - .enterUndo_mode_clause
 - Unpivot_in_clauseContext
 - Until_partContext
 - Role_clauseContext
-- Using_algorithm_clauseContext
 - Xml_table_columnContext
 - Xmlindex_clauseContext
 - Identity_clauseContext
 - Sqlj_object_typeContext
 - Startup_clausesContext
-- Subpartition_extended_namesContext
 - Index_subpartition_subclauseContext
 - Replay_upgrade_clausesContext
 - Alter_databaseContext
@@ -839,7 +842,7 @@
 - Cluster_clauseContext
 - Audit_container_clauseContext
 - Audit_schema_object_clauseContext
-- Collect_order_by_partContext
+- List_subpartition_descContext
 - Modify_lob_storage_clauseContext
 - Partial_database_recovery_10gContext
 - Partition_by_clauseContext
@@ -878,7 +881,6 @@
 - Conditional_insert_when_partContext
 - Privilege_audit_clauseContext
 - Role_audit_clauseContext
-- .create_controlfile
 - Default_collation_clauseContext
 - Coalesce_table_partitionContext
 - Low_highContext
@@ -910,7 +912,6 @@
 - Segment_groupContext
 - Inmemory_duplicateContext
 - Join_path_clauseContext
-- Json_object_entryContext
 - Json_query_returning_clauseContext
 - Level_specificationContext
 - Logfile_clauseContext
@@ -972,6 +973,7 @@
 - Ad_using_clauseContext
 - Add_binding_clauseContext
 - Add_or_dropContext
+- Add_overflow_clauseContext
 - Measure_listContext
 - File_pathContext
 - Alter_view_editionableContext
@@ -1074,6 +1076,7 @@
 - Redo_log_file_specContext
 - Sql_plus_filepathContext
 - Standard_prediction_function_keywordContext
+- Sqlj_object_type_attrContext
 - Subav_clauseContext
 - Zonemap_clauseContext
 - Parameter_valueContext
@@ -1081,10 +1084,12 @@
 - Tablespace_group_clauseContext
 - Close_statementContext
 - Having_clauseContext
+- Within_or_over_clause_keywordContext
 - Add_or_dropContext
 - Model_column_partition_partContext
 - Non_reserved_keywords_in_18cContext
 - Yes_noContext
+- Profile_nameContext
 - Log_grpContext
 - Blockchain_hash_and_data_format_clauseContext
 - View_optionsContext
@@ -1144,14 +1149,16 @@
 - Static_base_profileContext
 - Statistics_type_nameContext
 - Table_ref_listContext
-- Tps_blockContext
 - Using_function_clauseContext
 - Varray_itemContext
 - Xml_schema_urlContext
 - Rollup_cube_clauseContext
+- Audit_userContext
 - Partition_extension_clauseContext
 - Object_tableContext
+- Reference_model_nameContext
 - Savepoint_nameContext
+- Savepoint_statementContext
 - Alter_mv_option1Context
 - Component_actionContext
 - Dir_object_nameContext
@@ -1178,71 +1185,97 @@
 - .alter_add_cache_clause
 - Copilot Instructions — proc_dynamic_sirweb
 - .exitRule
+- .accept
 - rollup.config.mjs
-- .accept
-- .accept
-- .enterRule
+- .exitRule
 - .accept
 - .accept
 - .exitRule
-- .exitRule
+- .accept
 - .accept
 - .accept
 - .exitRule
 - .enterRule
+- .accept
+- .enterRule
+- .accept
+- .accept
+- .accept
+- .accept
+- .enterRule
+- .exitRule
 - .exitRule
 - .accept
-- .exitRule
 - .exitRule
 - .accept
 - .accept
 - .enterRule
+- .exitRule
+- .accept
+- .exitRule
+- .enterRule
+- .enterRule
+- .exitRule
+- .accept
+- .accept
+- .accept
+- .exitRule
+- .accept
+- .accept
+- .accept
+- .accept
 - .enterRule
 - .exitRule
 - .enterRule
 - .exitRule
+- .enterRule
 - Cdb_fleet_clausesContext
 - .enterRule
 - .enterRule
 - Clear_commandContext
 - .exitRule
-- .exitRule
-- .exitRule
+- .enterRule
+- .accept
+- Database_file_clausesContext
 - Default_value_partContext
 - Dependent_exceptions_partContext
+- .exitRule
+- .accept
 - .exitRule
 - .exitRule
 - .exitRule
 - .exitRule
 - Encryption_specContext
+- .exitRule
+- .enterRule
+- Function_argument_modelingContext
+- .enterRule
 - .enterRule
 - .exitRule
 - .exitRule
-- .enterRule
-- .enterRule
-- .enterRule
-- .enterRule
-- .enterRule
 - .accept
-- Modify_filegroup_clauseContext
-- Modify_mv_column_clauseContext
+- .enterRule
+- Logfile_descriptorContext
+- .accept
+- .enterRule
+- .enterRule
 - .exitRule
+- .accept
 - .accept
 - Pipelined_using_clauseContext
+- .enterRoutine_name
+- Read_only_clauseContext
 - .enterRecovery_clauses
-- Resize_disk_clauseContext
+- .enterReplace_type_clause
+- .enterShrink_clause
 - .enterSql_macro_body
-- .enterTimeout_clause
-- .enterSupplemental_plsql_clause
 - .enterType_procedure_spec
-- Update_global_index_clauseContext
-- .exitPragma_clause
-- Xmlroot_param_standalone_partContext
-- Sample_clauseContext
-- .exitUndo_tablespace_clause
+- .enterUndo_tablespace
+- .enterTable_ref_aux_internal_two
+- .enterXmltype_storage
 - Timing_commandContext
 - .exitVariable_name
-- .visitSqlj_object_type
+- .visitResource_parameters
 - ambiente
 - buscar
 - cargando
@@ -1263,7 +1296,6 @@
 - guardar
 - haResultados
 - Flutter Favicon (blue F logo)
-- RegisterPlugins
 - limpiarMensajes
 - mensaje
 - modo
@@ -1284,44 +1316,15 @@
 - isDark
 - themeMode
 - toggle
-- _activeTab
-- build
-- createState
-- dispose
-- initState
-- _tabs
 - build
 - createState
 - initState
 - build
 - build
-- ambiente
-- build
-- createState
-- didUpdateWidget
-- dispose
-- initState
-- _buildHeader
-- _hiddenCols
-- _indexCtrl
-- _modalH
-- _modalW
-- _position
-- showGeneralDialog
-- ambiente
-- build
-- createState
-- dispose
-- initState
 - _color
 - ambiente
 - build
 - createState
-- _buildHeader
-- build
-- createState
-- dispose
-- initState
 - count
 - icon
 - onClose
@@ -1331,6 +1334,7 @@
 - createState
 - dispose
 - initState
+- _EditorOption
 
 ## God Nodes (most connected - your core abstractions)
 1. `PlSqlParserListener` - 2424 edges
@@ -1349,49 +1353,49 @@
   assets/monaco_editor.html → pubspec.yaml
 - `web/index.html Flutter web entrypoint` --conceptually_related_to--> `proc_dynamic_sirweb Flutter application`  [INFERRED]
   web/index.html → pubspec.yaml
-- `OnCreate` --calls--> `RegisterPlugins()`  [INFERRED]
-  windows/runner/flutter_window.h → windows/flutter/generated_plugin_registrant.cc
-- `wWinMain()` --calls--> `CreateAndAttachConsole()`  [INFERRED]
-  windows/runner/main.cpp → windows/runner/utils.cpp
 - `Win32Window::Win32Window()` --calls--> `Destroy`  [INFERRED]
   windows/runner/win32_window.cpp → windows/runner/win32_window.h
+- `OnCreate` --calls--> `RegisterPlugins()`  [INFERRED]
+  windows/runner/flutter_window.h → windows/flutter/generated_plugin_registrant.cc
+- `wWinMain()` --calls--> `RegisterSubWindowPlugins()`  [INFERRED]
+  windows/runner/main.cpp → windows/runner/sub_window_registrant.cc
 
 ## Import Cycles
 - None detected.
 
-## Communities (2718 total, 1056 thin omitted)
+## Communities (2736 total, 1083 thin omitted)
 
 ### Community 3 - "SQL Grammar Context Rules"
 Cohesion: 0.00
-Nodes (71): Add_hash_index_partitionContext, Alter_clusterContext, Alter_index_ops_set1Context, Alter_overflow_clauseContext, Attribute_nameContext, Classification_clauseContext, Cluster_nameContext, Column_aliasContext (+63 more)
+Nodes (75): Action_audit_clauseContext, Add_hash_index_partitionContext, Alter_clusterContext, Alter_index_ops_set1Context, Alter_overflow_clauseContext, ArgumentContext, Attribute_nameContext, Av_measureContext (+67 more)
 
 ### Community 7 - "Disk Group Clauses"
 Cohesion: 0.00
-Nodes (60): Add_disk_clauseContext, Allocate_extent_clauseContext, Alter_dimensionContext, Alter_drop_cache_clauseContext, Alter_mv_refreshContext, Alter_resource_costContext, Audit_operation_clauseContext, Binding_clauseContext (+52 more)
+Nodes (63): Add_disk_clauseContext, Allocate_extent_clauseContext, Alter_add_cache_clauseContext, Alter_dimensionContext, Alter_drop_cache_clauseContext, Alter_mv_refreshContext, Alter_resource_costContext, Attribute_clauseContext (+55 more)
 
 ### Community 10 - "Alter Database Link"
-Cohesion: 0.00
-Nodes (67): Alter_audit_policyContext, Alter_database_linkContext, Alter_functionContext, Alter_inmemory_join_groupContext, Alter_libraryContext, Alter_lockdown_profileContext, Alter_materialized_zonemapContext, Alter_operatorContext (+59 more)
+Cohesion: 0.01
+Nodes (37): Alter_database_linkContext, Alter_libraryContext, Alter_lockdown_profileContext, Alter_outlineContext, Alter_packageContext, Alter_procedureContext, Create_analytic_viewContext, Create_contextContext (+29 more)
 
 ### Community 11 - "PL/SQL Checker & Context"
 Cohesion: 0.00
-Nodes (78): A, Activate_standby_db_clauseContext, Add_calcs_clauseContext, Add_rem_container_dataContext, Add_update_secret_sepsContext, Audit_container_clauseContext, bt, Cache_specificationContext (+70 more)
+Nodes (78): A, Activate_standby_db_clauseContext, Alter_session_set_clauseContext, Audit_container_clauseContext, Blockchain_hash_and_data_format_clauseContext, bt, By_user_for_statistics_clauseContext, Cache_specificationContext (+70 more)
 
 ### Community 14 - "Key Management Statements"
 Cohesion: 0.01
-Nodes (31): Administer_key_managementContext, Alter_resource_costContext, Alter_roleContext, Alter_tablespace_setContext, Create_editionContext, Create_flashback_archiveContext, Create_pmem_filestoreContext, Create_schemaContext (+23 more)
+Nodes (25): Alter_audit_policyContext, Alter_resource_costContext, Alter_roleContext, Alter_tablespace_setContext, Create_editionContext, Create_outlineContext, Create_pmem_filestoreContext, Create_schemaContext (+17 more)
 
 ### Community 15 - "Flutter App UI & State"
 Cohesion: 0.01
-Nodes (312): active, _applyFilter, _bodyCtrl, _buildBody, _buildCsv, _buildDataTable, _buildDatoCard, _buildDatoTab (+304 more)
+Nodes (337): active, _applyFilter, _bodyCtrl, _buildBody, _buildCsv, _buildDataTable, _buildDatoCard, _buildDatoTab (+329 more)
 
 ### Community 16 - "PL/SQL Body & Invoker Rights"
-Cohesion: 0.03
-Nodes (6): Call_statementContext, Connection_qualifierContext, Create_database_linkContext, Drop_database_linkContext, Link_nameContext, Routine_nameContext
+Cohesion: 0.02
+Nodes (9): Alter_synonymContext, Call_statementContext, Connection_qualifierContext, Create_database_linkContext, Create_synonymContext, Drop_database_linkContext, Link_nameContext, Routine_nameContext (+1 more)
 
 ### Community 17 - "Overflow Clause Handling"
 Cohesion: 0.01
-Nodes (28): Add_mv_log_column_clauseContext, Add_overflow_clauseContext, Allocate_extent_clauseContext, Alter_clusterContext, Alter_index_ops_set1Context, Alter_indexContext, Alter_iot_clausesContext, Alter_mapping_table_clauseContext (+20 more)
+Nodes (21): Add_overflow_clauseContext, Allocate_extent_clauseContext, Alter_clusterContext, Alter_index_ops_set1Context, Alter_iot_clausesContext, Alter_mapping_table_clauseContext, Alter_materialized_view_logContext, Alter_materialized_viewContext (+13 more)
 
 ### Community 19 - "Volume & Storage Clauses"
 Cohesion: 0.01
@@ -1399,47 +1403,47 @@ Nodes (19): Add_volume_clauseContext, Alter_datafile_clauseContext, Alter_pmem_f
 
 ### Community 20 - ".tablespace"
 Cohesion: 0.02
-Nodes (4): Move_table_clauseContext, Move_table_partitionContext, Subpartition_extended_namesContext, Varray_col_propertiesContext
+Nodes (4): Column_propertiesContext, Move_table_clauseContext, Object_type_col_propertiesContext, Varray_col_propertiesContext
 
 ### Community 21 - "Parallel_clauseContext"
 Cohesion: 0.02
-Nodes (12): Add_modify_drop_column_clausesContext, Alter_iot_clausesContext, Alter_table_properties_1Context, Column_clausesContext, Column_propertiesContext, Domain_index_clauseContext, Heap_org_table_clauseContext, Index_org_table_clauseContext (+4 more)
+Nodes (9): Add_modify_drop_column_clausesContext, Alter_materialized_view_logContext, Alter_table_properties_1Context, Column_clausesContext, Column_propertiesContext, Heap_org_table_clauseContext, Move_table_clauseContext, Table_nameContext (+1 more)
 
 ### Community 23 - "IdentifierContext"
-Cohesion: 0.04
-Nodes (46): app_toast.dart, _, toString, class, ProcedimientosProvider, isDark, themeMode, toggle (+38 more)
+Cohesion: 0.03
+Nodes (5): Cursor_declarationContext, Exception_declarationContext, Package_obj_bodyContext, Package_obj_specContext, Subtype_declarationContext
 
 ### Community 24 - "Schema_nameContext"
 Cohesion: 0.01
-Nodes (18): Actions_clauseContext, Alter_analytic_viewContext, Alter_attribute_dimensionContext, Alter_hierarchyContext, Alter_synonymContext, Cav_using_clauseContext, Clustering_join_itemContext, Create_attribute_dimensionContext (+10 more)
+Nodes (21): Actions_clauseContext, Alter_analytic_viewContext, Alter_attribute_dimensionContext, Alter_hierarchyContext, Alter_synonymContext, Create_attribute_dimensionContext, Create_hierarchyContext, Create_javaContext (+13 more)
 
 ### Community 26 - "Create_materialized_viewContext"
 Cohesion: 0.01
-Nodes (13): Enable_disable_clauseContext, Ilm_clauseContext, Logical_replication_clauseContext, Object_tableContext, Oid_clauseContext, Physical_propertiesContext, Read_only_clauseContext, Relational_table_propertyContext (+5 more)
+Nodes (14): Create_materialized_viewContext, Enable_disable_clauseContext, Ilm_clauseContext, Index_org_table_clauseContext, Logical_replication_clauseContext, Object_tableContext, Oid_clauseContext, Physical_propertiesContext (+6 more)
 
 ### Community 27 - "Regular_idContext"
 Cohesion: 0.01
 Nodes (4): Auditing_on_clauseContext, C_external_parameterContext, Regular_idContext, Start_standby_clauseContext
 
 ### Community 29 - "Tableview_nameContext"
-Cohesion: 0.02
-Nodes (11): Collection_itemContext, Drop_materialized_view_logContext, Drop_materialized_viewContext, Drop_viewContext, Lock_table_elementContext, Modify_collection_retrievalContext, Partition_extension_clauseContext, Relies_on_partContext (+3 more)
+Cohesion: 0.01
+Nodes (10): Collection_itemContext, Create_materialized_view_logContext, Drop_materialized_view_logContext, Drop_materialized_viewContext, Drop_viewContext, Lock_table_elementContext, Modify_collection_retrievalContext, Partition_extension_clauseContext (+2 more)
 
 ### Community 30 - "Permanent_tablespace_clauseContext"
-Cohesion: 0.03
-Nodes (6): Create_tablespaceContext, Extent_management_clauseContext, Permanent_tablespace_clauseContext, Segment_management_clauseContext, Temporary_tablespace_clauseContext, Undo_tablespace_clauseContext
+Cohesion: 0.02
+Nodes (7): Create_tablespaceContext, Default_tablespaceContext, Extent_management_clauseContext, Permanent_tablespace_clauseContext, Segment_management_clauseContext, Temporary_tablespace_clauseContext, Undo_tablespace_clauseContext
 
 ### Community 31 - "NumericContext"
 Cohesion: 0.01
-Nodes (15): Blockchain_drop_table_clauseContext, Blockchain_row_retention_clauseContext, Commit_statementContext, ConstantContext, Controlfile_optionsContext, External_table_clauseContext, Fetch_statementContext, Identity_optionsContext (+7 more)
+Nodes (14): Blockchain_drop_table_clauseContext, Blockchain_row_retention_clauseContext, Commit_statementContext, Controlfile_optionsContext, Fetch_statementContext, Identity_optionsContext, Immutable_table_no_delete_clauseContext, Immutable_table_no_drop_clauseContext (+6 more)
 
 ### Community 32 - "Create_function_bodyContext"
 Cohesion: 0.01
-Nodes (14): BodyContext, Constructor_declarationContext, Create_function_bodyContext, Create_procedure_bodyContext, Func_decl_in_typeContext, Function_bodyContext, Label_declarationContext, Label_nameContext (+6 more)
+Nodes (12): Constructor_declarationContext, Create_function_bodyContext, Cursor_declarationContext, Function_bodyContext, Overriding_function_specContext, Ref_cursor_type_defContext, Subtype_declarationContext, Table_indexed_by_partContext (+4 more)
 
 ### Community 33 - "Move_keysContext"
-Cohesion: 0.03
-Nodes (7): Export_keysContext, Import_keysContext, Isolate_keystoreContext, Migrate_keysContext, Move_keysContext, SecretContext, With_backup_clauseContext
+Cohesion: 0.01
+Nodes (18): Add_update_secretContext, Alter_keystore_passwordContext, Backup_keystoreContext, Export_keysContext, Force_keystoreContext, Identified_by_storeContext, Import_keysContext, Isolate_keystoreContext (+10 more)
 
 ### Community 34 - "Create_audit_policyContext"
 Cohesion: 0.03
@@ -1447,19 +1451,19 @@ Nodes (5): Container_clauseContext, Create_profileContext, Create_roleContext, N
 
 ### Community 35 - "Hierarchy_clauseContext"
 Cohesion: 0.01
-Nodes (20): Attribute_clauseContext, Column_one_or_more_sub_clauseContext, Container_tableview_nameContext, Create_dimensionContext, Cursor_declarationContext, Dimension_join_clauseContext, Exception_declarationContext, Extended_attribute_clauseContext (+12 more)
+Nodes (15): Attribute_clauseContext, Clustering_join_itemContext, Clustering_joinContext, Column_one_or_more_sub_clauseContext, Container_tableview_nameContext, Create_dimensionContext, Dimension_join_clauseContext, Exception_nameContext (+7 more)
 
 ### Community 36 - "Size_clauseContext"
 Cohesion: 0.03
-Nodes (6): Alter_tempfile_clauseContext, Autoextend_clauseContext, Maxsize_clauseContext, Pmem_filestore_optionsContext, Resize_disk_clauseContext, Size_clauseContext
+Nodes (5): Autoextend_clauseContext, Maxsize_clauseContext, Pmem_filestore_optionsContext, Size_clauseContext, Tablespace_datafile_clausesContext
 
 ### Community 37 - "PlSqlParser.js"
 Cohesion: 0.02
-Nodes (17): Alter_identified_byContext, atn, Create_userContext, decisionsToDFA, Default_collation_clauseContext, Identified_byContext, Identified_other_clauseContext, Java_specContext (+9 more)
+Nodes (19): Alter_identified_byContext, atn, Cpu_costContext, Create_userContext, decisionsToDFA, Default_cost_clauseContext, Identified_byContext, Identified_other_clauseContext (+11 more)
 
 ### Community 38 - "Schema_nameContext"
 Cohesion: 0.01
-Nodes (10): Alter_attribute_dimensionContext, Alter_hierarchyContext, Alter_inmemory_join_groupContext, Clustering_join_itemContext, Clustering_joinContext, Create_inmemory_join_groupContext, Disassociate_statisticsContext, Drop_javaContext (+2 more)
+Nodes (18): Alter_attribute_dimensionContext, Alter_hierarchyContext, Alter_inmemory_join_groupContext, Cav_using_clauseContext, Create_hierarchyContext, Create_inmemory_join_groupContext, Dim_refContext, Drop_analytic_viewContext (+10 more)
 
 ### Community 39 - "transfer_diff_page.dart"
 Cohesion: 0.03
@@ -1470,33 +1474,28 @@ Cohesion: 0.02
 Nodes (8): Json_column_definitionContext, Json_functionContext, Json_query_on_empty_clauseContext, Json_query_on_error_clauseContext, Json_query_return_typeContext, Json_query_wrapper_clauseContext, Json_return_clauseContext, Json_value_return_typeContext
 
 ### Community 42 - "search_bar_widget.dart"
-Cohesion: 0.04
-Nodes (54): Animation, dart:io, DECLARE
-  v_texto, BackupData, BackupService, _buildScript, CLOB, exportar (+46 more)
+Cohesion: 0.02
+Nodes (85): Animation, app_toast.dart, ambientes, AmbienteSelector, build, colorForAmbiente, _handleChange, iconForAmbiente (+77 more)
 
 ### Community 43 - "Column_nameContext"
-Cohesion: 0.01
-Nodes (12): Alter_dimensionContext, Column_nameContext, Composite_list_partitionsContext, Composite_range_partitionsContext, Hash_subpartition_quantityContext, New_column_nameContext, Old_column_nameContext, Rename_column_clauseContext (+4 more)
+Cohesion: 0.02
+Nodes (11): Add_mv_log_column_clauseContext, Alter_dimensionContext, Column_nameContext, End_time_columnContext, External_table_fieldContext, External_table_transformContext, New_column_nameContext, Old_column_nameContext (+3 more)
 
 ### Community 44 - "Create_analytic_viewContext"
 Cohesion: 0.02
-Nodes (11): Aggregate_function_nameContext, Av_measureContext, Base_meas_clauseContext, Cav_using_clauseContext, Create_analytic_viewContext, Default_aggregate_clauseContext, Default_measure_clauseContext, Fact_columns_clauseContext (+3 more)
-
-### Community 45 - "Alter_materialized_viewContext"
-Cohesion: 0.05
-Nodes (3): Alter_materialized_view_logContext, Cache_or_nocacheContext, Mv_log_purge_clauseContext
+Nodes (11): Aggregate_function_nameContext, Av_measureContext, Base_meas_clauseContext, Calc_meas_clauseContext, Create_analytic_viewContext, Default_aggregate_clauseContext, Default_measure_clauseContext, Fact_columns_clauseContext (+3 more)
 
 ### Community 46 - "Column_definitionContext"
 Cohesion: 0.02
-Nodes (9): Column_collation_nameContext, Column_definitionContext, Edition_nameContext, Field_specContext, Function_associationContext, Relational_propertyContext, Supplemental_logging_propsContext, Type_nameContext (+1 more)
+Nodes (11): Alter_typeContext, Column_collation_nameContext, Column_definitionContext, Function_associationContext, Inline_constraintContext, Mv_column_aliasContext, Out_of_line_constraintContext, Overriding_subprogram_specContext (+3 more)
 
 ### Community 48 - "External_table_hiveContext"
 Cohesion: 0.03
 Nodes (4): DatatypeContext, External_table_data_formatContext, External_table_hiveContext, Virtual_column_definitionContext
 
 ### Community 49 - "Quoted_stringContext"
-Cohesion: 0.02
-Nodes (12): Caption_clauseContext, Classification_clauseContext, Classification_itemContext, Comment_on_columnContext, Comment_on_materializedContext, Comment_on_tableContext, Description_clauseContext, LanguageContext (+4 more)
+Cohesion: 0.01
+Nodes (14): Caption_clauseContext, Classification_clauseContext, Classification_itemContext, Column_aliasContext, Comment_on_columnContext, Comment_on_materializedContext, Comment_on_tableContext, Description_clauseContext (+6 more)
 
 ### Community 51 - "Create_package_bodyContext"
 Cohesion: 0.02
@@ -1508,23 +1507,27 @@ Nodes (5): Case_expressionContext, Numeric_function_wrapperContext, PlSqlParserB
 
 ### Community 53 - "object_source_page.dart"
 Cohesion: 0.02
-Nodes (105): _editor_plsql_checker.dart, _editor_plsql_completions.dart, active, _activeSubprogram, ambiente, _backendChecking, body, _bodyCompileIssues (+97 more)
+Nodes (107): _editor_plsql_checker.dart, _editor_plsql_completions.dart, active, _activeSubprogram, ambiente, _backendChecking, body, _bodyCompileIssues (+99 more)
 
 ### Community 54 - "Index_nameContext"
 Cohesion: 0.02
-Nodes (9): Bitmap_join_index_clauseContext, Cluster_index_clauseContext, Create_indexContext, Drop_indexContext, Index_attributesContext, Index_nameContext, Oid_index_clauseContext, Sort_or_nosortContext (+1 more)
+Nodes (10): Alter_index_ops_set2Context, Alter_indexContext, Create_indexContext, Drop_indexContext, Index_nameContext, Monitoring_nomonitoringContext, New_index_nameContext, Oid_index_clauseContext (+2 more)
 
 ### Community 55 - "Create_synonymContext"
 Cohesion: 0.05
-Nodes (3): Alter_synonymContext, Create_synonymContext, Synonym_nameContext
+Nodes (3): Global_partitioned_indexContext, Hash_partitionsContext, Individual_hash_partitionsContext
 
 ### Community 56 - "ConcatenationContext"
 Cohesion: 0.02
 Nodes (8): ConcatenationContext, Keep_clauseContext, Multiset_expressionContext, Numeric_functionContext, Over_clauseContext, String_functionContext, Windowing_elementsContext, Xmlserialize_param_ident_partContext
 
+### Community 58 - ".column_name"
+Cohesion: 0.06
+Nodes (3): Call_specContext, Java_specContext, Type_procedure_specContext
+
 ### Community 59 - "StatementContext"
-Cohesion: 0.05
-Nodes (4): Continue_statementContext, Exit_statementContext, Goto_statementContext, Label_nameContext
+Cohesion: 0.03
+Nodes (9): Continue_statementContext, Exit_statementContext, Goto_statementContext, Label_nameContext, Null_statementContext, Pipe_row_statementContext, Raise_statementContext, Return_statementContext (+1 more)
 
 ### Community 60 - "main_screen.dart"
 Cohesion: 0.02
@@ -1532,7 +1535,7 @@ Nodes (93): _buildAmbienteBadge, _buildTabItem, cdUsuario, child, _ctrl, descrip
 
 ### Community 61 - "procedimientos_provider.dart"
 Cohesion: 0.03
-Nodes (79): @action, _, toString, Client, activar, compilar, _configMap, _configuracionesCargadas (+71 more)
+Nodes (93): @action, _, toString, _, toString, class, Client, activar (+85 more)
 
 ### Community 62 - "Range_partitionsContext"
 Cohesion: 0.03
@@ -1540,143 +1543,140 @@ Nodes (6): Composite_list_partitionsContext, Composite_range_partitionsContext, 
 
 ### Community 63 - "schema_object_details_sheet.dart"
 Cohesion: 0.03
-Nodes (100): >, AutomaticKeepAliveClientMixin, _EditorOutlinePanel, _EditorOutlinePanelState, _InfoDatoModal, _InfoDatoModalState, _InfoEventoModal, _InfoEventoModalState (+92 more)
+Nodes (99): >, AutomaticKeepAliveClientMixin, _MainTabBar, _MainTabBarState, _EditorOutlinePanel, _EditorOutlinePanelState, _InfoDatoModal, _InfoDatoModalState (+91 more)
 
 ### Community 64 - "schema_browser_modal.dart"
 Cohesion: 0.02
-Nodes (98): _activateNode, ambiente, _badge, build, _buildArgsTable, _buildBody, _buildColumnArgDetail, _buildColumnsTable (+90 more)
+Nodes (99): _activateNode, ambiente, _badge, build, _buildArgsTable, _buildBody, _buildColumnArgDetail, _buildColumnsTable (+91 more)
 
 ### Community 65 - "Create_triggerContext"
+Cohesion: 0.05
+Nodes (4): Create_triggerContext, Drop_triggerContext, Trigger_follows_clauseContext, Trigger_nameContext
+
+### Community 66 - "Constraint_clausesContext"
 Cohesion: 0.04
-Nodes (5): Alter_triggerContext, Create_triggerContext, Drop_triggerContext, Trigger_follows_clauseContext, Trigger_nameContext
+Nodes (4): Constraint_clausesContext, Constraint_nameContext, New_constraint_nameContext, Old_constraint_nameContext
 
 ### Community 67 - "Composite_list_partitionsContext"
+Cohesion: 0.04
+Nodes (5): Domain_index_clauseContext, IndextypeContext, Local_domain_index_clauseContext, Modify_index_partitionContext, Odci_parametersContext
+
+### Community 68 - "Json_functionContext"
+Cohesion: 0.02
+Nodes (6): Json_functionContext, Json_on_null_clauseContext, Json_query_on_empty_clauseContext, Json_query_on_error_clauseContext, Json_query_returning_clauseContext, Json_value_return_clauseContext
+
+### Community 69 - "Encryption_specContext"
 Cohesion: 0.05
-Nodes (4): Domain_index_clauseContext, IndextypeContext, Local_domain_index_clauseContext, Odci_parametersContext
+Nodes (3): Encryption_specContext, Modify_col_propertiesContext, Modify_mv_column_clauseContext
 
 ### Community 71 - "se"
-Cohesion: 0.06
-Nodes (3): se, xt, y
+Cohesion: 0.05
+Nodes (5): le, se, ve, xt, y
 
 ### Community 72 - "procedure_card.dart"
 Cohesion: 0.03
-Nodes (67): _ShortcutRow, _ShortcutsDialog, _UsuarioButton, _DocTab, _GroupHeader, _OutlineItemTile, _ProblemCount, _ThemePickerDialog (+59 more)
+Nodes (84): _ShortcutRow, _ShortcutsDialog, _UsuarioButton, _DocTab, _GroupHeader, _OutlineItemTile, _ProblemCount, _ThemePickerDialog (+76 more)
 
 ### Community 73 - "Create_attribute_dimensionContext"
 Cohesion: 0.02
-Nodes (8): Ad_attributes_clauseContext, Ad_using_clauseContext, Attributes_clauseContext, Create_attribute_dimensionContext, Join_condition_itemContext, Join_conditionContext, Join_path_clauseContext, Source_clauseContext
+Nodes (7): Ad_attributes_clauseContext, Ad_using_clauseContext, Attributes_clauseContext, Create_attribute_dimensionContext, Join_condition_itemContext, Join_conditionContext, Join_path_clauseContext
 
-### Community 75 - "Exception_handlerContext"
-Cohesion: 0.06
-Nodes (4): Alter_index_partitioningContext, Coalesce_index_partitionContext, Drop_index_partitionContext, Modify_index_subpartitionContext
+### Community 74 - "Other_functionContext"
+Cohesion: 0.02
+Nodes (3): Other_functionContext, Xml_passing_clauseContext, XmltableContext
 
 ### Community 76 - "Function_nameContext"
 Cohesion: 0.04
-Nodes (5): Local_partitioned_indexContext, On_hash_partitioned_tableContext, On_list_partitioned_tableContext, On_range_partitioned_tableContext, Partitioned_tableContext
+Nodes (5): Bitmap_join_index_clauseContext, Local_partitioned_indexContext, On_list_partitioned_tableContext, On_range_partitioned_tableContext, Partitioned_tableContext
 
 ### Community 77 - "Unified_auditingContext"
-Cohesion: 0.02
-Nodes (9): Attribute_nameContext, Audit_userContext, Dim_by_clauseContext, Dim_keyContext, Dim_refContext, Hier_refContext, Oracle_namespaceContext, Policy_nameContext (+1 more)
+Cohesion: 0.03
+Nodes (7): Attribute_nameContext, Dim_by_clauseContext, Dim_keyContext, Hier_refContext, Oracle_namespaceContext, Policy_nameContext, Unified_auditingContext
 
 ### Community 78 - "Alter_typeContext"
-Cohesion: 0.02
-Nodes (8): Alter_method_specContext, Alter_typeContext, Compile_type_clauseContext, Dependent_exceptions_partContext, Dependent_handling_clauseContext, Object_member_specContext, Overriding_subprogram_specContext, Replace_type_clauseContext
+Cohesion: 0.03
+Nodes (6): Alter_typeContext, Compile_type_clauseContext, Dependent_exceptions_partContext, Dependent_handling_clauseContext, Object_member_specContext, Replace_type_clauseContext
 
 ### Community 79 - ".other_function"
-Cohesion: 0.02
-Nodes (8): ArgumentContext, Main_modelContext, Model_clauseContext, Query_blockContext, Select_only_statementContext, Subquery_factoring_clauseContext, Where_clauseContext, With_factoring_clauseContext
+Cohesion: 0.04
+Nodes (4): Main_modelContext, Model_clauseContext, Query_blockContext, Select_only_statementContext
 
 ### Community 82 - "evento_info.dart"
 Cohesion: 0.02
-Nodes (80): bool?, Color get, IconData get, int?, _b, cdBusqueda, cdDato, cdTabla (+72 more)
+Nodes (99): bool?, Color get, IconData get, int?, _b, cdBusqueda, cdDato, cdTabla (+91 more)
 
 ### Community 85 - "schema_sidebar.dart"
 Cohesion: 0.03
-Nodes (77): Color, IconData, _activeFilters, ambiente, build, _buildBody, _buildContent, _buildFilterChips (+69 more)
+Nodes (81): Color, IconData, _activeFilters, ambiente, _applyAmbienteChange, build, _buildAmbienteChip, _buildBody (+73 more)
 
 ### Community 86 - "Delete_statementContext"
-Cohesion: 0.05
-Nodes (4): Delete_statementContext, General_table_refContext, Static_returning_clauseContext, Update_statementContext
+Cohesion: 0.03
+Nodes (8): Data_manipulation_language_statementsContext, Delete_statementContext, Error_logging_clauseContext, Error_logging_into_partContext, Error_logging_reject_partContext, General_table_refContext, Static_returning_clauseContext, Update_statementContext
 
 ### Community 87 - "Alter_userContext"
 Cohesion: 0.04
-Nodes (5): Individual_hash_subpartsContext, Partitioning_storage_clauseContext, Range_subpartition_descContext, Subpartition_nameContext, Varray_itemContext
+Nodes (4): Lob_partitioning_storageContext, Lob_segnameContext, Partitioning_storage_clauseContext, Varray_itemContext
 
 ### Community 88 - "StatementContext"
-Cohesion: 0.05
-Nodes (6): Case_statementContext, Cursor_manipulation_statementsContext, Searched_case_statementContext, Sql_statementContext, StatementContext, Transaction_control_statementsContext
+Cohesion: 0.06
+Nodes (3): Default_value_partContext, Parameter_specContext, Variable_declarationContext
 
 ### Community 89 - "Dml_table_expression_clauseContext"
-Cohesion: 0.03
-Nodes (10): Data_manipulation_language_statementsContext, Error_logging_clauseContext, Explain_statementContext, Insert_statementContext, Multi_table_elementContext, Multi_table_insertContext, Select_statementContext, Selected_tableviewContext (+2 more)
+Cohesion: 0.02
+Nodes (11): Data_manipulation_language_statementsContext, Error_logging_clauseContext, Explain_statementContext, Insert_statementContext, Merge_statementContext, Multi_table_elementContext, Multi_table_insertContext, Select_statementContext (+3 more)
 
 ### Community 90 - "Declare_specContext"
-Cohesion: 0.04
-Nodes (7): Declare_specContext, Exception_declarationContext, Package_obj_bodyContext, Package_obj_specContext, Selection_directive_bodyContext, Type_declarationContext, Variable_declarationContext
+Cohesion: 0.02
+Nodes (12): BodyContext, Case_statementContext, Declare_specContext, Exception_handlerContext, Numeric_negativeContext, Searched_case_statementContext, Selection_directive_bodyContext, Seq_of_statementsContext (+4 more)
 
 ### Community 91 - "List_partition_descContext"
 Cohesion: 0.06
 Nodes (3): List_partition_descContext, List_subpartition_descContext, List_values_clauseContext
 
 ### Community 92 - "Type_nameContext"
-Cohesion: 0.02
-Nodes (8): Create_typeContext, Default_value_partContext, Drop_typeContext, External_table_fieldContext, Parameter_specContext, Type_bodyContext, Type_definitionContext, Type_nameContext
+Cohesion: 0.04
+Nodes (5): Create_typeContext, Drop_typeContext, Type_bodyContext, Type_definitionContext, Type_nameContext
 
 ### Community 93 - "AtomContext"
-Cohesion: 0.02
-Nodes (9): AtomContext, Dml_table_expression_clauseContext, DomainContext, Link_nameContext, Subav_clauseContext, Table_ref_aux_internal_twoContext, Table_ref_auxContext, Table_refContext (+1 more)
-
-### Community 94 - "ExpressionContext"
-Cohesion: 0.05
-Nodes (3): Implicit_cursor_expressionContext, Quantified_expressionContext, Unary_expression_coreContext
+Cohesion: 0.04
+Nodes (5): Dml_table_expression_clauseContext, Subav_clauseContext, Table_ref_aux_internal_twoContext, Table_ref_auxContext, Table_refContext
 
 ### Community 95 - "Alter_rollback_segmentContext"
 Cohesion: 0.04
 Nodes (4): Alter_rollback_segmentContext, Create_rollback_segmentContext, Drop_rollback_segmentContext, Rollback_segment_nameContext
 
-### Community 97 - "schema_service.dart"
-Cohesion: 0.05
-Nodes (4): Modify_table_partitionContext, New_partition_nameContext, Partition_nameContext, Rename_index_partitionContext
-
-### Community 98 - "Alter_tablespace_attrsContext"
-Cohesion: 0.02
-Nodes (3): Alter_tablespace_attrsContext, Default_tablespace_paramsContext, Hier_attr_clauseContext
-
-### Community 99 - "Create_hierarchyContext"
+### Community 96 - "Select_statementContext"
 Cohesion: 0.04
-Nodes (4): Create_hierarchyContext, Hier_attrs_clauseContext, Hier_using_clauseContext, Level_hier_clauseContext
+Nodes (4): Explain_statementContext, Fetch_clauseContext, Offset_clauseContext, Select_statementContext
 
 ### Community 100 - ".update"
 Cohesion: 0.03
 Nodes (11): at, b, d(), et, gt, l, m, qt (+3 more)
 
 ### Community 101 - "LiteralContext"
-Cohesion: 0.05
-Nodes (4): LiteralContext, Partition_extention_clauseContext, Partition_key_valueContext, Subpartition_key_valueContext
+Cohesion: 0.04
+Nodes (5): LiteralContext, Numeric_negativeContext, Partition_extention_clauseContext, Partition_key_valueContext, Subpartition_key_valueContext
+
+### Community 103 - "Create_materialized_viewContext"
+Cohesion: 0.02
+Nodes (8): Alter_table_propertiesContext, AnnotationContext, Annotations_clauseContext, Annotations_listContext, Build_clauseContext, Create_materialized_viewContext, Evaluation_edition_clauseContext, Mv_column_aliasContext
 
 ### Community 104 - "Table_type_defContext"
-Cohesion: 0.05
-Nodes (3): Constructor_specContext, Table_indexed_by_partContext, Table_type_defContext
-
-### Community 105 - "Column_propertiesContext"
 Cohesion: 0.06
-Nodes (3): Column_propertiesContext, Object_type_col_propertiesContext, Xmltype_column_propertiesContext
+Nodes (3): Table_indexed_by_partContext, Table_type_defContext, Type_specContext
 
 ### Community 106 - "search_tab_state.dart"
-Cohesion: 0.02
-Nodes (120): bool get, ChangeNotifier, activo, cdProcedimiento, cdUsuario, copyWith, deTexto, feModificacion (+112 more)
-
-### Community 107 - "Create_database_linkContext"
-Cohesion: 0.02
-Nodes (7): Alter_database_linkContext, Drop_userContext, Link_authenticationContext, Local_link_nameContext, Password_valueContext, Proxy_clauseContext, User_object_nameContext
+Cohesion: 0.03
+Nodes (74): bool get, ChangeNotifier, dart:io, DECLARE
+  v_texto, activo, cdProcedimiento, cdUsuario, copyWith (+66 more)
 
 ### Community 108 - "TablespaceContext"
-Cohesion: 0.04
-Nodes (4): Index_subpartition_clauseContext, Index_subpartition_subclauseContext, Modify_index_default_attrsContext, TablespaceContext
+Cohesion: 0.01
+Nodes (24): Add_hash_index_partitionContext, Add_table_partitionContext, Alter_index_partitioningContext, Coalesce_index_partitionContext, Drop_index_partitionContext, Index_partition_descriptionContext, Index_subpartition_clauseContext, Index_subpartition_subclauseContext (+16 more)
 
 ### Community 109 - "Function_associationContext"
-Cohesion: 0.03
-Nodes (7): Associate_statisticsContext, Column_associationContext, Default_selectivity_clauseContext, Default_selectivityContext, Function_associationContext, Indextype_nameContext, Storage_table_clauseContext
+Cohesion: 0.02
+Nodes (9): Associate_statisticsContext, Column_associationContext, Default_selectivity_clauseContext, Default_selectivityContext, Function_associationContext, Indextype_nameContext, Statistics_type_nameContext, Storage_table_clauseContext (+1 more)
 
 ### Community 110 - "ce"
 Cohesion: 0.07
@@ -1690,25 +1690,21 @@ Nodes (3): Flashback_mode_clauseContext, Lost_write_protectionContext, Permanent
 Cohesion: 0.05
 Nodes (3): Heap_org_table_clauseContext, Inmemory_table_clauseContext, Physical_propertiesContext
 
-### Community 113 - "Alter_table_partitioningContext"
-Cohesion: 0.04
-Nodes (6): Alter_interval_partitionContext, Alter_table_partitioningContext, Coalesce_table_partitionContext, Drop_table_partitionContext, Merge_table_partitionContext, Rename_table_partitionContext
-
 ### Community 115 - "Alter_sessionContext"
-Cohesion: 0.04
-Nodes (4): Alter_functionContext, Alter_procedureContext, Compiler_parameters_clauseContext, Parameter_nameContext
+Cohesion: 0.03
+Nodes (6): Alter_functionContext, Alter_procedureContext, Alter_triggerContext, Compiler_parameters_clauseContext, Drop_procedureContext, Procedure_nameContext
 
 ### Community 116 - "Error_logging_clauseContext"
-Cohesion: 0.07
-Nodes (3): Error_logging_clauseContext, Error_logging_into_partContext, Error_logging_reject_partContext
+Cohesion: 0.06
+Nodes (3): Hash_subpartition_quantityContext, Subpartition_by_listContext, Subpartition_templateContext
 
 ### Community 121 - "Expressions_Context"
-Cohesion: 0.05
-Nodes (3): Model_expression_elementContext, Multi_column_for_loopContext, Single_column_for_loopContext
+Cohesion: 0.04
+Nodes (4): Expressions_Context, Model_expression_elementContext, Multi_column_for_loopContext, Single_column_for_loopContext
 
 ### Community 122 - "Type_specContext"
-Cohesion: 0.04
-Nodes (7): Alter_typeContext, Element_spec_optionsContext, Element_specContext, Object_member_specContext, Object_type_defContext, Overriding_subprogram_specContext, Type_body_elementsContext
+Cohesion: 0.06
+Nodes (5): Element_spec_optionsContext, Element_specContext, Invoker_rights_clauseContext, Object_member_specContext, Object_type_defContext
 
 ### Community 123 - "Create_indexContext"
 Cohesion: 0.03
@@ -1719,24 +1715,20 @@ Cohesion: 0.03
 Nodes (76): ambiente_selector.dart, config_badge.dart, FocusNode, FormState, ambiente, build, _buildAmbienteField, _buildCodeSection (+68 more)
 
 ### Community 127 - "Unary_expressionContext"
-Cohesion: 0.05
-Nodes (3): Cell_assignmentContext, Model_expressionContext, Unary_expressionContext
+Cohesion: 0.04
+Nodes (4): Cell_assignmentContext, Model_expressionContext, Model_rules_elementContext, Unary_expressionContext
 
 ### Community 128 - "Create_directoryContext"
-Cohesion: 0.06
-Nodes (3): Create_libraryContext, Credential_nameContext, Plsql_library_sourceContext
-
-### Community 131 - "Partition_by_clauseContext"
 Cohesion: 0.04
-Nodes (5): Insert_into_clauseContext, Parallel_enable_clauseContext, Paren_column_listContext, Partition_by_clauseContext, Streaming_clauseContext
+Nodes (5): Create_directoryContext, Create_libraryContext, Credential_nameContext, Directory_nameContext, Plsql_library_sourceContext
 
-### Community 133 - "Standby_database_clausesContext"
-Cohesion: 0.07
-Nodes (3): Alter_databaseContext, Database_file_clausesContext, Standby_database_clausesContext
+### Community 132 - "Standard_functionContext"
+Cohesion: 0.04
+Nodes (5): Case_expressionContext, Numeric_function_wrapperContext, Searched_case_expressionContext, Standard_functionContext, Unary_expression_coreContext
 
-### Community 134 - "ConcatenationContext"
-Cohesion: 0.03
-Nodes (6): Collect_order_by_partContext, ConcatenationContext, Interval_expressionContext, Xmlserialize_param_enconding_partContext, Xmlserialize_param_ident_partContext, Xmlserialize_param_version_partContext
+### Community 135 - "Query_blockContext"
+Cohesion: 0.06
+Nodes (4): From_clauseContext, Query_blockContext, Selected_listContext, Table_ref_listContext
 
 ### Community 136 - "ut"
 Cohesion: 0.05
@@ -1754,14 +1746,6 @@ Nodes (4): Dir_object_nameContext, Grant_object_nameContext, Grant_statementCont
 Cohesion: 0.04
 Nodes (49): a, _ambienteBadge, _applyAllToModified, _applyAllToOriginal, _applyOneToModified, _applyOneToOriginal, b, build (+41 more)
 
-### Community 142 - "Tablespace_clausesContext"
-Cohesion: 0.04
-Nodes (4): Default_tablespaceContext, Default_temp_tablespaceContext, Tablespace_clausesContext, Undo_tablespaceContext
-
-### Community 143 - ".alter_type"
-Cohesion: 0.05
-Nodes (4): Element_spec_optionsContext, Element_specContext, Subprog_decl_in_typeContext, Type_body_elementsContext
-
 ### Community 144 - "_editor_plsql_checker.dart"
 Cohesion: 0.04
 Nodes (45): build, createState, _EditorPage, _EditorPageState, _error, main, _status, _TestApp (+37 more)
@@ -1771,16 +1755,16 @@ Cohesion: 0.05
 Nodes (4): Add_binding_clauseContext, Alter_operatorContext, Drop_operatorContext, Operator_nameContext
 
 ### Community 146 - "Create_clusterContext"
-Cohesion: 0.04
-Nodes (3): Cluster_nameContext, Create_clusterContext, Drop_clusterContext
+Cohesion: 0.03
+Nodes (6): Cluster_index_clauseContext, Cluster_nameContext, Create_clusterContext, Drop_clusterContext, Index_attributesContext, Sort_or_nosortContext
 
 ### Community 147 - "Alter_flashback_archiveContext"
 Cohesion: 0.04
 Nodes (3): Alter_flashback_archiveContext, Flashback_archive_quotaContext, Flashback_archive_retentionContext
 
 ### Community 148 - "Fetch_statementContext"
-Cohesion: 0.06
-Nodes (4): Close_statementContext, Cursor_manipulation_statementsContext, Cursor_nameContext, Open_statementContext
+Cohesion: 0.04
+Nodes (5): Close_statementContext, Cursor_manipulation_statementsContext, Cursor_nameContext, Fetch_statementContext, Open_statementContext
 
 ### Community 149 - "Pivot_in_clauseContext"
 Cohesion: 0.07
@@ -1792,31 +1776,15 @@ Nodes (47): a, _ambBadge, _applyAllToSource, _applyAllToTarget, _applyOneToSourc
 
 ### Community 151 - "FilenameContext"
 Cohesion: 0.05
-Nodes (3): Alter_datafile_clauseContext, Create_datafile_clauseContext, Database_file_clausesContext
+Nodes (3): Create_datafile_clauseContext, Database_file_clausesContext, Move_datafile_clauseContext
 
 ### Community 152 - "Lob_storage_clauseContext"
-Cohesion: 0.09
-Nodes (3): Alter_userContext, Container_data_clauseContext, Grantee_nameContext
-
-### Community 153 - "Compound_expressionContext"
-Cohesion: 0.05
-Nodes (4): Between_elementsContext, Compound_expressionContext, In_elementsContext, Relational_expressionContext
-
-### Community 154 - "Create_controlfileContext"
-Cohesion: 0.04
-Nodes (4): Character_set_clauseContext, Create_controlfileContext, File_specificationContext, Logfile_clauseContext
-
-### Community 155 - "Lob_partitioning_storageContext"
-Cohesion: 0.06
-Nodes (4): Null_statementContext, Pipe_row_statementContext, Return_statementContext, StatementContext
+Cohesion: 0.03
+Nodes (8): Alter_userContext, Container_data_clauseContext, DomainContext, Edition_nameContext, Grantee_nameContext, Link_nameContext, Revoke_statementContext, Routine_nameContext
 
 ### Community 156 - "Lockdown_statementsContext"
-Cohesion: 0.04
-Nodes (6): Clause_optionsContext, Lockdown_featureContext, Lockdown_optionsContext, Lockdown_statementsContext, Statement_clausesContext, String_listContext
-
-### Community 157 - "Map_order_function_specContext"
 Cohesion: 0.06
-Nodes (3): Add_hash_index_partitionContext, Key_compressionContext, On_hash_partitioned_clauseContext
+Nodes (3): Disable_enableContext, Lockdown_optionsContext, String_listContext
 
 ### Community 158 - "Alter_add_cache_clauseContext"
 Cohesion: 0.04
@@ -1831,12 +1799,8 @@ Cohesion: 0.06
 Nodes (7): c(), g, h(), k, n(), o(), Yt
 
 ### Community 163 - "Declare_specContext"
-Cohesion: 0.07
+Cohesion: 0.08
 Nodes (3): Declare_specContext, With_clauseContext, With_factoring_clauseContext
-
-### Community 164 - "Table_compressionContext"
-Cohesion: 0.06
-Nodes (3): AnnotationContext, Annotations_clauseContext, Annotations_listContext
 
 ### Community 165 - "Alter_viewContext"
 Cohesion: 0.02
@@ -1845,6 +1809,10 @@ Nodes (6): Alter_view_editionableContext, Alter_viewContext, Object_view_clauseC
 ### Community 166 - "Range_partitionsContext"
 Cohesion: 0.05
 Nodes (3): Range_partitionsContext, System_partitioningContext, Table_partitioning_clausesContext
+
+### Community 167 - ".index_name"
+Cohesion: 0.04
+Nodes (5): Cursor_manipulation_statementsContext, Index_propertiesContext, Local_partitioned_indexContext, Sql_statementContext, Transaction_control_statementsContext
 
 ### Community 168 - "source_float_window.dart"
 Cohesion: 0.06
@@ -1868,51 +1836,51 @@ Nodes (41): EditorOptions get, ambiente, attach, build, _checkDotTrigger, clearC
 
 ### Community 174 - "schema_command_palette.dart"
 Cohesion: 0.04
-Nodes (53): JavascriptRuntime?, __chkSyn, evalJsSyntax, evalPlSqlSyntax, initPlSqlEngine, _initRuntime, _plSqlLoading, _plSqlReady (+45 more)
+Nodes (54): JavascriptRuntime?, __chkSyn, evalJsSyntax, evalPlSqlSyntax, initPlSqlEngine, _initRuntime, _plSqlLoading, _plSqlReady (+46 more)
 
 ### Community 175 - "Alter_tableContext"
 Cohesion: 0.06
 Nodes (3): Add_modify_drop_column_clausesContext, Alter_tableContext, Column_clausesContext
 
+### Community 176 - "Bind_variableContext"
+Cohesion: 0.06
+Nodes (3): Record_type_defContext, Ref_cursor_type_defContext, Type_declarationContext
+
 ### Community 177 - "Join_clauseContext"
-Cohesion: 0.05
-Nodes (4): Join_clauseContext, Join_on_partContext, Join_using_partContext, Outer_join_typeContext
+Cohesion: 0.06
+Nodes (3): Join_clauseContext, Join_on_partContext, Query_partition_clauseContext
 
 ### Community 178 - "Over_clauseContext"
-Cohesion: 0.05
-Nodes (3): Over_clauseContext, Query_partition_clauseContext, Within_or_over_partContext
+Cohesion: 0.04
+Nodes (4): Order_by_clauseContext, Order_by_elementsContext, Over_clauseContext, Within_or_over_partContext
 
 ### Community 179 - "External_table_datatype_clauseContext"
 Cohesion: 0.05
 Nodes (3): External_table_datatype_clauseContext, External_table_delimit_clauseContext, External_table_trim_clauseContext
 
-### Community 181 - "Modify_index_partitionContext"
-Cohesion: 0.04
-Nodes (5): Alter_index_ops_set2Context, Enable_or_disableContext, Monitoring_nomonitoringContext, New_index_nameContext, Visible_or_invisibleContext
-
-### Community 182 - "Partition_nameContext"
-Cohesion: 0.06
-Nodes (3): Index_partition_descriptionContext, Partition_name_oldContext, Split_index_partitionContext
-
 ### Community 184 - "Table_compressionContext"
-Cohesion: 0.02
-Nodes (8): Global_partitioned_indexContext, Hash_partitions_by_quantityContext, Hash_partitionsContext, Ilm_after_onContext, Ilm_compression_policyContext, Ilm_time_periodContext, Individual_hash_partitionsContext, Table_compressionContext
+Cohesion: 0.03
+Nodes (5): Alter_materialized_viewContext, Ilm_after_onContext, Ilm_compression_policyContext, Ilm_time_periodContext, Table_compressionContext
+
+### Community 186 - "Diskgroup_volume_clausesContext"
+Cohesion: 0.05
+Nodes (3): Add_volume_clauseContext, Diskgroup_volume_clausesContext, Modify_volume_clauseContext
+
+### Community 187 - "Alter_mv_refreshContext"
+Cohesion: 0.05
+Nodes (3): Alter_mv_option1Context, Alter_mv_refreshContext, Rollback_segmentContext
 
 ### Community 189 - "Alter_index_partitioningContext"
 Cohesion: 0.06
 Nodes (3): Dml_table_expression_clauseContext, Table_ref_aux_internal_oneContext, Table_ref_aux_internal_threContext
 
 ### Community 190 - "SubqueryContext"
-Cohesion: 0.05
-Nodes (4): Cursor_expressionContext, Subquery_basic_elementsContext, Subquery_operation_partContext, SubqueryContext
+Cohesion: 0.07
+Nodes (3): Cursor_expressionContext, Subquery_basic_elementsContext, SubqueryContext
 
-### Community 191 - "Create_tableContext"
-Cohesion: 0.03
-Nodes (4): Create_tableContext, Level_clauseContext, Memoptimize_read_write_clauseContext, Table_nameContext
-
-### Community 193 - "Paren_column_listContext"
-Cohesion: 0.06
-Nodes (3): Pivot_clauseContext, Pivot_elementContext, Pivot_for_clauseContext
+### Community 192 - "Rollup_cube_clauseContext"
+Cohesion: 0.04
+Nodes (6): Group_by_clauseContext, Group_by_elementsContext, Grouping_sets_clauseContext, Grouping_sets_elementsContext, Having_clauseContext, Rollup_cube_clauseContext
 
 ### Community 194 - "Alter_flashback_archiveContext"
 Cohesion: 0.05
@@ -1920,19 +1888,15 @@ Nodes (3): Alter_flashback_archiveContext, Flashback_archive_quotaContext, Flash
 
 ### Community 195 - "schema_recents_service.dart"
 Cohesion: 0.02
-Nodes (95): dart:convert, clear, EditorDraftService, _getInstance, _key, load, _prefs, save (+87 more)
-
-### Community 197 - "Add_update_secret_sepsContext"
-Cohesion: 0.05
-Nodes (3): Add_update_secret_sepsContext, Delete_secret_sepsContext, Directory_pathContext
+Nodes (94): dart:convert, clear, EditorDraftService, _getInstance, _key, load, _prefs, save (+86 more)
 
 ### Community 198 - "Default_settings_clauseContext"
 Cohesion: 0.04
 Nodes (4): DatabaseContext, Default_settings_clauseContext, DomainContext, Set_time_zone_clauseContext
 
 ### Community 200 - "schema_status_overlay.dart"
-Cohesion: 0.05
-Nodes (43): AnimationController, dart:async, ambiente, build, buildThemeFor, _dark, ensureInitialized, _light (+35 more)
+Cohesion: 0.04
+Nodes (57): AnimationController, SchemaLoadStatus, _animatedCard, build, createState, _ctrl, delay, didUpdateWidget (+49 more)
 
 ### Community 203 - "Mv_log_purge_clauseContext"
 Cohesion: 0.06
@@ -1942,13 +1906,9 @@ Nodes (3): Error_directiveContext, Selection_directive_bodyContext, Selection_di
 Cohesion: 0.06
 Nodes (34): _editor_oracle_theme.dart, EditorThemeMeta get, cdModulo, ConfiguracionTipo, deArgumento, fromJson, label, catppuccinMochaDef (+26 more)
 
-### Community 206 - "Update_all_indexes_index_clauseContext"
+### Community 205 - "Open_for_statementContext"
 Cohesion: 0.07
-Nodes (3): Update_all_indexes_clauseContext, Update_all_indexes_index_clauseContext, Update_index_subpartitionContext
-
-### Community 211 - "Model_rules_elementContext"
-Cohesion: 0.06
-Nodes (3): Model_rules_elementContext, Order_by_clauseContext, Within_or_over_partContext
+Nodes (3): Open_for_statementContext, Using_clauseContext, Using_elementContext
 
 ### Community 213 - "Partial_database_recovery_10gContext"
 Cohesion: 0.06
@@ -1966,17 +1926,13 @@ Nodes (5): f, ft, p, S(), x
 Cohesion: 0.05
 Nodes (3): Between_boundContext, Sql_statementContext, Update_index_partitionContext
 
-### Community 225 - "Disk_offline_clauseContext"
-Cohesion: 0.06
-Nodes (3): Disk_offline_clauseContext, Drop_disk_clauseContext, Quorum_regularContext
-
 ### Community 231 - "Datafile_tempfile_clausesContext"
 Cohesion: 0.04
 Nodes (4): Datafile_specificationContext, Datafile_tempfile_clausesContext, Datafile_tempfile_specContext, Tempfile_specificationContext
 
 ### Community 233 - "Table_partition_descriptionContext"
-Cohesion: 0.05
-Nodes (3): Deferred_segment_creationContext, List_partitionsContext, Table_partition_descriptionContext
+Cohesion: 0.06
+Nodes (3): Deferred_segment_creationContext, Indexing_clauseContext, Table_partition_descriptionContext
 
 ### Community 235 - "Ilm_inmemory_policyContext"
 Cohesion: 0.06
@@ -1990,21 +1946,17 @@ Nodes (3): Tablespace_group_clauseContext, Tablespace_group_nameContext, Tempora
 Cohesion: 0.06
 Nodes (3): Datafile_specificationContext, Datafile_tempfile_specContext, Tempfile_specificationContext
 
-### Community 240 - "Default_cost_clauseContext"
-Cohesion: 0.06
-Nodes (4): Cpu_costContext, Default_cost_clauseContext, Io_costContext, Network_costContext
-
 ### Community 246 - "Create_viewContext"
-Cohesion: 0.04
-Nodes (3): Create_viewContext, Editioning_clauseContext, Subquery_restriction_clauseContext
+Cohesion: 0.03
+Nodes (4): Create_viewContext, Editioning_clauseContext, Select_only_statementContext, Subquery_restriction_clauseContext
 
 ### Community 247 - "Into_clauseContext"
-Cohesion: 0.07
-Nodes (3): Dynamic_returning_clauseContext, Execute_immediateContext, Into_clauseContext
+Cohesion: 0.05
+Nodes (4): Dynamic_returning_clauseContext, Execute_immediateContext, Forall_statementContext, Into_clauseContext
 
 ### Community 248 - "Alter_tablespaceContext"
-Cohesion: 0.04
-Nodes (5): Alter_tablespaceContext, Begin_or_endContext, New_tablespace_nameContext, Tablespace_logging_clausesContext, Tablespace_retention_clauseContext
+Cohesion: 0.03
+Nodes (5): Alter_tablespaceContext, Begin_or_endContext, New_tablespace_nameContext, Tablespace_logging_clausesContext, Tablespace_state_clausesContext
 
 ### Community 251 - "Pipelined_using_clauseContext"
 Cohesion: 0.07
@@ -2014,17 +1966,13 @@ Nodes (3): Aggregate_clauseContext, Implementation_type_nameContext, Pipelined_u
 Cohesion: 0.07
 Nodes (3): Resetlogs_or_noresetlogsContext, Startup_clausesContext, Upgrade_or_downgradeContext
 
-### Community 253 - "Modify_filegroup_clauseContext"
-Cohesion: 0.07
-Nodes (3): Drop_filegroup_clauseContext, Filegroup_clausesContext, Modify_filegroup_clauseContext
-
 ### Community 254 - ".alter_user"
 Cohesion: 0.05
 Nodes (3): Add_rem_container_dataContext, Alter_userContext, Container_data_clauseContext
 
 ### Community 255 - "Object_nameContext"
-Cohesion: 0.07
-Nodes (3): ConditionContext, Hierarchical_query_clauseContext, Start_partContext
+Cohesion: 0.05
+Nodes (4): ConditionContext, Hierarchical_query_clauseContext, Start_partContext, Trigger_when_clauseContext
 
 ### Community 256 - "Blockchain_hash_and_data_format_clauseContext"
 Cohesion: 0.06
@@ -2066,13 +2014,17 @@ Nodes (3): Alter_method_elementContext, Map_order_function_specContext, Subprogr
 Cohesion: 0.09
 Nodes (8): atn, decisionsToDFA, PlSqlLexer, serializedATN, PlSqlLexerBase, PlSqlParserBase, ErrorCollector, humanize()
 
+### Community 272 - "Isolate_keystoreContext"
+Cohesion: 0.07
+Nodes (3): Close_keystoreContext, Keystore_management_clausesContext, Open_keystoreContext
+
 ### Community 273 - "Create_function_bodyContext"
 Cohesion: 0.07
 Nodes (3): Cdb_fleet_clausesContext, Lead_cdb_clauseContext, Lead_cdb_uri_clauseContext
 
-### Community 274 - "AtomContext"
-Cohesion: 0.05
-Nodes (4): AtomContext, Inquiry_directiveContext, Outer_join_signContext, Table_collection_expressionContext
+### Community 276 - ".create_function_body"
+Cohesion: 0.08
+Nodes (3): Map_order_func_declarationContext, Subprog_decl_in_typeContext, Type_body_elementsContext
 
 ### Community 277 - "Create_spfileContext"
 Cohesion: 0.07
@@ -2095,24 +2047,16 @@ Cohesion: 0.07
 Nodes (3): Alter_sequenceContext, Drop_sequenceContext, Sequence_nameContext
 
 ### Community 284 - "Seq_of_statementsContext"
-Cohesion: 0.05
-Nodes (4): Else_partContext, Elsif_partContext, If_statementContext, Seq_of_statementsContext
-
-### Community 285 - "vt"
-Cohesion: 0.06
-Nodes (3): ct, ht, vt
-
-### Community 287 - "Update_all_indexes_index_clauseContext"
-Cohesion: 0.07
-Nodes (3): Update_all_indexes_index_clauseContext, Update_index_partitionContext, Update_index_subpartitionContext
+Cohesion: 0.03
+Nodes (6): Else_partContext, Elsif_partContext, If_statementContext, Label_declarationContext, Loop_statementContext, Seq_of_statementsContext
 
 ### Community 290 - "Controlfile_clausesContext"
 Cohesion: 0.04
 Nodes (4): Controlfile_clausesContext, Drop_diskgroup_file_clauseContext, FilenameContext, Trace_file_clauseContext
 
 ### Community 291 - "Logical_expressionContext"
-Cohesion: 0.06
-Nodes (3): Logical_expressionContext, Multiset_expressionContext, Unary_logical_expressionContext
+Cohesion: 0.08
+Nodes (3): Logical_expressionContext, Unary_logical_expressionContext, Unary_logical_operationContext
 
 ### Community 298 - "Alter_sequenceContext"
 Cohesion: 0.08
@@ -2127,20 +2071,20 @@ Cohesion: 0.08
 Nodes (3): Create_lockdown_profileContext, Dynamic_base_profileContext, Static_base_profileContext
 
 ### Community 303 - "Hash_partitions_by_quantityContext"
-Cohesion: 0.03
-Nodes (5): Global_partitioned_indexContext, Hash_partition_quantityContext, Hash_partitions_by_quantityContext, Hash_partitionsContext, Individual_hash_partitionsContext
+Cohesion: 0.05
+Nodes (3): Global_partitioned_indexContext, Hash_partition_quantityContext, Hash_partitions_by_quantityContext
 
 ### Community 305 - "Index_org_table_clauseContext"
-Cohesion: 0.07
+Cohesion: 0.08
 Nodes (3): Index_org_overflow_clauseContext, Index_org_table_clauseContext, Mapping_table_clauseContext
 
 ### Community 309 - "Add_logfile_clausesContext"
 Cohesion: 0.05
 Nodes (3): Add_logfile_clausesContext, Group_redo_logfileContext, Logfile_descriptorContext
 
-### Community 313 - "Conditional_insert_clauseContext"
-Cohesion: 0.08
-Nodes (3): Conditional_insert_clauseContext, Conditional_insert_else_partContext, Conditional_insert_when_partContext
+### Community 312 - "Sql_plus_commandContext"
+Cohesion: 0.05
+Nodes (4): Clear_commandContext, Sql_plus_commandContext, Start_commandContext, Timing_commandContext
 
 ### Community 315 - "Ilm_compression_policyContext"
 Cohesion: 0.05
@@ -2162,213 +2106,185 @@ Nodes (4): ae, he(), oe, t()
 Cohesion: 0.12
 Nodes (3): pt, qe, ze
 
+### Community 335 - "NumericContext"
+Cohesion: 0.06
+Nodes (3): Blockchain_drop_table_clauseContext, NumericContext, Timeout_clauseContext
+
 ### Community 336 - "Range_partition_descContext"
-Cohesion: 0.05
-Nodes (3): Add_table_partitionContext, Hash_subparts_by_quantityContext, Range_partition_descContext
-
-### Community 339 - "Numeric_functionContext"
-Cohesion: 0.04
-Nodes (3): C_agent_in_clauseContext, Expressions_Context, Numeric_functionContext
-
-### Community 340 - "XmltableContext"
-Cohesion: 0.05
-Nodes (4): Xml_general_default_partContext, Xml_namespaces_clauseContext, Xml_table_columnContext, XmltableContext
+Cohesion: 0.06
+Nodes (3): Hash_subparts_by_quantityContext, Range_partition_descContext, Range_subpartition_descContext
 
 ### Community 344 - "Auditing_on_clauseContext"
 Cohesion: 0.04
 Nodes (5): Auditing_on_clauseContext, Model_nameContext, Object_nameContext, Profile_nameContext, Rename_objectContext
 
 ### Community 347 - "Where_clauseContext"
-Cohesion: 0.07
-Nodes (3): Merge_update_clauseContext, Merge_update_delete_partContext, Where_clauseContext
-
-### Community 349 - "With_backup_clauseContext"
-Cohesion: 0.06
-Nodes (3): Merge_into_existing_keystoreContext, Set_key_tagContext, With_backup_clauseContext
-
-### Community 353 - "Storage_clauseContext"
 Cohesion: 0.04
-Nodes (3): Default_index_compressionContext, Default_tablespace_paramsContext, Storage_clauseContext
+Nodes (5): Filter_conditionContext, Merge_elementContext, Merge_update_clauseContext, Merge_update_delete_partContext, Where_clauseContext
 
 ### Community 360 - "AnalyzeContext"
 Cohesion: 0.04
 Nodes (4): AnalyzeContext, Compute_clausesContext, For_clauseContext, Into_clause1Context
 
+### Community 378 - "Component_actionsContext"
+Cohesion: 0.03
+Nodes (5): Action_audit_clauseContext, Component_actionContext, Component_actionsContext, Create_audit_policyContext, Standard_actionsContext
+
+### Community 380 - "Default_table_compressionContext"
+Cohesion: 0.05
+Nodes (4): Default_index_compressionContext, Default_table_compressionContext, Default_tablespace_paramsContext, Low_highContext
+
 ### Community 381 - "External_table_transformContext"
 Cohesion: 0.02
-Nodes (8): Bind_variableContext, Char_set_nameContext, External_table_directoryContext, External_table_transformContext, General_element_partContext, Record_nameContext, Table_elementContext, Variable_nameContext
+Nodes (9): Assignable_elementContext, Assignment_statementContext, Bind_variableContext, Char_set_nameContext, General_element_partContext, General_elementContext, Record_nameContext, Table_elementContext (+1 more)
+
+### Community 382 - "File_name_convertContext"
+Cohesion: 0.05
+Nodes (4): Model_iterate_clauseContext, Model_rules_clauseContext, Model_rules_partContext, Until_partContext
 
 ### Community 391 - "package.json"
 Cohesion: 0.11
 Nodes (18): antlr4, rollup, @rollup/plugin-commonjs, @rollup/plugin-node-resolve, @rollup/plugin-terser, dependencies, antlr4, description (+10 more)
 
-### Community 399 - "FlutterWindow"
-Cohesion: 0.12
-Nodes (14): FlutterViewController, unique_ptr, DartProject, HWND, LPARAM, LRESULT, UINT, WPARAM (+6 more)
-
-### Community 401 - "Alter_diskgroupContext"
+### Community 405 - "Clustering_column_groupContext"
 Cohesion: 0.07
-Nodes (3): Alter_diskgroupContext, Convert_redundancy_clauseContext, Undrop_disk_clauseContext
-
-### Community 403 - "Enable_pluggable_databaseContext"
-Cohesion: 0.06
-Nodes (3): Enable_pluggable_databaseContext, Tablespace_datafile_clausesContext, Undo_mode_clauseContext
+Nodes (3): Cluster_clauseContext, Clustering_column_groupContext, Clustering_columnsContext
 
 ### Community 409 - "Immutable_table_no_drop_clauseContext"
 Cohesion: 0.06
 Nodes (3): Immutable_table_clausesContext, Immutable_table_no_delete_clauseContext, Immutable_table_no_drop_clauseContext
 
-### Community 410 - "Inmemory_distributeContext"
-Cohesion: 0.07
-Nodes (3): Inmemory_attributesContext, Inmemory_duplicateContext, Inmemory_priorityContext
-
 ### Community 412 - "Search_clauseContext"
-Cohesion: 0.04
-Nodes (4): Cycle_clauseContext, Query_nameContext, Search_clauseContext, Subquery_factoring_clauseContext
+Cohesion: 0.06
+Nodes (3): Cycle_clauseContext, Query_nameContext, Subquery_factoring_clauseContext
 
 ### Community 415 - "Table_propertiesContext"
 Cohesion: 0.05
-Nodes (3): Indexing_clauseContext, Read_only_clauseContext, Table_propertiesContext
+Nodes (3): Flashback_archive_clauseContext, Read_only_clauseContext, Table_propertiesContext
 
 ### Community 416 - "Xml_namespaces_clauseContext"
 Cohesion: 0.03
-Nodes (7): Column_collation_nameContext, Column_definitionContext, End_time_columnContext, Period_definitionContext, Relational_propertyContext, Relational_tableContext, Start_time_columnContext
+Nodes (6): By_user_for_statistics_clauseContext, Column_collation_nameContext, Column_definitionContext, Relational_propertyContext, Relational_tableContext, Virtual_column_definitionContext
 
 ### Community 417 - "pubspec.yaml"
 Cohesion: 0.14
 Nodes (15): Monaco Editor CDN (jsdelivr v0.52.2), PL/SQL language registration in Monaco, Oracle schema completion system, build_runner dev dependency, flutter_js package, flutter_mobx package, flutter_monaco package, http package (+7 more)
 
-### Community 420 - "ConditionContext"
-Cohesion: 0.04
-Nodes (5): Anonymous_blockContext, Create_package_bodyContext, Exception_handlerContext, If_statementContext, Seq_of_statementsContext
-
-### Community 447 - "Model_rules_elementContext"
-Cohesion: 0.06
-Nodes (3): Model_rules_elementContext, Order_by_clauseContext, Order_by_elementsContext
-
-### Community 448 - "Multiset_expressionContext"
+### Community 423 - "Object_view_clauseContext"
 Cohesion: 0.03
-Nodes (4): Alter_javaContext, Alter_sessionContext, Audit_traditionalContext, Create_controlfileContext
+Nodes (5): Edition_nameContext, On_object_clauseContext, Query_rewrite_clauseContext, Revoke_object_privilegesContext, Unusable_editions_clauseContext
 
-### Community 457 - "Key_management_clausesContext"
-Cohesion: 0.09
-Nodes (3): Key_management_clausesContext, Keystore_management_clausesContext, Secret_management_clausesContext
+### Community 440 - "Function_specContext"
+Cohesion: 0.04
+Nodes (3): Actions_clauseContext, Object_actionContext, System_actionContext
 
-### Community 464 - "MessageHandler"
-Cohesion: 0.36
-Nodes (10): HWND, LPARAM, LRESULT, UINT, WPARAM, EnableFullDpiSupportIfAvailable(), GetHandle, GetThisFromHandle (+2 more)
+### Community 445 - "For_update_optionsContext"
+Cohesion: 0.07
+Nodes (3): For_update_clauseContext, For_update_of_partContext, For_update_optionsContext
+
+### Community 462 - "Split_table_partitionContext"
+Cohesion: 0.04
+Nodes (5): Partition_extended_namesContext, Split_table_partitionContext, Subpartition_extended_namesContext, Truncate_table_partitionContext, Update_global_index_clauseContext
 
 ### Community 469 - "Alter_tempfile_clauseContext"
 Cohesion: 0.11
 Nodes (18): _editor_themes.dart, build, _computeStats, createState, _ctrl, _DiffDialog, _DiffDialogState, initState (+10 more)
 
-### Community 472 - "Auditing_by_clauseContext"
-Cohesion: 0.06
-Nodes (3): Audit_direct_pathContext, Audit_traditionalContext, Auditing_by_clauseContext
-
 ### Community 473 - "Audit_traditionalContext"
-Cohesion: 0.03
-Nodes (4): Function_argument_analyticContext, Function_argument_modelingContext, Keep_clauseContext, Table_ref_aux_internal_twoContext
+Cohesion: 0.02
+Nodes (3): Function_argument_analyticContext, Function_argument_modelingContext, Keep_clauseContext
 
 ### Community 488 - "Simple_case_expressionContext"
-Cohesion: 0.03
-Nodes (7): Alter_collection_clausesContext, Collection_method_callContext, Equijoin_conditionContext, ExpressionContext, Password_parametersContext, Sqlj_object_type_attrContext, Xmlroot_param_version_partContext
+Cohesion: 0.02
+Nodes (8): All_clauseContext, Equijoin_conditionContext, ExpressionContext, Json_array_elementContext, Json_object_entryContext, Quantified_expressionContext, Sqlj_object_type_attrContext, Xmlroot_param_version_partContext
 
 ### Community 494 - "win32_window.cpp"
-Cohesion: 0.18
-Nodes (14): Point, Size, wchar_t, Scale(), Create, Destroy, UpdateTheme, Win32Window::Win32Window() (+6 more)
+Cohesion: 0.06
+Nodes (54): FlutterViewController, Point, RECT, unique_ptr, PluginRegistry, RegisterPlugins(), DartProject, HWND (+46 more)
+
+### Community 498 - "Alter_lockdown_profileContext"
+Cohesion: 0.04
+Nodes (4): Alter_lockdown_profileContext, Disable_enableContext, Lockdown_featureContext, Lockdown_optionsContext
+
+### Community 505 - "Modify_lob_parametersContext"
+Cohesion: 0.06
+Nodes (3): Lob_compression_clauseContext, Lob_deduplicate_clauseContext, Modify_lob_parametersContext
 
 ### Community 506 - "Seq_of_declare_specsContext"
-Cohesion: 0.04
-Nodes (5): Compound_trigger_blockContext, Timing_point_sectionContext, Tps_blockContext, Trigger_blockContext, Trigger_bodyContext
+Cohesion: 0.07
+Nodes (3): Compound_trigger_blockContext, Trigger_blockContext, Trigger_bodyContext
 
 ### Community 507 - "Varray_type_defContext"
-Cohesion: 0.03
-Nodes (6): Modifier_clauseContext, Nested_table_type_defContext, Object_as_partContext, Object_type_defContext, Object_under_partContext, Varray_type_defContext
+Cohesion: 0.06
+Nodes (3): Nested_table_type_defContext, Object_as_partContext, Varray_type_defContext
 
-### Community 512 - "Varray_storage_clauseContext"
-Cohesion: 0.04
-Nodes (4): Lob_segnameContext, Lob_storage_clauseContext, Lob_storage_parametersContext, Varray_storage_clauseContext
-
-### Community 514 - "BodyContext"
-Cohesion: 0.01
-Nodes (19): BodyContext, Call_specContext, Constructor_declarationContext, Create_function_bodyContext, Create_procedure_bodyContext, Func_decl_in_typeContext, Function_bodyContext, Function_nameContext (+11 more)
-
-### Community 546 - "General_element_partContext"
-Cohesion: 0.07
-Nodes (3): Collection_expressionContext, Fetch_statementContext, Variable_or_collectionContext
+### Community 535 - "Sqlj_object_typeContext"
+Cohesion: 0.05
+Nodes (4): Modifier_clauseContext, Object_type_defContext, Object_under_partContext, Sqlj_object_typeContext
 
 ### Community 547 - "Type_procedure_specContext"
-Cohesion: 0.05
-Nodes (4): Alter_method_elementContext, Map_order_function_specContext, Subprogram_specContext, Type_procedure_specContext
+Cohesion: 0.08
+Nodes (3): Alter_method_elementContext, Alter_method_specContext, Map_order_function_specContext
 
 ### Community 590 - "Revoke_object_privilegesContext"
-Cohesion: 0.02
-Nodes (11): Create_audit_policyContext, Drop_roleContext, Program_unitContext, Revoke_roles_from_programsContext, Revoke_statementContext, Revoke_system_privilegeContext, Revokee_clauseContext, Role_audit_clauseContext (+3 more)
+Cohesion: 0.03
+Nodes (8): Drop_roleContext, Program_unitContext, Revoke_roles_from_programsContext, Revoke_statementContext, Revoke_system_privilegeContext, Revokee_clauseContext, Role_audit_clauseContext, Role_nameContext
 
 ### Community 591 - "Set_constraint_commandContext"
 Cohesion: 0.07
 Nodes (3): Savepoint_statementContext, Set_constraint_commandContext, Transaction_control_statementsContext
 
 ### Community 602 - "Values_clauseContext"
-Cohesion: 0.05
-Nodes (5): Insert_statementContext, Multi_table_elementContext, Multi_table_insertContext, Single_table_insertContext, Values_clauseContext
-
-### Community 607 - ".toString"
-Cohesion: 0.08
-Nodes (3): E, le, ve
+Cohesion: 0.03
+Nodes (9): Conditional_insert_clauseContext, Conditional_insert_else_partContext, Conditional_insert_when_partContext, Insert_into_clauseContext, Insert_statementContext, Multi_table_elementContext, Multi_table_insertContext, Single_table_insertContext (+1 more)
 
 ### Community 626 - "wWinMain"
-Cohesion: 0.17
-Nodes (11): _In_, _In_opt_, vector, wWinMain(), PluginRegistry, RegisterSubWindowPlugins(), string, wchar_t (+3 more)
+Cohesion: 0.29
+Nodes (5): _In_, _In_opt_, wWinMain(), PluginRegistry, RegisterSubWindowPlugins()
 
-### Community 627 - "Win32Window"
-Cohesion: 0.20
-Nodes (14): RECT, OnCreate, OnDestroy, HWND, Win32Window, child_content_, GetClientArea, OnCreate (+6 more)
+### Community 633 - "Zonemap_clauseContext"
+Cohesion: 0.06
+Nodes (3): Attribute_clustering_clauseContext, Yes_noContext, Zonemap_clauseContext
 
-### Community 636 - "Cell_reference_optionsContext"
-Cohesion: 0.05
-Nodes (4): Cell_reference_optionsContext, Model_clauseContext, Reference_model_nameContext, Reference_modelContext
+### Community 640 - "Default_temp_tablespaceContext"
+Cohesion: 0.06
+Nodes (3): Hier_attr_clauseContext, Hier_attr_nameContext, Hier_attrs_clauseContext
 
-### Community 685 - "Selection_directiveContext"
+### Community 650 - "Transaction_control_statementsContext"
+Cohesion: 0.02
+Nodes (3): Add_column_clauseContext, Composite_hash_partitionsContext, Supplemental_logging_propsContext
+
+### Community 664 - "Call_statementContext"
 Cohesion: 0.03
-Nodes (5): Partition_extended_namesContext, Split_table_partitionContext, Truncate_table_partitionContext, Update_global_index_clauseContext, Update_index_clausesContext
+Nodes (4): Bind_variableContext, Call_statementContext, ConstantContext, In_elementsContext
 
-### Community 711 - "Sql_plus_commandContext"
-Cohesion: 0.03
-Nodes (4): Lob_segnameContext, Select_list_elementsContext, Sql_plus_commandContext, Synonym_nameContext
+### Community 726 - "Varray_type_defContext"
+Cohesion: 0.06
+Nodes (3): Modify_col_substitutableContext, Modify_col_visibilityContext, Modify_column_clausesContext
 
 ### Community 728 - "snippet.dart"
 Cohesion: 0.18
 Nodes (10): body, copyWith, description, fromJson, id, language, name, prefix (+2 more)
 
 ### Community 729 - "Modify_lob_storage_clauseContext"
-Cohesion: 0.06
-Nodes (3): Lob_itemContext, Lob_partitioning_storageContext, Modify_lob_storage_clauseContext
+Cohesion: 0.05
+Nodes (3): Lob_itemContext, Lob_storage_clauseContext, Modify_lob_storage_clauseContext
 
 ### Community 748 - "manifest.json"
 Cohesion: 0.18
 Nodes (10): background_color, description, display, icons, name, orientation, prefer_related_applications, short_name (+2 more)
 
-### Community 753 - "Pipe_row_statementContext"
-Cohesion: 0.06
-Nodes (3): Table_refContext, Unpivot_clauseContext, Unpivot_in_clauseContext
-
 ### Community 788 - ".composite_hash_partitions"
 Cohesion: 0.02
-Nodes (10): Add_table_partitionContext, Index_subpartition_subclauseContext, Individual_hash_subpartsContext, List_partition_descContext, List_subpartition_descContext, Move_table_partitionContext, Range_partition_descContext, Range_subpartition_descContext (+2 more)
+Nodes (9): Add_table_partitionContext, Index_subpartition_subclauseContext, Individual_hash_subpartsContext, List_partition_descContext, List_subpartition_descContext, Range_partition_descContext, Range_subpartition_descContext, Subpartition_nameContext (+1 more)
 
 ### Community 811 - "Primary_operator_itemContext"
 Cohesion: 0.06
 Nodes (3): Drop_packageContext, Primary_operator_itemContext, Schema_object_nameContext
 
 ### Community 843 - "Alter_databaseContext"
-Cohesion: 0.07
-Nodes (3): Alter_databaseContext, Drop_mirror_clauseContext, Instance_clausesContext
-
-### Community 852 - "Audit_container_clauseContext"
-Cohesion: 0.04
-Nodes (4): Alter_materialized_viewContext, Alter_table_propertiesContext, Modify_table_partitionContext, Shrink_clauseContext
+Cohesion: 0.05
+Nodes (4): Alter_databaseContext, Drop_mirror_clauseContext, Replay_upgrade_clausesContext, Security_clauseContext
 
 ### Community 971 - "Flutter App Maskable Icon 192px"
 Cohesion: 0.25
@@ -2394,29 +2310,25 @@ Nodes (4): Debug/Profile/Release Configs, C++17 Standard, Flutter Windows Build 
 Cohesion: 0.50
 Nodes (3): evalJsSyntax, evalPlSqlSyntax, initPlSqlEngine
 
-### Community 1583 - "Default_value_partContext"
-Cohesion: 0.07
-Nodes (3): Default_value_partContext, External_table_fieldContext, Parameter_specContext
-
-### Community 1969 - ".enterRule"
-Cohesion: 0.06
-Nodes (3): Blockchain_table_clausesContext, Immutable_table_clausesContext, Varray_col_propertiesContext
+### Community 1282 - ".accept"
+Cohesion: 0.36
+Nodes (5): vector, string, wchar_t, GetCommandLineArguments(), Utf8FromUtf16()
 
 ## Knowledge Gaps
-- **1656 isolated node(s):** `R`, `bt`, `name`, `objectType`, `ambiente` (+1651 more)
+- **1656 isolated node(s):** `Graphify knowledge graph`, `name`, `objectType`, `ambiente`, `main` (+1651 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **1056 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **1083 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `re()` connect `Binding & Container Clauses` to `Standard_functionContext`, `Transaction_control_statementsContext`, `PL/SQL Checker & Context`, `Key Management Statements`, `.alter_type`, `Isolate_keystoreContext`, `.tablespace`, `.create_function_body`, `.enterRule`, `.expression`, `vt`, `.exitRule`, `Declare_specContext`, `.json_function`, `Key_management_clausesContext`, `Range_partitionsContext`, `Alter_drop_cache_clauseContext`, `Password_parametersContext`, `Alter_tableContext`, `Alter_tablespace_attrsContext`, `.column_name`, `Assignable_elementContext`, `Main_modelContext`, `Alter_databaseContext`, `Exception_handlerContext`, `Set_constraint_commandContext`, `.tableview_name`, `.force_keystore`, `Audit_traditionalContext`, `.index_name`, `.update`, `.type_spec`, `Column_propertiesContext`, `Type_function_specContext`, `External_table_data_formatContext`, `Alter_table_partitioningContext`, `.accept`, `Varray_storage_clauseContext`, `Lob_partition_storageContext`, `.seq_of_statements`, `.create_trigger`, `.alter_user`?**
-  _High betweenness centrality (0.434) - this node is a cross-community bridge._
+- **Why does `re()` connect `Binding & Container Clauses` to `Standard_functionContext`, `Transaction_control_statementsContext`, `PL/SQL Checker & Context`, `Key Management Statements`, `.alter_type`, `Isolate_keystoreContext`, `.tablespace`, `Virtual_column_definitionContext`, `vt`, `Declare_specContext`, `.json_function`, `Key_management_clausesContext`, `Range_partitionsContext`, `Alter_drop_cache_clauseContext`, `List_values_clauseContext`, `Password_parametersContext`, `Alter_tableContext`, `Sql_plus_commandContext`, `Alter_tablespace_attrsContext`, `Json_object_entryContext`, `Assignable_elementContext`, `Main_modelContext`, `Function_nameContext`, `Set_constraint_commandContext`, `.tableview_name`, `.force_keystore`, `Audit_traditionalContext`, `.index_name`, `.update`, `.type_spec`, `Column_propertiesContext`, `Standby_database_clausesContext`, `TablespaceContext`, `Type_function_specContext`, `External_table_data_formatContext`, `Procedure_bodyContext`, `Alter_table_partitioningContext`, `Varray_storage_clauseContext`, `Lob_partition_storageContext`, `.seq_of_statements`, `.create_trigger`, `.alter_user`?**
+  _High betweenness centrality (0.439) - this node is a cross-community bridge._
 - **Why does `PlSqlParserListener` connect `PL/SQL Parser Listener` to `PlSqlParser.js`?**
-  _High betweenness centrality (0.110) - this node is a cross-community bridge._
-- **Why does `PlSqlParserListener` connect `Antlr Rule Enter/Exit` to `.accept`, `.enterRule`, `.exitRule`, `SQL Grammar Context Rules`, `Disk Group Clauses`, `.accept`, `.enterRule`, `PL/SQL Checker & Context`, `.exitRule`, `.exitRule`, `.enterRule`, `Parallel_clauseContext`, `.exitRule`, `.enterRule`, `.exitRule`, `.enterRule`, `Tableview_nameContext`, `.enterRule`, `.enterRule`, `.exitRule`, `NumericContext`, `Create_function_bodyContext`, `.exitRule`, `.exitRule`, `.accept`, `.exitRule`, `.accept`, `Alter_materialized_viewContext`, `Column_definitionContext`, `.accept`, `.exitRule`, `.enterRule`, `.enterRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.accept`, `.exitRule`, `.enterRule`, `.accept`, `.exitRule`, `.exitRule`, `.accept`, `.exitRule`, `Outer_join_typeContext`, `.enterRule`, `.enterRule`, `.exitRule`, `.accept`, `.enterRule`, `.accept`, `.enterRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.enterRule`, `Subpartition_templateContext`, `.exitRule`, `Type_specContext`, `.enterRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.enterProcedure_name`, `.enterRule`, `.enterQuantified_expression`, `ConstantContext`, `.accept`, `.enterRule`, `.enterRange_partition_desc`, `Pipelined_using_clauseContext`, `.enterRelational_property`, `.accept`, `.accept`, `.enterPrepare_clause`, `.enterRoutine_name`, `.enterSchema_name`, `.enterProxy_clause`, `.enterScoped_table_ref_constraint`, `.enterQuery_block`, `.enterQuoted_string`, `Lockdown_statementsContext`, `.enterRebalance_diskgroup_clause`, `.enterRecovery_clauses`, `.enterScrub_clause`, `.enterRegister_logfile_clause`, `.enterRelational_table_property`, `.enterReplace_type_clause`, `Resize_disk_clauseContext`, `.enterResource_parameters`, `.enterResult_cache_clause`, `.enterReverse_migrate_keys`, `.enterSecret`, `.enterRole_name`, `.enterRollback_segment_name`, `Row_movement_clauseContext`, `.enterSegment_attributes_clause`, `.enterSearched_case_statement`, `.enterSelection_directive_body`, `.enterSelect_only_statement`, `.enterSelect_statement`, `.enterSeq_of_declare_specs`, `.enterSql_plus_command`, `.enterSql_plus_filepath`, `.enterSet_transaction_command`, `.enterShrink_clause`, `.enterSqlj_object_type`, `Table_compressionContext`, `.enterString_function`, `.enterSql_macro_body`, `.enterSubpartition_extended_names`, `.enterStartup_clauses`, `.enterSubquery_restriction_clause`, `.enterSql_statement_shortcut`, `.enterStorage_table_clause`, `.enterSwitch_logfile_clause`, `.enterSystem_privilege`, `.enterStatement_clauses`, `.enterTimeout_clause`, `Subpartition_nameContext`, `.enterTrigger_name`, `Subquery_factoring_clauseContext`, `.enterType_body_elements`, `.enterSupplemental_plsql_clause`, `.enterSystem_partitioning`, `.enterTable_alias`, `.enterTable_name`, `.enterType_function_spec`, `.enterTable_properties`, `.enterType_procedure_spec`, `.enterUndo_tablespace`, `.enterTable_ref_aux_internal_two`, `Create_procedure_bodyContext`, `.enterTablespace_clauses`, `Model_rules_elementContext`, `.enterTableview_name`, `.enterWithin_or_over_clause_keyword`, `.enterVarray_storage_clause`, `.enterType_declaration`, `.enterVirtual_column_definition`, `.enterType_name`, `.enterUnary_expression`, `.enterUnified_auditing`, `.enterUnusable_editions_clause`, `Update_global_index_clauseContext`, `.enterUser_clauses`, `.enterTs_file_name_convert`, `Drop_tablespace_setContext`, `Disk_offline_clauseContext`, `.enterValidation_clauses`, `Variable_declarationContext`, `.enterVarray_col_properties`, `.enterXml_schema_spec`, `.enterXmlschema_spec`, `.exitPragma_clause`, `.enterZonemap_clause`, `.enterXml_column_name`, `.exitProc_decl_in_type`, `Xmlroot_param_standalone_partContext`, `Temporary_tablespace_clauseContext`, `Datafile_tempfile_specContext`, `.enterXmltype_storage`, `.enterXmltype_view_clause`, `Program_unitContext`, `.exitQuoted_string`, `.exitProcedure_body`, `.exitResult_cache_clause`, `.exitReturn_rows_clause`, `.exitSchema_name`, `.exitRebalance_diskgroup_clause`, `.exitRecovery_clauses`, `.exitSearched_case_statement`, `.exitRelational_operator`, `.exitSeq_of_declare_specs`, `.exitSequence_start_clause`, `.exitReverse_migrate_keys`, `.exitRevoke_statement`, `.exitRole_identified_clause`, `.exitSecret`, `.exitSelection_directive_body`, `.exitSet_transaction_command`, `.exitSchema_object_name`, `.exitSingle_column_for_loop`, `.exitScrub_clause`, `Simple_dml_triggerContext`, `.exitStandard_prediction_function_keyword`, `.exitStart_standby_clause`, `.exitSelect_only_statement`, `.exitStatement_clauses`, `.exitSecret_management_clauses`, `.exitSubav_clause`, `.exitSubpartition_extended_names`, `Map_order_function_specContext`, `Constraint_clausesContext`, `.exitShrink_clause`, `.exitSystem_partitioning`, `.exitTable_compression`, `.exitSqlj_object_type`, `.exitSql_statement_shortcut`, `.exitTable_ref_aux_internal_two`, `Static_returning_clauseContext`, `.exitTruncate_table`, `.exitTs_file_name_convert`, `.exitType_body_elements`, `.exitType_declaration`, `Aggregate_function_nameContext`, `Alter_sequenceContext`, `.exitUndo_tablespace_clause`, `.exitSwitch_logfile_clause`, `.exitSubstitutable_column_clause`, `Update_all_indexes_index_clauseContext`, `.exitTable_alias`, `.exitUsing_index_clause`, `.exitTable_properties`, `.exitWindowing_elements`, `.exitTableview_name`, `Timing_commandContext`, `.exitTablespace_clauses`, `.exitWith_backup_clause`, `.exitWithin_or_over_part`, `.exitXmlserialize_param_ident_part`, `.exitXml_column_name`, `.exitType_function_spec`, `.exitType_procedure_spec`, `.exitTrigger_body`, `.exitType_elements_parameter`, `.exitUnary_expression`, `.exitUnary_expression_core`, `.exitUnit_statement`, `.exitUpdate_set_clause`, `.exitUser_clauses`, `.exitVariable_name`, `.visitQuota_clause`, `.exitVarray_storage_clause`, `.exitView_options`, `.visitRange_subpartition_desc`, `.visitRange_values_list`, `Create_materialized_zonemapContext`, `.visitRecord_name`, `.exitXmlschema_spec`, `.exitXmltype_storage`, `.exitZonemap_name`, `.visitRegister_logfile_clause`, `Lockdown_optionsContext`, `.visitPragma_declaration`, `.visitResource_parameters`, `.visitReturn_statement`, `Link_authenticationContext`, `Cursor_loop_paramContext`, `.visitQualified_template_clause`, `.visitQuorum_regular`, `Grouping_sets_elementsContext`, `.visitRebalance_diskgroup_clause`, `Redundancy_clauseContext`, `.visitSeed_part`, `.visitRename_disk_clause`, `Enable_or_disableContext`, `Bounds_clauseContext`, `.visitReplace_type_clause`, `Rollback_statementContext`, `.visitSimple_dml_trigger`, `.visitSqlj_object_type`, `.visitSubprog_decl_in_type`, `Aggregate_clauseContext`, `General_elementContext`, `Cursor_nameContext`, `Create_database_linkContext`, `.visitSubquery`, `Xml_namespaces_clauseContext`, `.visitSelected_list`, `.visitSeq_of_statements`, `.visitSubstitutable_column_clause`, `.visitSet_constraint_command`, `Library_nameContext`, `Column_associationContext`, `ConditionContext`, `.visitTable_partitioning_clauses`, `.visitSql_statement`, `Tablespace_encryption_clauseContext`, `.visitStandard_function`, `.visitTablespace_group_clause`, `Auditing_by_clauseContext`, `Model_expressionContext`, `Classification_itemContext`, `Collection_expressionContext`, `.visitString_delimiter`, `Raise_statementContext`, `.visitTemporary_tablespace_clause`, `.visitStriping_clause`, `.visitSubquery_restriction_clause`, `Overriding_procedure_specContext`, `Identified_byContext`, `Simple_case_expressionContext`, `.visitUndo_tablespace_clause`, `.visitSystem_privilege`, `Keystore_management_clausesContext`, `.visitTable_collection_expression`, `Procedure_specContext`, `Split_table_partitionContext`, `.visitTablespace`, `.visitTempfile_specification`, `Cursor_declarationContext`, `Database_clauseContext`, `Explain_statementContext`, `.visitType_body`, `.enterReferences_clause`, `.exitRule`, `Subtype_declarationContext`, `Table_ref_aux_internal_threContext`, `.visitWith_clause`, `.visitWithin_or_over_part`, `.visitWrite_clause`, `.visitXml_general_default_part`, `AccessorContext`, `.visitUsergroup_clauses`, `Annotations_clauseContext`, `Hash_subparts_by_quantityContext`, `Partition_extended_namesContext`, `Truncate_table_partitionContext`, `Call_specContext`, `Accessible_by_clauseContext`, `.enterRule`, `Using_tag_clauseContext`, `Alter_table_partitioningContext`, `.enterRule`, `Selection_directiveContext`, `.enterRule`, `Index_partitioning_clauseContext`, `List_values_clauseContext`, `Query_partition_clauseContext`, `Pmem_filestore_optionsContext`, `.exitSet_key`, `Supplemental_log_grp_clauseContext`, `Unpivot_clauseContext`, `External_table_directoryContext`, `Alter_interval_partitionContext`, `Anonymous_blockContext`, `.exitRule`, `Comment_on_columnContext`, `.exitRule`, `Default_temp_tablespaceContext`, `.enterRule`, `Drop_indexContext`, `Merge_insert_clauseContext`, `Move_datafile_clauseContext`, `Group_by_clauseContext`, `Pivot_clauseContext`, `Overriding_procedure_specContext`, `Pivot_in_clauseContext`, `Range_values_clauseContext`, `Rename_index_partitionContext`, `Selected_tableviewContext`, `Create_inmemory_join_groupContext`, `Add_column_clauseContext`, `Alter_collection_clausesContext`, `Coalesce_table_partitionContext`, `Drop_table_partitionContext`, `Merge_table_partitionContext`, `Tablespace_logging_clausesContext`, `Modifier_clauseContext`, `Outer_join_signContext`, `.exitRule`, `Where_clauseContext`, `C_agent_in_clauseContext`, `Call_statementContext`, `Cav_using_clauseContext`, `Check_constraintContext`, `Package_obj_bodyContext`, `Create_datafile_clauseContext`, `.exitRule`, `Create_zonemap_on_tableContext`, `Cycle_clauseContext`, `Set_time_zone_clauseContext`, `Deferred_segment_creationContext`, `.enterRule`, `.enterRule`, `Diskgroup_template_clausesContext`, `Dml_event_elementContext`, `Drop_materialized_zonemapContext`, `Drop_rollback_segmentContext`, `Using_clauseContext`, `Forall_statementContext`, `Keep_clauseContext`, `Hierarchy_clauseContext`, `Identified_other_clauseContext`, `Indexing_clauseContext`, `Inmemory_column_clauseContext`, `Inmmemory_clauseContext`, `Into_clauseContext`, `Level_group_typeContext`, `Flashback_mode_clauseContext`, `.enterRule`, `.exitRule`, `Nested_table_type_defContext`, `Object_table_substitutionContext`, `Oid_index_clauseContext`, `Open_statementContext`, `.enterRule`, `Streaming_clauseContext`, `.enterPragma_clause`, `Property_clausesContext`, `Reference_modelContext`, `Sql_plus_commandContext`, `Table_type_defContext`, `Type_bodyContext`, `Unpivot_in_elementsContext`, `Update_all_indexes_clauseContext`, `Upgrade_table_clauseContext`, `Values_clauseContext`, `.enterXmlserialize_param_ident_part`, `Reference_modelContext`, `Add_rem_container_dataContext`, `Administer_key_managementContext`, `Alter_indexContext`, `Alter_mapping_table_clauseContext`, `Rename_table_partitionContext`, `Alter_tablespace_setContext`, `Associate_statisticsContext`, `Attributes_clauseContext`, `C_parameters_clauseContext`, `Clustering_joinContext`, `Compound_trigger_blockContext`, `Set_container_dataContext`, `Continue_statementContext`, `Alter_operatorContext`, `Create_schemaContext`, `.enterRule`, `Cursor_expressionContext`, `Delete_statementContext`, `.enterRule`, `General_table_refContext`, `Wait_nowaitContext`, `Dml_event_nested_clauseContext`, `Drop_functionContext`, `Drop_procedureContext`, `Drop_triggerContext`, `Elsif_partContext`, `Execute_immediateContext`, `Exit_statementContext`, `.enterRule`, `Fact_columns_clauseContext`, `Flashback_archive_clauseContext`, `.composite_hash_partitions`, `Hier_refContext`, `Hierarchical_query_clauseContext`, `Hierarchies_clauseContext`, `Insert_into_clauseContext`, `Json_on_null_clauseContext`, `.enterRule`, `Level_hier_clauseContext`, `Levels_clauseContext`, `Numeric_negativeContext`, `Lock_modeContext`, `Measures_clauseContext`, `Drop_audit_policyContext`, `Modify_column_clausesContext`, `Modify_index_subpartitionContext`, `Object_as_partContext`, `Respect_or_ignore_nullsContext`, `Paren_column_listContext`, `Primary_operator_itemContext`, `Qualified_disk_clauseContext`, `.exitQuery_rewrite_clause`, `Quota_clauseContext`, `Record_type_defContext`, `Ref_cursor_type_defContext`, `Referencing_elementContext`, `Relies_on_partContext`, `Source_clauseContext`, `String_delimiterContext`, `Subquery_operation_partContext`, `Supplemental_db_loggingContext`, `Table_elementContext`, `Table_indexed_by_partContext`, `Trigger_when_clauseContext`, `Type_definitionContext`, `Unpivot_in_clauseContext`, `Until_partContext`, `Role_clauseContext`, `Using_algorithm_clauseContext`, `Xml_table_columnContext`, `Xmlindex_clauseContext`, `Subpartition_extended_namesContext`, `Collect_order_by_partContext`, `List_subpartition_descContext`, `Modify_lob_storage_clauseContext`, `Read_only_clauseContext`, `Add_calc_meas_clauseContext`, `Add_mv_log_column_clauseContext`, `Directory_pathContext`, `Allow_or_disallowContext`, `Monitoring_nomonitoringContext`, `Visible_or_invisibleContext`, `Alter_roleContext`, `Begin_or_endContext`, `Alter_user_editions_clauseContext`, `Assignment_statementContext`, `Audit_schema_object_clauseContext`, `Build_clauseContext`, `Calc_meas_clauseContext`, `Case_when_part_statementContext`, `Clustering_column_groupContext`, `Clustering_columnsContext`, `Coalesce_index_partitionContext`, `Collect_order_by_partContext`, `Column_listContext`, `Column_one_or_more_sub_clauseContext`, `Conditional_insert_when_partContext`, `Privilege_audit_clauseContext`, `Role_audit_clauseContext`, `.create_controlfile`, `Default_collation_clauseContext`, `Low_highContext`, `Default_tablespaceContext`, `Dim_refContext`, `Drop_diskgroup_file_clauseContext`, `Drop_filegroup_clauseContext`, `Drop_index_partitionContext`, `Drop_mirror_clauseContext`, `.exitRule`, `Drop_roleContext`, `Dynamic_returning_clauseContext`, `Editioning_clauseContext`, `Error_directiveContext`, `Error_logging_reject_partContext`, `Exceptions_clauseContext`, `Extended_attribute_clauseContext`, `External_table_hive_parameter_mapContext`, `External_table_init_clauseContext`, `Filter_clauseContext`, `Filter_conditionContext`, `For_each_rowContext`, `Foreign_key_clauseContext`, `Group_by_clauseContext`, `Hier_using_clauseContext`, `Segment_groupContext`, `Inmemory_duplicateContext`, `Join_path_clauseContext`, `Json_object_entryContext`, `Json_query_returning_clauseContext`, `Level_specificationContext`, `Logfile_clauseContext`, `Mapping_table_clauseContext`, `Maxsize_clauseContext`, `Model_column_listContext`, `Model_iterate_clauseContext`, `Model_rules_clauseContext`, `Offset_clauseContext`, `On_list_partitioned_tableContext`, `On_range_partitioned_tableContext`, `Parallel_instances_clauseContext`, `Partial_database_recoveryContext`, `Partition_extention_clauseContext`, `Pivot_in_clause_elementsContext`, `Records_per_block_clauseContext`, `Relational_tableContext`, `Rename_column_clauseContext`, `Revoke_roles_from_programsContext`, `Revoke_system_privilegeContext`, `Seed_partContext`, `Sql_scriptContext`, `Start_partContext`, `User_lock_clauseContext`, `User_tablespace_clauseContext`, `View_alias_constraintContext`, `Xmlroot_param_version_partContext`, `Unusable_editions_clauseContext`, `Update_set_clauseContext`, `Instance_clausesContext`, `Respect_or_ignore_nullsContext`, `Access_driver_typeContext`, `Ad_attributes_clauseContext`, `Ad_using_clauseContext`, `Add_binding_clauseContext`, `Add_or_dropContext`, `Add_overflow_clauseContext`, `Measure_listContext`, `File_pathContext`, `Alter_view_editionableContext`, `AnnotationContext`, `Between_boundContext`, `Cache_clauseContext`, `Caption_clauseContext`, `Simple_case_statementContext`, `Case_when_part_expressionContext`, `Character_set_clauseContext`, `Cluster_index_clauseContext`, `Collation_nameContext`, `Compile_type_clauseContext`, `Conditional_insert_clauseContext`, `Container_tableview_nameContext`, `Create_zonemap_as_subqueryContext`, `Database_logging_sub_clauseContext`, `Default_measure_clauseContext`, `Default_selectivity_clauseContext`, `Description_clauseContext`, `ElementContext`, `Else_partContext`, `Error_logging_into_partContext`, `External_table_field_listContext`, `External_table_lls_clauseContext`, `Filename_convert_sub_clauseContext`, `For_update_clauseContext`, `For_update_of_partContext`, `Label_nameContext`, `Group_redo_logfileContext`, `Identified_by_password_clauseContext`, `Identity_options_parenthesesContext`, `Implementation_clauseContext`, `Index_org_overflow_clauseContext`, `Into_clause1Context`, `Join_clauseContext`, `Join_condition_itemContext`, `Join_on_partContext`, `Recovery_clausesContext`, `Json_value_return_clauseContext`, `Library_editionableContext`, `Lob_deduplicate_clauseContext`, `Lock_table_elementContext`, `Log_grpContext`, `Logical_expressionContext`, `Match_stringContext`, `Merge_update_delete_partContext`, `Subpartition_by_rangeContext`, `MkidContext`, `Model_column_partition_partContext`, `Modify_col_visibilityContext`, `Move_mv_log_clauseContext`, `Non_reserved_keywords_in_18cContext`, `Object_type_col_propertiesContext`, `Object_under_partContext`, `Online_or_offlineContext`, `Operator_function_nameContext`, `Parameter_valueContext`, `Password_expire_clauseContext`, `Policy_nameContext`, `Pragma_elementsContext`, `Record_nameContext`, `Resetlogs_or_noresetlogsContext`, `Restore_pointContext`, `Searched_case_expressionContext`, `Selected_listContext`, `Sort_or_nosortContext`, `Sqlj_object_type_attrContext`, `Standard_actionsContext`, `Start_commandContext`, `Striping_clauseContext`, `Subprog_decl_in_typeContext`, `System_actionsContext`, `Table_ref_aux_internal_oneContext`, `Tablespace_datafile_clausesContext`, `Trigger_blockContext`, `Trigger_follows_clauseContext`, `Unary_logical_expressionContext`, `Unary_logical_operationContext`, `Undrop_disk_clauseContext`, `Upgrade_or_downgradeContext`, `User_editions_clauseContext`, `Using_elementContext`, `Wait_nowait_partContext`, `Windowing_clauseContext`, `Windowing_typeContext`, `With_clauseContext`, `Xml_multiuse_expression_elementContext`, `Xmlserialize_param_enconding_partContext`, `Xmlserialize_param_version_partContext`, `Xmltype_column_propertiesContext`, `Yes_noContext`, `Sqlj_object_type_attrContext`, `Having_clauseContext`, `Alter_method_specContext`, `Alternate_key_clauseContext`, `Audit_userContext`, `Base_meas_clauseContext`, `Between_elementsContext`, `BlockContext`, `Collection_itemContext`, `Compound_dml_triggerContext`, `Conditional_insert_else_partContext`, `Connection_qualifierContext`, `Cost_class_nameContext`, `Cpu_costContext`, `Credential_nameContext`, `DatabaseContext`, `Db_nameContext`, `Default_selectivityContext`, `Dir_nameContext`, `Dynamic_base_profileContext`, `From_clauseContext`, `Hash_partition_quantityContext`, `Hash_subpartition_quantityContext`, `IndextypeContext`, `Inquiry_directiveContext`, `Io_costContext`, `Join_conditionContext`, `Levels_itemContext`, `Library_debugContext`, `Local_link_nameContext`, `Main_model_nameContext`, `Merge_elementContext`, `Model_nameContext`, `Nested_itemContext`, `Network_costContext`, `New_constraint_nameContext`, `New_index_nameContext`, `New_partition_nameContext`, `Null_statementContext`, `Object_typeContext`, `Old_constraint_nameContext`, `Oracle_namespaceContext`, `Partition_name_oldContext`, `PathContext`, `Pfile_nameContext`, `.enterWithin_or_over_part`, `Primary_operator_listContext`, `Profile_clauseContext`, `Profile_nameContext`, `Query_nameContext`, `Reference_model_nameContext`, `Return_statementContext`, `Rollback_segmentContext`, `Savepoint_statementContext`, `Spfile_nameContext`, `Static_base_profileContext`, `Statistics_type_nameContext`, `Table_ref_listContext`, `Tps_blockContext`, `Using_function_clauseContext`, `Varray_itemContext`, `Xml_schema_urlContext`, `Reference_model_nameContext`, `Savepoint_statementContext`, `Alter_mv_option1Context`, `Component_actionContext`, `Dir_object_nameContext`, `End_time_columnContext`, `Equijoin_conditionContext`, `Indextype_nameContext`, `New_column_nameContext`, `New_tablespace_nameContext`, `Old_column_nameContext`, `PhaseContext`, `Property_nameContext`, `Property_valueContext`, `Relational_table_propertiesContext`, `Start_time_columnContext`, `.enterXml_attributes_clause`, `.alter_add_cache_clause`, `.enterRule`, `.exitRule`, `.exitRule`, `.exitRule`, `.enterZonemap_refresh_clause`, `.exitRule`, `.enterRule`, `.enterRule`, `.exitRule`, `.exitPragma_declaration`, `.enterRule`, `.exitRule`, `.enterRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.accept`, `.exitRule`, `.exitRule`, `.exitRule`, `.exitRule`, `.enterRule`, `.enterRule`, `.exitRule`, `.accept`, `.enterRule`, `.exitRule`, `.accept`, `.enterRule`, `.exitRule`, `.accept`, `.exitRule`, `.exitRule`, `.accept`, `.enterRule`, `.exitRule`, `.accept`, `.enterRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.enterRule`, `ArgumentContext`, `.accept`, `.enterRule`, `.exitRule`, `.accept`, `.exitRule`, `.accept`, `.exitRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.accept`, `.enterRule`, `.accept`, `.exitRule`, `.accept`, `.enterRule`, `.accept`, `.exitSql_plus_command`, `.exitRule`, `.accept`, `.enterRule`, `.accept`, `.exitRule`, `.accept`, `.accept`, `.enterRule`, `.accept`, `Cdb_fleet_clausesContext`, `.accept`, `.exitRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.accept`, `.exitStorage_table_clause`, `Clear_commandContext`, `.accept`, `.accept`, `.exitRule`, `.accept`, `.exitRule`, `.accept`, `.enterRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.accept`, `.exitRule`, `.exitTable_partition_description`, `.enterRule`, `.enterRule`, `.exitRule`, `.accept`, `.exitRule`, `.accept`, `.enterRule`, `.accept`, `.accept`, `.enterRule`, `Convert_redundancy_clauseContext`, `.accept`, `.exitUndo_mode_clause`, `.accept`, `.enterRule`, `.exitRule`, `.exitRule`, `.exitRule`, `.accept`, `.exitUser_object_name`, `.accept`, `.enterRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.exitRule`, `.accept`, `.exitRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.accept`, `.exitRule`, `.accept`, `.exitRule`, `.accept`, `.enterRule`, `.enterRule`, `.exitRule`, `.exitRule`, `.accept`, `.enterRule`, `.accept`, `.exitRule`, `.enterRule`, `.enterRule`, `.exitRule`, `.exitRule`, `.enterRule`, `Database_file_clausesContext`, `.enterRule`, `.exitRule`, `.accept`, `.exitRule`, `Default_cost_clauseContext`, `.accept`, `.accept`, `.exitRule`, `.exitRule`, `.exitRule`, `Default_value_partContext`, `.accept`, `Dependent_exceptions_partContext`, `.accept`, `.enterRule`, `.enterRule`, `.accept`, `.accept`, `.enterRule`, `.exitRule`, `.exitRule`, `.exitRule`, `.accept`, `.accept`, `.exitRule`, `.enterRule`, `.accept`, `.exitRule`, `.accept`, `.enterRule`, `.exitRule`, `.enterRule`, `.enterRule`, `.exitRule`, `.exitRule`, `.accept`, `.accept`, `.exitRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.enterRule`, `.accept`, `.enterRule`, `.enterRule`, `.accept`, `.exitRule`, `.exitRule`, `.accept`, `.accept`, `.exitRule`, `.accept`, `.accept`, `.exitRule`, `.enterRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.accept`, `.exitRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.enterRule`, `Encryption_specContext`, `.accept`, `.accept`, `.exitRule`, `.accept`, `Exception_declarationContext`, `.enterRule`, `.exitRule`, `.enterRule`, `.accept`, `.exitRule`, `.accept`, `.exitRule`, `Pivot_in_clause_elementContext`, `.exitRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.enterRule`, `.enterRule`, `.exitRule`, `.exitRule`, `.accept`, `.exitRule`, `.exitRule`, `.accept`, `.enterRule`, `.exitRule`, `.accept`, `.exitRule`, `.enterRule`, `.exitRule`, `.exitRule`, `.enterRule`, `Fetch_statementContext`, `.enterRule`, `.exitRule`, `.accept`, `.enterRule`, `.exitRule`, `.exitRule`, `.exitRule`, `.exitRule`, `.accept`, `Filter_clausesContext`, `.enterRule`, `.accept`, `.exitRule`, `.exitRule`, `.exitRule`, `.enterRule`, `Function_argument_modelingContext`, `.exitRule`, `.exitRule`, `.exitRule`, `.exitRule`, `.accept`, `.enterRule`, `.exitRule`, `.exitRule`, `.accept`, `.accept`, `.enterRule`, `.enterRule`, `.enterRule`, `.accept`, `.exitRule`, `.enterRule`, `.accept`, `.enterRule`, `.exitRule`, `.exitRule`, `.exitRule`, `.exitRule`, `.accept`, `.enterRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.accept`, `.enterRule`, `.enterRule`, `.exitRule`, `.exitRule`, `.accept`, `.enterRule`, `.accept`, `.exitRule`, `.accept`, `.enterRule`, `.accept`, `.exitRule`, `.enterRule`, `.accept`, `.accept`, `.exitRule`, `.enterRule`, `.accept`, `.exitRule`, `.exitRule`, `.exitRule`, `.exitRule`, `.accept`, `.enterRule`, `.accept`, `.enterRule`, `.enterRule`, `.accept`, `.exitRule`, `.enterRule`, `.enterRule`, `.accept`, `.exitRule`, `.exitRule`, `.exitRule`, `.enterRule`, `.enterRule`, `.enterRule`, `.accept`, `.accept`, `.accept`, `.enterRule`, `Lob_compression_clauseContext`, `.exitRule`, `.accept`, `.accept`, `.exitRule`, `.accept`, `.accept`, `Logfile_descriptorContext`, `.accept`, `.enterRule`, `.enterRule`, `.exitRule`, `.accept`, `.enterRule`, `.enterRule`, `.enterRule`, `.enterRule`, `.enterRule`, `.accept`, `.enterRule`, `.accept`, `.accept`, `.accept`, `.accept`, `.enterRule`, `.enterRule`, `.accept`, `Modify_col_propertiesContext`, `.accept`, `.exitRule`, `.exitRule`, `Modify_filegroup_clauseContext`, `.exitRule`, `.accept`, `.enterRule`, `Modify_mv_column_clauseContext`?**
+  _High betweenness centrality (0.119) - this node is a cross-community bridge._
+- **Why does `PlSqlParserListener` connect `Antlr Rule Enter/Exit` to `.accept`, `.enterRule`, `.exitRule`, `SQL Grammar Context Rules`, `Disk Group Clauses`, `.accept`, `.enterRule`, `PL/SQL Checker & Context`, `.exitRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.accept`, `Create_materialized_viewContext`, `.enterRule`, `.accept`, `.enterRule`, `.exitRule`, `NumericContext`, `Move_keysContext`, `.enterRule`, `.exitRule`, `.accept`, `.exitRule`, `.enterRule`, `Alter_materialized_viewContext`, `.accept`, `.exitRule`, `.enterRule`, `.enterRule`, `Create_synonymContext`, `.accept`, `.accept`, `.exitRule`, `.enterRule`, `.exitRule`, `.exitRule`, `.accept`, `.exitRule`, `.enterRule`, `Other_functionContext`, `.accept`, `.exitRule`, `.enterRule`, `.accept`, `.exitRule`, `.accept`, `.exitRule`, `.enterRule`, `Declare_specContext`, `.enterRule`, `.exitRule`, `.accept`, `.exitRule`, `.accept`, `.enterRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.enterRule`, `.enterRule`, `Standby_database_clausesContext`, `.enterPurge_statement`, `.enterRule`, `ConstantContext`, `.accept`, `.enterRule`, `.enterRange_partition_desc`, `Pipelined_using_clauseContext`, `.enterRelational_property`, `.enterRevoke_statement`, `.accept`, `.enterPrepare_clause`, `.enterRoutine_name`, `Lob_storage_clauseContext`, `.enterProxy_clause`, `.enterScoped_table_ref_constraint`, `Lockdown_statementsContext`, `.enterQuery_block`, `Read_only_clauseContext`, `.enterRebalance_diskgroup_clause`, `.enterRecovery_clauses`, `.enterRelational_table_property`, `.enterReplace_type_clause`, `Resize_disk_clauseContext`, `.enterResource_parameters`, `.enterResult_cache_clause`, `.enterReverse_migrate_keys`, `.enterSecret`, `.enterRole_name`, `.enterRollback_segment_name`, `Row_movement_clauseContext`, `.enterSegment_attributes_clause`, `.enterSearched_case_statement`, `.enterSelection_directive_body`, `.enterSelect_only_statement`, `.enterSelect_statement`, `.enterSeq_of_declare_specs`, `.enterSql_plus_command`, `.enterSql_plus_filepath`, `.enterSet_transaction_command`, `.enterShrink_clause`, `Evaluation_edition_clauseContext`, `.enterSqlj_object_type`, `.enterString_function`, `.enterSql_macro_body`, `.enterSubpartition_extended_names`, `.enterStartup_clauses`, `.enterSql_statement_shortcut`, `.enterSubquery_restriction_clause`, `.enterStorage_table_clause`, `.enterStatement_clauses`, `.enterTimeout_clause`, `Subpartition_nameContext`, `.enterTrigger_name`, `Subquery_factoring_clauseContext`, `.enterType_body_elements`, `.enterSupplemental_plsql_clause`, `.enterSystem_partitioning`, `.enterTable_name`, `.enterType_procedure_spec`, `.enterUndo_tablespace`, `.enterTable_ref_aux_internal_two`, `Create_procedure_bodyContext`, `.enterTablespace_clauses`, `Model_rules_elementContext`, `.enterTableview_name`, `.enterVarray_storage_clause`, `.enterTs_file_name_convert`, `.enterType_declaration`, `.enterVirtual_column_definition`, `.enterWithin_or_over_clause_keyword`, `.enterUnary_expression`, `.enterUnified_auditing`, `.enterUnusable_editions_clause`, `.enterWithin_or_over_part`, `.enterUser_clauses`, `Update_global_index_clauseContext`, `Drop_tablespace_setContext`, `Disk_offline_clauseContext`, `.enterValidation_clauses`, `.enterXml_schema_spec`, `.enterXmlschema_spec`, `.enterVarray_col_properties`, `.enterZonemap_refresh_clause`, `.exitPragma_clause`, `.exitPragma_declaration`, `.enterXml_column_name`, `.exitProc_decl_in_type`, `Xmlroot_param_standalone_partContext`, `Temporary_tablespace_clauseContext`, `Datafile_tempfile_specContext`, `.enterXmltype_view_clause`, `.enterXmltype_storage`, `.exitQuoted_string`, `.exitProcedure_body`, `.exitResult_cache_clause`, `Program_unitContext`, `.exitReturn_rows_clause`, `.exitSchema_name`, `.exitRebalance_diskgroup_clause`, `.exitSearched_case_statement`, `.exitRelational_operator`, `.exitSelection_directive_body`, `.exitSecret`, `.exitSequence_start_clause`, `.exitReverse_migrate_keys`, `.exitRevoke_statement`, `.exitSet_transaction_command`, `.exitSingle_column_for_loop`, `.exitSchema_object_name`, `.exitSql_plus_command`, `.exitScrub_clause`, `Simple_dml_triggerContext`, `.exitStandard_prediction_function_keyword`, `.exitStart_standby_clause`, `.exitSelect_only_statement`, `.exitStatement_clauses`, `.exitStorage_table_clause`, `.exitSubpartition_extended_names`, `Map_order_function_specContext`, `Constraint_clausesContext`, `.exitShrink_clause`, `.exitSystem_partitioning`, `.exitSqlj_object_type`, `.exitTable_compression`, `.exitTable_ref_aux_internal_two`, `.exitSql_statement_shortcut`, `Static_returning_clauseContext`, `.exitTs_file_name_convert`, `.exitTruncate_table`, `.exitType_declaration`, `Aggregate_function_nameContext`, `Alter_sequenceContext`, `.exitUndo_tablespace_clause`, `.exitUser_object_name`, `.exitSwitch_logfile_clause`, `Update_all_indexes_index_clauseContext`, `.exitSubstitutable_column_clause`, `.exitTable_alias`, `.exitTablespace_clauses`, `.exitWith_backup_clause`, `.exitTableview_name`, `Timing_commandContext`, `.exitTable_properties`, `.exitXml_column_name`, `.exitWindowing_elements`, `.exitXmlserialize_param_ident_part`, `.exitType_elements_parameter`, `.exitType_function_spec`, `.exitType_procedure_spec`, `.exitWithin_or_over_part`, `.exitUnary_expression_core`, `.visitPragma_elements`, `.exitTrigger_body`, `.visitPrepare_clause`, `.visitProc_decl_in_type`, `.visitProfile_clause`, `.exitUnary_expression`, `.visitProperty_clauses`, `.exitUser_clauses`, `.visitQuery_block`, `.exitVariable_name`, `.visitQuota_clause`, `.exitUpdate_set_clause`, `.exitVarray_storage_clause`, `.visitQuotagroup_clauses`, `.visitRange_subpartition_desc`, `.visitRange_values_list`, `Create_materialized_zonemapContext`, `.visitRecord_type_def`, `.exitXmlschema_spec`, `.exitXmltype_storage`, `.exitView_options`, `.visitRecord_name`, `.exitZonemap_name`, `.visitRegister_logfile_clause`, `Lockdown_optionsContext`, `.visitPragma_declaration`, `.visitRelational_table`, `.visitRename_table_partition`, `.visitProcedure_name`, `.visitResource_parameters`, `.visitProperty_name`, `.visitReturn_statement`, `Link_authenticationContext`, `Cursor_loop_paramContext`, `.visitQualified_disk_clause`, `.visitQualified_template_clause`, `.visitReverse_migrate_keys`, `.visitQuorum_regular`, `.visitRaise_statement`, `.visitRead_only_clause`, `.visitRebalance_diskgroup_clause`, `.visitRollback_segment`, `Redundancy_clauseContext`, `.visitRoutine_name`, `.visitSecurity_clause`, `.visitSeed_part`, `Type_specContext`, `.visitSelection_directive`, `.visitRename_disk_clause`, `Enable_or_disableContext`, `Bounds_clauseContext`, `.visitReplace_type_clause`, `Rollback_statementContext`, `.visitResetlogs_or_noresetlogs`, `.visitRestore_point`, `.visitSimple_case_statement`, `.visitRevoke_roles_from_programs`, `.visitRevoke_statement`, `.visitSimple_dml_trigger`, `.visitRole_audit_clause`, `.visitSqlj_object_type`, `.visitStandby_database_clauses`, `.visitSubpartition_by_list`, `.visitSubpartition_key_value`, `.visitSubprog_decl_in_type`, `Aggregate_clauseContext`, `General_elementContext`, `Cursor_nameContext`, `.visitSubprogram_spec`, `.visitSubquery`, `.visitSubquery_basic_elements`, `Xml_namespaces_clauseContext`, `.visitSelected_list`, `.visitSeq_of_statements`, `.visitSequence_spec`, `.visitSubstitutable_column_clause`, `.visitSet_constraint_command`, `.visitSupplemental_plsql_clause`, `.visitSet_time_zone_clause`, `.visitSimple_case_expression`, `.visitSize_clause`, `.visitSort_or_nosort`, `.visitSupplemental_table_logging`, `.visitSplit_index_partition`, `.visitSystem_partitioning`, `Library_nameContext`, `Column_associationContext`, `ConditionContext`, `.visitTable_compression`, `.visitTable_partitioning_clauses`, `.visitSql_statement`, `Tablespace_encryption_clauseContext`, `.visitSqlj_object_type_attr`, `.visitStandard_function`, `.visitTable_ref_aux_internal_two`, `.visitStartup_clauses`, `.visitTable_type_def`, `.visitTablespace_group_clause`, `Auditing_by_clauseContext`, `Model_expressionContext`, `Classification_itemContext`, `Collection_expressionContext`, `.visitTablespace_group_name`, `Raise_statementContext`, `.visitString_delimiter`, `.visitTemporary_tablespace_clause`, `.visitTiming_command`, `.visitStriping_clause`, `.visitTs_file_name_convert`, `.visitSubquery_restriction_clause`, `.visitType_spec`, `.visitSupplemental_id_key_clause`, `Identified_byContext`, `Simple_case_expressionContext`, `.visitUndo_tablespace_clause`, `.visitSystem_privilege`, `Keystore_management_clausesContext`, `Object_actionContext`, `Procedure_specContext`, `.visitTable_collection_expression`, `.visitUnpivot_in_elements`, `.visitUpdate_all_indexes_clause`, `MessageHandler`, `.visitTable_ref`, `.visitTable_ref_aux_internal_one`, `.visitUpdate_index_subpartition`, `.visitTablespace`, `.visitTablespace_clauses`, `.visitTempfile_specification`, `Cursor_declarationContext`, `Database_clauseContext`, `.visitUsing_clause`, `Explain_statementContext`, `.enterReferences_clause`, `.exitRule`, `Table_ref_aux_internal_threContext`, `.visitWith_clause`, `.visitWithin_or_over_part`, `AccessorContext`, `.visitUsergroup_clauses`, `Annotations_clauseContext`, `Call_specContext`, `Accessible_by_clauseContext`, `.enterRule`, `Using_tag_clauseContext`, `Alter_table_partitioningContext`, `.enterRule`, `Selection_directiveContext`, `.enterRule`, `Index_partitioning_clauseContext`, `Merge_update_clauseContext`, `XmltableContext`, `Query_partition_clauseContext`, `Pmem_filestore_optionsContext`, `.exitSet_key`, `Set_key_tagContext`, `Supplemental_log_grp_clauseContext`, `Unpivot_clauseContext`, `Blockchain_row_retention_clauseContext`, `External_table_directoryContext`, `Alter_interval_partitionContext`, `Anonymous_blockContext`, `.exitRule`, `.exitRule`, `.enterRule`, `Json_object_contentContext`, `Merge_insert_clauseContext`, `Move_datafile_clauseContext`, `Group_by_clauseContext`, `Pivot_clauseContext`, `Overriding_procedure_specContext`, `Pivot_in_clauseContext`, `Range_values_clauseContext`, `Rename_index_partitionContext`, `Selected_tableviewContext`, `Drop_logfile_clausesContext`, `Add_column_clauseContext`, `Alter_collection_clausesContext`, `Coalesce_table_partitionContext`, `Drop_table_partitionContext`, `Merge_table_partitionContext`, `Tablespace_logging_clausesContext`, `Modifier_clauseContext`, `Outer_join_signContext`, `Where_clauseContext`, `C_agent_in_clauseContext`, `Call_statementContext`, `Cav_using_clauseContext`, `Check_constraintContext`, `Package_obj_bodyContext`, `Create_datafile_clauseContext`, `.exitRule`, `Create_zonemap_on_tableContext`, `Cycle_clauseContext`, `Set_time_zone_clauseContext`, `Deferred_segment_creationContext`, `.enterRule`, `Dml_event_elementContext`, `Drop_materialized_zonemapContext`, `Drop_rollback_segmentContext`, `Using_clauseContext`, `Forall_statementContext`, `Keep_clauseContext`, `Identified_other_clauseContext`, `Indexing_clauseContext`, `Inmemory_column_clauseContext`, `Inmmemory_clauseContext`, `Into_clauseContext`, `Level_group_typeContext`, `Flashback_mode_clauseContext`, `.enterRule`, `.exitRule`, `Nested_table_type_defContext`, `Object_table_substitutionContext`, `Oid_index_clauseContext`, `Open_statementContext`, `.enterRule`, `Streaming_clauseContext`, `.enterPragma_clause`, `Property_clausesContext`, `Reference_modelContext`, `Xmltype_view_clauseContext`, `Table_type_defContext`, `Type_bodyContext`, `Unpivot_in_elementsContext`, `Update_all_indexes_clauseContext`, `Upgrade_table_clauseContext`, `Values_clauseContext`, `.enterXmlserialize_param_ident_part`, `Alter_add_cache_clauseContext`, `Reference_modelContext`, `Add_rem_container_dataContext`, `Administer_key_managementContext`, `Alter_indexContext`, `Alter_mapping_table_clauseContext`, `Synonym_nameContext`, `Rename_table_partitionContext`, `Alter_tablespace_setContext`, `Associate_statisticsContext`, `Attributes_clauseContext`, `C_parameters_clauseContext`, `Clustering_joinContext`, `Compound_trigger_blockContext`, `Set_container_dataContext`, `Continue_statementContext`, `Alter_operatorContext`, `Create_pmem_filestoreContext`, `Create_schemaContext`, `.enterRule`, `Cursor_expressionContext`, `Delete_statementContext`, `.enterRule`, `General_table_refContext`, `Wait_nowaitContext`, `Dml_event_nested_clauseContext`, `Drop_functionContext`, `Drop_procedureContext`, `Drop_triggerContext`, `Elsif_partContext`, `Execute_immediateContext`, `Exit_statementContext`, `.enterRule`, `Fact_columns_clauseContext`, `Flashback_archive_clauseContext`, `.composite_hash_partitions`, `Hier_refContext`, `Hierarchical_query_clauseContext`, `Hierarchies_clauseContext`, `Insert_into_clauseContext`, `.exitRule`, `Json_on_null_clauseContext`, `.enterRule`, `Level_hier_clauseContext`, `Levels_clauseContext`, `Numeric_negativeContext`, `Lock_modeContext`, `Measures_clauseContext`, `Modify_column_clausesContext`, `Modify_index_subpartitionContext`, `Object_as_partContext`, `Respect_or_ignore_nullsContext`, `Paren_column_listContext`, `Primary_operator_itemContext`, `Qualified_disk_clauseContext`, `.exitQuery_rewrite_clause`, `Quota_clauseContext`, `Record_type_defContext`, `Ref_cursor_type_defContext`, `Referencing_elementContext`, `Relies_on_partContext`, `Source_clauseContext`, `String_delimiterContext`, `Subquery_operation_partContext`, `Supplemental_db_loggingContext`, `Table_elementContext`, `Table_indexed_by_partContext`, `Trigger_when_clauseContext`, `Type_definitionContext`, `Unpivot_in_clauseContext`, `Until_partContext`, `Role_clauseContext`, `Using_algorithm_clauseContext`, `Xml_table_columnContext`, `Xmlindex_clauseContext`, `Subpartition_extended_namesContext`, `Collect_order_by_partContext`, `Modify_lob_storage_clauseContext`, `Partial_database_recovery_10gContext`, `Add_calc_meas_clauseContext`, `Add_mv_log_column_clauseContext`, `Directory_pathContext`, `Allow_or_disallowContext`, `Monitoring_nomonitoringContext`, `Visible_or_invisibleContext`, `Alter_roleContext`, `Begin_or_endContext`, `Alter_user_editions_clauseContext`, `Assignment_statementContext`, `Audit_schema_object_clauseContext`, `Build_clauseContext`, `Calc_meas_clauseContext`, `Case_when_part_statementContext`, `Clustering_column_groupContext`, `Clustering_columnsContext`, `Coalesce_index_partitionContext`, `Collect_order_by_partContext`, `Column_listContext`, `Column_one_or_more_sub_clauseContext`, `Conditional_insert_when_partContext`, `Privilege_audit_clauseContext`, `Role_audit_clauseContext`, `.create_controlfile`, `Default_collation_clauseContext`, `Coalesce_table_partitionContext`, `Low_highContext`, `Default_tablespaceContext`, `Dim_refContext`, `Drop_diskgroup_file_clauseContext`, `Drop_filegroup_clauseContext`, `Drop_index_partitionContext`, `Drop_mirror_clauseContext`, `.exitRule`, `Drop_roleContext`, `Dynamic_returning_clauseContext`, `Editioning_clauseContext`, `Error_directiveContext`, `Error_logging_reject_partContext`, `Exceptions_clauseContext`, `Extended_attribute_clauseContext`, `External_table_hive_parameter_mapContext`, `External_table_init_clauseContext`, `Filter_clauseContext`, `Filter_conditionContext`, `For_each_rowContext`, `Foreign_key_clauseContext`, `Group_by_clauseContext`, `Hier_using_clauseContext`, `Segment_groupContext`, `Inmemory_duplicateContext`, `Join_path_clauseContext`, `Json_object_entryContext`, `Json_query_returning_clauseContext`, `Level_specificationContext`, `Logfile_clauseContext`, `Mapping_table_clauseContext`, `Maxsize_clauseContext`, `Model_column_listContext`, `Model_iterate_clauseContext`, `Model_rules_clauseContext`, `Supplemental_logging_propsContext`, `Offset_clauseContext`, `On_list_partitioned_tableContext`, `On_range_partitioned_tableContext`, `Option_valuesContext`, `Parallel_instances_clauseContext`, `Parameter_specContext`, `Partial_database_recoveryContext`, `Element_spec_optionsContext`, `Pivot_in_clause_elementsContext`, `Records_per_block_clauseContext`, `Relational_tableContext`, `Rename_column_clauseContext`, `Revoke_roles_from_programsContext`, `Revoke_system_privilegeContext`, `Seed_partContext`, `Start_partContext`, `User_lock_clauseContext`, `User_tablespace_clauseContext`, `View_alias_constraintContext`, `Xmlroot_param_version_partContext`, `Ts_file_name_convertContext`, `Xml_multiuse_expression_elementContext`, `Update_set_clauseContext`, `Lower_boundContext`, `Instance_clausesContext`, `Upper_boundContext`, `Respect_or_ignore_nullsContext`, `Ad_attributes_clauseContext`, `Ad_using_clauseContext`, `Add_binding_clauseContext`, `Add_or_dropContext`, `Measure_listContext`, `File_pathContext`, `Alter_view_editionableContext`, `AnnotationContext`, `Between_boundContext`, `Cache_clauseContext`, `Caption_clauseContext`, `Simple_case_statementContext`, `Case_when_part_expressionContext`, `Character_set_clauseContext`, `Cluster_index_clauseContext`, `Collation_nameContext`, `Compile_type_clauseContext`, `Conditional_insert_clauseContext`, `Container_tableview_nameContext`, `Create_zonemap_as_subqueryContext`, `Database_logging_sub_clauseContext`, `Default_measure_clauseContext`, `Default_selectivity_clauseContext`, `Description_clauseContext`, `ElementContext`, `Else_partContext`, `Error_logging_into_partContext`, `External_table_field_listContext`, `External_table_lls_clauseContext`, `Filename_convert_sub_clauseContext`, `For_update_clauseContext`, `For_update_of_partContext`, `Label_nameContext`, `Group_redo_logfileContext`, `Identified_by_password_clauseContext`, `Identity_options_parenthesesContext`, `Implementation_clauseContext`, `Index_org_overflow_clauseContext`, `Into_clause1Context`, `Join_clauseContext`, `Join_condition_itemContext`, `Join_on_partContext`, `Json_value_return_clauseContext`, `Library_editionableContext`, `Lob_deduplicate_clauseContext`, `Lock_table_elementContext`, `Log_grpContext`, `Logical_expressionContext`, `Match_stringContext`, `Merge_update_delete_partContext`, `MkidContext`, `Model_column_partition_partContext`, `Modify_col_visibilityContext`, `Move_mv_log_clauseContext`, `Non_reserved_keywords_in_18cContext`, `Object_type_col_propertiesContext`, `Object_under_partContext`, `Online_or_offlineContext`, `Operator_function_nameContext`, `Parameter_valueContext`, `Password_expire_clauseContext`, `Policy_nameContext`, `Pragma_elementsContext`, `Record_nameContext`, `Resetlogs_or_noresetlogsContext`, `Restore_pointContext`, `Searched_case_expressionContext`, `Selected_listContext`, `Sort_or_nosortContext`, `Sqlj_object_type_attrContext`, `Standard_actionsContext`, `Start_commandContext`, `Striping_clauseContext`, `Subprog_decl_in_typeContext`, `System_actionsContext`, `Tablespace_datafile_clausesContext`, `Trigger_blockContext`, `Trigger_follows_clauseContext`, `Unary_logical_expressionContext`, `Unary_logical_operationContext`, `Undrop_disk_clauseContext`, `Upgrade_or_downgradeContext`, `User_editions_clauseContext`, `Using_elementContext`, `Wait_nowait_partContext`, `Windowing_clauseContext`, `Windowing_typeContext`, `With_clauseContext`, `Xml_multiuse_expression_elementContext`, `Xmlserialize_param_enconding_partContext`, `Xmlserialize_param_version_partContext`, `Xmltype_column_propertiesContext`, `Yes_noContext`, `Sqlj_object_type_attrContext`, `Close_statementContext`, `Having_clauseContext`, `Within_or_over_clause_keywordContext`, `Profile_nameContext`, `Alter_method_specContext`, `Alternate_key_clauseContext`, `Audit_userContext`, `Base_meas_clauseContext`, `Between_elementsContext`, `BlockContext`, `Collection_itemContext`, `Compound_dml_triggerContext`, `Conditional_insert_else_partContext`, `Connection_qualifierContext`, `Cost_class_nameContext`, `Cpu_costContext`, `Credential_nameContext`, `DatabaseContext`, `Db_nameContext`, `Default_selectivityContext`, `Dir_nameContext`, `Dynamic_base_profileContext`, `From_clauseContext`, `Hash_partition_quantityContext`, `Hash_subpartition_quantityContext`, `IndextypeContext`, `Inquiry_directiveContext`, `Io_costContext`, `Join_conditionContext`, `Levels_itemContext`, `Library_debugContext`, `Local_link_nameContext`, `Main_model_nameContext`, `Merge_elementContext`, `Model_nameContext`, `Nested_itemContext`, `Network_costContext`, `New_constraint_nameContext`, `New_index_nameContext`, `New_partition_nameContext`, `Null_statementContext`, `Object_typeContext`, `Old_constraint_nameContext`, `Oracle_namespaceContext`, `Partition_name_oldContext`, `PathContext`, `Pfile_nameContext`, `Pivot_in_clause_elementContext`, `Primary_operator_listContext`, `Profile_clauseContext`, `Profile_nameContext`, `Query_nameContext`, `Reference_model_nameContext`, `Return_statementContext`, `Rollback_segmentContext`, `Savepoint_statementContext`, `Spfile_nameContext`, `Static_base_profileContext`, `Statistics_type_nameContext`, `Table_ref_listContext`, `Tps_blockContext`, `Using_function_clauseContext`, `Varray_itemContext`, `Xml_schema_urlContext`, `Reference_model_nameContext`, `Savepoint_nameContext`, `Savepoint_statementContext`, `Alter_mv_option1Context`, `Component_actionContext`, `Dir_object_nameContext`, `End_time_columnContext`, `Equijoin_conditionContext`, `Indextype_nameContext`, `New_column_nameContext`, `New_tablespace_nameContext`, `Old_column_nameContext`, `PhaseContext`, `Property_nameContext`, `Property_valueContext`, `Relational_table_propertiesContext`, `Start_time_columnContext`, `ElementContext`, `.alter_add_cache_clause`, `.exitRule`, `.accept`, `.enterRule`, `.exitRule`, `.exitRule`, `.exitRule`, `.enterRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.accept`, `.exitRule`, `.exitRule`, `.exitRule`, `.enterRule`, `.enterRule`, `.exitRule`, `.accept`, `.exitRule`, `.enterRule`, `.exitRule`, `.accept`, `.accept`, `.enterRule`, `.enterRule`, `.enterRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.accept`, `.exitRule`, `.enterRule`, `.enterRule`, `ArgumentContext`, `.accept`, `.enterRule`, `.exitRule`, `.accept`, `.exitRule`, `.accept`, `.exitRule`, `.accept`, `.enterRule`, `.enterRule`, `.exitRule`, `.accept`, `.accept`, `.enterRule`, `.accept`, `.exitRule`, `.accept`, `.enterRule`, `.accept`, `.accept`, `.exitRule`, `.accept`, `.accept`, `.exitRule`, `.accept`, `.exitRule`, `.accept`, `.accept`, `.accept`, `.enterRule`, `.accept`, `Cdb_fleet_clausesContext`, `.accept`, `.exitRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.accept`, `Clear_commandContext`, `.accept`, `.accept`, `.exitRule`, `.accept`, `.accept`, `.accept`, `.accept`, `.accept`, `.exitRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.accept`, `.accept`, `.exitRule`, `.enterRule`, `.accept`, `.enterRule`, `.exitRule`, `.accept`, `.exitRule`, `.accept`, `.enterRule`, `.accept`, `.accept`, `.accept`, `.accept`, `.enterRule`, `.accept`, `.enterRule`, `.accept`, `.exitRule`, `.enterRule`, `.exitRule`, `.exitRule`, `.accept`, `.enterRule`, `.exitRule`, `.exitRule`, `.exitRule`, `.exitRule`, `.accept`, `.enterRule`, `.exitRule`, `.accept`, `.exitRule`, `.exitRule`, `.accept`, `.exitRule`, `.enterRule`, `.exitRule`, `.exitRule`, `.exitRule`, `.accept`, `.accept`, `.enterRule`, `.accept`, `.exitRule`, `.enterRule`, `.enterRule`, `.exitRule`, `.accept`, `.enterRule`, `Database_file_clausesContext`, `.enterRule`, `.exitRule`, `.accept`, `.accept`, `Default_cost_clauseContext`, `.accept`, `.accept`, `.exitRule`, `Default_value_partContext`, `.accept`, `Dependent_exceptions_partContext`, `.enterRule`, `.enterRule`, `.accept`, `.accept`, `.accept`, `.accept`, `.exitUnit_statement`, `.accept`, `.enterRule`, `.accept`, `.exitRule`, `.exitRule`, `.accept`, `.accept`, `.exitRule`, `.accept`, `.accept`, `.exitRule`, `.accept`, `.exitRule`, `.enterRule`, `.enterRule`, `.exitRule`, `.exitRule`, `.accept`, `.exitRule`, `.accept`, `.enterRule`, `.exitRule`, `.enterRule`, `.enterRule`, `.accept`, `.enterRule`, `.accept`, `.enterRule`, `.accept`, `.exitRule`, `.accept`, `.exitRule`, `.accept`, `.accept`, `.accept`, `.exitRule`, `.accept`, `.accept`, `.exitRule`, `.enterRule`, `.enterRule`, `.exitRule`, `.enterRule`, `.accept`, `.exitRule`, `.accept`, `.exitRule`, `.enterRule`, `.exitRule`, `.accept`, `.accept`, `.accept`, `Exception_declarationContext`, `.enterRule`, `.exitRule`, `.enterRule`, `.accept`, `.accept`, `.exitRule`, `.exitRule`, `.enterRule`, `.enterRule`, `.enterRule`, `.exitRule`, `.accept`, `.accept`, `.exitRule`, `.exitRule`, `.enterRule`, `.exitRule`, `.accept`, `.exitRule`, `.accept`, `.enterRule`, `.exitRule`, `.exitRule`, `.enterRule`, `.accept`, `Fetch_statementContext`, `.enterRule`, `.exitRule`, `.accept`, `.enterRule`, `.exitRule`, `.exitRule`, `.exitRule`, `.accept`, `Filter_clausesContext`, `.enterRule`, `.enterRule`, `.accept`, `.accept`, `.exitRule`, `.exitRule`, `.enterRule`, `.accept`, `.accept`, `Function_argument_modelingContext`, `.exitRule`, `.exitRule`, `.exitRule`, `.accept`, `.enterRule`, `.enterRule`, `.exitRule`, `.exitRule`, `.accept`, `.enterRule`, `.enterRule`, `.enterRule`, `.accept`, `.enterRule`, `.accept`, `.enterRule`, `.exitRule`, `.exitRule`, `.exitRule`, `.enterRule`, `.enterRule`, `.exitRule`, `.accept`, `.enterRule`, `.accept`, `.exitRule`, `.accept`, `.enterRule`, `.exitRule`, `.exitRule`, `.exitRule`, `.accept`, `.accept`, `.enterRule`, `.accept`, `.accept`, `.exitRule`, `.enterRule`, `.accept`, `.exitRule`, `.enterRule`, `.accept`, `.accept`, `.enterRule`, `.accept`, `.exitRule`, `.exitRule`, `.exitRule`, `.exitRule`, `.accept`, `.accept`, `.enterRule`, `.enterRule`, `.accept`, `.exitRule`, `.enterRule`, `.accept`, `.enterRule`, `.enterRule`, `.exitRule`, `.accept`, `.exitRule`, `.exitRule`, `.accept`, `.exitRule`, `.enterRule`, `.accept`, `.enterRule`, `.enterRule`, `.accept`, `.accept`, `.accept`, `.accept`, `.enterRule`, `Lob_compression_clauseContext`, `.exitRule`, `.accept`, `.accept`, `.accept`, `.accept`, `.exitRule`, `.accept`, `.accept`, `.exitRule`, `Logfile_descriptorContext`, `.accept`, `.accept`, `.accept`, `.enterRule`, `.accept`, `.accept`, `.enterRule`, `.accept`, `.enterRule`, `.enterRule`, `.accept`, `.enterRule`, `.accept`, `.accept`, `.enterRule`, `.accept`, `Modify_col_propertiesContext`, `.exitRule`, `Modify_filegroup_clauseContext`, `.accept`, `Modify_mv_column_clauseContext`?**
   _High betweenness centrality (0.102) - this node is a cross-community bridge._
-- **What connects `R`, `bt`, `name` to the rest of the system?**
+- **What connects `Graphify knowledge graph`, `name`, `objectType` to the rest of the system?**
   _1656 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `PL/SQL Parser Listener` be split into smaller, more focused modules?**
   _Cohesion score 0.0008254230293025176 - nodes in this community are weakly interconnected._

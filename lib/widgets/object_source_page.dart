@@ -10,6 +10,7 @@ import '../services/schema_service.dart';
 import '_editor_plsql_checker.dart';
 import '_editor_plsql_completions.dart';
 import '_editor_themes.dart';
+import 'ambiente_selector.dart';
 import 'app_toast.dart';
 import 'status_card.dart';
 
@@ -44,12 +45,17 @@ class ObjectSourcePage extends StatefulWidget {
   /// When true, renders content without a Scaffold (for embedding in a float window).
   final bool embedded;
 
+  /// Callback para cambiar el ambiente desde el AppBar (solo en modo tab).
+  /// Si es null, el ambiente se muestra como badge estático (modo ventana separada).
+  final ValueChanged<String>? onAmbienteChanged;
+
   const ObjectSourcePage({
     super.key,
     required this.name,
     required this.objectType,
     required this.ambiente,
     this.embedded = false,
+    this.onAmbienteChanged,
   });
 
   @override
@@ -557,81 +563,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
     if (widget.embedded) return _buildEmbedded(isDark, hasTabs);
 
     return Scaffold(
-      appBar: AppBar(
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 12),
-          child: Icon(typeIcon, color: Colors.white, size: 20),
-        ),
-        title: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    widget.name,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: 'Consolas',
-                    ),
-                  ),
-                  Text(
-                    _typeLabel(widget.objectType),
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.white.withValues(alpha: 0.7),
-                      fontWeight: FontWeight.normal,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.18),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                widget.ambiente,
-                style: const TextStyle(fontSize: 11, color: Colors.white),
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: typeColor,
-        foregroundColor: Colors.white,
-        bottom: hasTabs
-            ? PreferredSize(
-                preferredSize: const Size.fromHeight(46),
-                child: ColoredBox(
-                  color: isDark
-                      ? const Color(0xFF1E1E1E)
-                      : const Color(0xFFF5F7FA),
-                  child: TabBar(
-                    controller: _tabCtrl,
-                    tabs: [
-                      _TabWithBadge('Especificación', errorCount: _specErrors),
-                      _TabWithBadge('Cuerpo', errorCount: _bodyErrors),
-                    ],
-                    labelStyle: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    unselectedLabelStyle: const TextStyle(fontSize: 13),
-                    indicatorColor: typeColor,
-                    labelColor: typeColor,
-                    unselectedLabelColor: isDark
-                        ? Colors.white54
-                        : Colors.black54,
-                  ),
-                ),
-              )
-            : null,
-      ),
+      appBar: _buildCompactHeader(isDark, hasTabs, typeColor, typeIcon),
       body: Column(
         children: [
           _buildViewToolbar(isDark),
@@ -661,9 +593,186 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
     );
   }
 
+  /// Header compacto estilo VS Code: 40 px de alto, acento lateral con el color
+  /// del tipo, fondo neutro que se adapta al tema. Sin colores saturados.
+  PreferredSizeWidget _buildCompactHeader(
+    bool isDark,
+    bool hasTabs,
+    Color typeColor,
+    IconData typeIcon,
+  ) {
+    final bg = isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA);
+    final borderColor =
+        isDark ? const Color(0xFF3A3A3A) : const Color(0xFFDDE2EA);
+    final nameColor =
+        isDark ? const Color(0xFFD4D4D4) : const Color(0xFF1A1A1A);
+    final ambColor = AmbienteSelector.colorForAmbiente(widget.ambiente);
+
+    const rowH = 40.0;
+    const borderH = 1.0;
+    const tabH = 34.0;
+    final totalH = hasTabs ? rowH + borderH + tabH : rowH + borderH;
+
+    return PreferredSize(
+      preferredSize: Size.fromHeight(totalH),
+      child: Container(
+        color: bg,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ── Fila principal ─────────────────────────────────────────────
+            SizedBox(
+              height: rowH,
+              child: Row(
+                children: [
+                  // Acento lateral: 3 px del color del tipo
+                  Container(width: 3, color: typeColor),
+                  const SizedBox(width: 10),
+
+                  // Icono del tipo
+                  Icon(typeIcon, size: 15, color: typeColor),
+                  const SizedBox(width: 6),
+
+                  // Badge del tipo (p.ej. "PAQUETE")
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: typeColor.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(3),
+                      border: Border.all(
+                        color: typeColor.withValues(alpha: 0.35),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Text(
+                      _typeLabel(widget.objectType).toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: typeColor,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.6,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+
+                  // Nombre del objeto
+                  Expanded(
+                    child: Text(
+                      widget.name,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontFamily: 'Consolas',
+                        fontWeight: FontWeight.w600,
+                        color: nameColor,
+                      ),
+                    ),
+                  ),
+
+                  // Botón copiar nombre
+                  Tooltip(
+                    message: 'Copiar nombre',
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(4),
+                      onTap: () {
+                        Clipboard.setData(ClipboardData(text: widget.name));
+                        AppToast.success('Nombre copiado: ${widget.name}');
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 6,
+                        ),
+                        child: Icon(
+                          Icons.copy_rounded,
+                          size: 14,
+                          color: nameColor.withValues(alpha: 0.5),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Separador
+                  Container(
+                    width: 1,
+                    height: 20,
+                    margin: const EdgeInsets.symmetric(horizontal: 8),
+                    color: borderColor,
+                  ),
+
+                  // Ambiente: selector o badge según si hay callback
+                  if (widget.onAmbienteChanged != null)
+                    AmbienteSelector(
+                      value: widget.ambiente,
+                      onChanged: widget.onAmbienteChanged!,
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: ambColor.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: ambColor.withValues(alpha: 0.5),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: Text(
+                        widget.ambiente,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: ambColor,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(width: 8),
+                ],
+              ),
+            ),
+
+            // Separador inferior de la fila principal
+            Container(height: 1, color: borderColor),
+
+            // ── TabBar (solo PACKAGE / TYPE) ────────────────────────────────
+            if (hasTabs)
+              SizedBox(
+                height: tabH - 1,
+                child: TabBar(
+                  controller: _tabCtrl,
+                  tabs: [
+                    _TabWithBadge('Especificación', errorCount: _specErrors),
+                    _TabWithBadge('Cuerpo', errorCount: _bodyErrors),
+                  ],
+                  labelStyle: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  unselectedLabelStyle: const TextStyle(fontSize: 12),
+                  indicatorColor: typeColor,
+                  indicatorWeight: 2,
+                  labelColor: typeColor,
+                  unselectedLabelColor: isDark ? Colors.white38 : Colors.black38,
+                  dividerColor: Colors.transparent,
+                  labelPadding: const EdgeInsets.symmetric(horizontal: 16),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // Embedded layout (no Scaffold) — used by the floating source window.
-  Widget _buildEmbedded(bool isDark, bool hasTabs) {
-    final border = isDark ? const Color(0xFF3A3A3A) : const Color(0xFFDDE2EA);
+  Widget _buildEmbedded(bool isDark, bool hasTabs) {    final border = isDark ? const Color(0xFF3A3A3A) : const Color(0xFFDDE2EA);
     final typeColor = kTypeColors[widget.objectType] ?? const Color(0xFF0078D4);
     return Column(
       children: [
