@@ -8,6 +8,7 @@ import '../services/transfer_service.dart';
 import '../widgets/_editor_themes.dart';
 import '../widgets/ambiente_selector.dart';
 import '../widgets/app_toast.dart';
+import '../widgets/constellation_background.dart';
 
 typedef _Hunk = ({int origStart, int origEnd, int modStart, int modEnd});
 
@@ -139,6 +140,7 @@ class _EnvDiffPageState extends State<EnvDiffPage> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
+        flexibleSpace: const ConstellationAppBarBackground(),
         title: Row(
           children: [
             const SizedBox(width: 4),
@@ -344,6 +346,9 @@ class _InlineDiffState extends State<_InlineDiff> {
   bool _savingOriginal = false;
   bool _savingModified = false;
   MonacoDiffController? _ctrl;
+  // El editor diff vive en un webview: una vez destruido, cualquier llamada
+  // rebota con `MonacoDisposedError`. Ver [_withCtrl].
+  bool _disposed = false;
 
   // Tracks the current ORIGEN (left) text after programmatic changes
   late String _currentOriginal;
@@ -355,10 +360,40 @@ class _InlineDiffState extends State<_InlineDiff> {
     _currentOriginal = widget.original;
   }
 
+  @override
+  void dispose() {
+    _disposed = true;
+    _ctrl = null;
+    super.dispose();
+  }
+
+  /// Ejecuta [action] contra el diff editor sólo si sigue vivo, absorbiendo
+  /// el rebote por editor ya destruido (la página se cerró mid-await).
+  Future<T?> _withCtrl<T>(
+    Future<T> Function(MonacoDiffController ctrl) action,
+  ) async {
+    final ctrl = _ctrl;
+    if (ctrl == null || _disposed || !mounted) return null;
+    try {
+      return await action(ctrl);
+    } catch (e) {
+      final msg = e.toString();
+      if (msg.contains('MonacoDisposedError') ||
+          msg.contains('has been disposed')) {
+        _ctrl = null;
+        return null;
+      }
+      rethrow;
+    }
+  }
+
   Future<void> _toggleLayout() async {
     final next = !_sideBySide;
     setState(() => _sideBySide = next);
-    await _ctrl?.updateDiffOptions(MonacoDiffOptions(renderSideBySide: next));
+    await _withCtrl(
+      (ctrl) =>
+          ctrl.updateDiffOptions(MonacoDiffOptions(renderSideBySide: next)),
+    );
   }
 
   Future<void> _handleSaveOriginal() async {
@@ -374,7 +409,8 @@ class _InlineDiffState extends State<_InlineDiff> {
     if (_ctrl == null) return;
     setState(() => _savingModified = true);
     try {
-      final code = await _ctrl!.getModifiedText();
+      final code = await _withCtrl((ctrl) => ctrl.getModifiedText());
+      if (code == null) return;
       await widget.onSaveModified?.call(code);
     } finally {
       if (mounted) setState(() => _savingModified = false);
@@ -383,9 +419,8 @@ class _InlineDiffState extends State<_InlineDiff> {
 
   // Apply the first remaining hunk from ORIGEN to DESTINO
   Future<void> _applyOneToModified() async {
-    final ctrl = _ctrl;
-    if (ctrl == null) return;
-    final destino = await ctrl.getModifiedText();
+    final destino = await _withCtrl((ctrl) => ctrl.getModifiedText());
+    if (destino == null) return;
     final hunks = _computeHunks(_currentOriginal, destino);
     if (hunks.isEmpty) return;
     final h = hunks.first;
@@ -399,14 +434,15 @@ class _InlineDiffState extends State<_InlineDiff> {
     setState(
       () => _history.add((original: _currentOriginal, modified: destino)),
     );
-    await ctrl.setTexts(original: _currentOriginal, modified: newDest);
+    await _withCtrl(
+      (ctrl) => ctrl.setTexts(original: _currentOriginal, modified: newDest),
+    );
   }
 
   // Apply the first remaining hunk from DESTINO to ORIGEN
   Future<void> _applyOneToOriginal() async {
-    final ctrl = _ctrl;
-    if (ctrl == null) return;
-    final destino = await ctrl.getModifiedText();
+    final destino = await _withCtrl((ctrl) => ctrl.getModifiedText());
+    if (destino == null) return;
     final hunks = _computeHunks(_currentOriginal, destino);
     if (hunks.isEmpty) return;
     final h = hunks.first;
@@ -421,31 +457,34 @@ class _InlineDiffState extends State<_InlineDiff> {
       _history.add((original: _currentOriginal, modified: destino));
       _currentOriginal = newOrig;
     });
-    await ctrl.setTexts(original: newOrig, modified: destino);
+    await _withCtrl(
+      (ctrl) => ctrl.setTexts(original: newOrig, modified: destino),
+    );
   }
 
   // Overwrites DESTINO (right) with current ORIGEN (left) content
   Future<void> _applyAllToModified() async {
-    final ctrl = _ctrl;
-    if (ctrl == null) return;
-    final currentModified = await ctrl.getModifiedText();
+    final currentModified = await _withCtrl((ctrl) => ctrl.getModifiedText());
+    if (currentModified == null) return;
     setState(
       () =>
           _history.add((original: _currentOriginal, modified: currentModified)),
     );
-    await ctrl.setTexts(original: _currentOriginal, modified: _currentOriginal);
+    await _withCtrl(
+      (ctrl) =>
+          ctrl.setTexts(original: _currentOriginal, modified: _currentOriginal),
+    );
   }
 
   // Overwrites ORIGEN (left) with current DESTINO (right) content
   Future<void> _applyAllToOriginal() async {
-    final ctrl = _ctrl;
-    if (ctrl == null) return;
-    final code = await ctrl.getModifiedText();
+    final code = await _withCtrl((ctrl) => ctrl.getModifiedText());
+    if (code == null) return;
     setState(() {
       _history.add((original: _currentOriginal, modified: code));
       _currentOriginal = code;
     });
-    await ctrl.setTexts(original: code, modified: code);
+    await _withCtrl((ctrl) => ctrl.setTexts(original: code, modified: code));
   }
 
   Future<void> _undo() async {
@@ -455,7 +494,9 @@ class _InlineDiffState extends State<_InlineDiff> {
       _history.removeLast();
       _currentOriginal = prev.original;
     });
-    await _ctrl?.setTexts(original: prev.original, modified: prev.modified);
+    await _withCtrl(
+      (ctrl) => ctrl.setTexts(original: prev.original, modified: prev.modified),
+    );
   }
 
   @override

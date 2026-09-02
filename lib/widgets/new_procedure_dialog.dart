@@ -6,6 +6,7 @@ import 'package:flutter_monaco/flutter_monaco.dart';
 import '../providers/procedimientos_provider.dart';
 import 'ambiente_selector.dart';
 import 'config_badge.dart';
+import 'constellation_background.dart';
 import '_editor_themes.dart';
 
 class NewProcedureDialog extends StatefulWidget {
@@ -199,9 +200,10 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
         : const Color(0xFF0053A6);
     final onHeader = isDark ? cs.onSurface : Colors.white;
 
-    return Container(
+    return ConstellationHeader(
       padding: const EdgeInsets.fromLTRB(20, 15, 14, 15),
-      color: headerBg,
+      decoration: BoxDecoration(color: headerBg),
+      onDark: true,
       child: Row(
         children: [
           Container(

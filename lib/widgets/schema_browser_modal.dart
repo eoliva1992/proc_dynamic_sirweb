@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/schema_service.dart';
 import '../widgets/ambiente_selector.dart';
+import '../widgets/constellation_background.dart';
 import '../widgets/schema_object_details_sheet.dart';
 import '../widgets/source_float_window.dart';
+import '../widgets/source_tab_controller.dart';
 import '../screens/schema_object_diff_page.dart';
 
 /// Abre el explorador de esquema con fondo semi-transparente.
@@ -13,6 +15,9 @@ Future<void> showSchemaBrowser(
   BuildContext context, {
   required String ambiente,
 }) {
+  // El diálogo vive en el root navigator: capturamos el handler de tabs desde
+  // el contexto llamador y lo re-inyectamos en el árbol del modal.
+  final openTab = SourceTabController.openTabOf(context);
   return showGeneralDialog(
     context: context,
     barrierDismissible: true,
@@ -23,7 +28,11 @@ Future<void> showSchemaBrowser(
       opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
       child: child,
     ),
-    pageBuilder: (ctx, _, _) => _SchemaBrowserModal(ambiente: ambiente),
+    pageBuilder: (ctx, _, _) {
+      final modal = _SchemaBrowserModal(ambiente: ambiente);
+      if (openTab == null) return modal;
+      return SourceTabController(openTab: openTab, child: modal);
+    },
   );
 }
 
@@ -194,16 +203,18 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
     // Look up the actual owner so ALL_TAB_COLUMNS can be queried for cross-schema tables
     final schema = SchemaService.instance.getCached(ambiente: _currentAmbiente);
     final owner = schema?.tableOwners[table] ?? schema?.viewOwners[table];
-    final cols = await SchemaService.instance.getColumns(
-      table,
-      owner: owner,
-      ambiente: _currentAmbiente,
-    );
-    if (mounted) {
-      setState(() {
-        _columns[table] = cols;
-        _loadingCols.remove(table);
-      });
+    try {
+      final cols = await SchemaService.instance.getColumns(
+        table,
+        owner: owner,
+        ambiente: _currentAmbiente,
+      );
+      _columns[table] = cols;
+    } finally {
+      // La bandera se limpia SIEMPRE: si quedara puesta, la guarda de arriba
+      // impediría cualquier reintento y el spinner sería permanente.
+      _loadingCols.remove(table);
+      if (mounted) setState(() {});
     }
   }
 
@@ -411,15 +422,14 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
       return;
     }
     setState(() => _loadingTypeAttrs.add(typeName));
-    final attrs = await SchemaService.instance.getTypeAttributes(
-      typeName,
-      ambiente: _currentAmbiente,
-    );
-    if (mounted) {
-      setState(() {
-        _typeAttrs[typeName] = attrs;
-        _loadingTypeAttrs.remove(typeName);
-      });
+    try {
+      _typeAttrs[typeName] = await SchemaService.instance.getTypeAttributes(
+        typeName,
+        ambiente: _currentAmbiente,
+      );
+    } finally {
+      _loadingTypeAttrs.remove(typeName);
+      if (mounted) setState(() {});
     }
   }
 
@@ -438,16 +448,22 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
         _loadingPackages.contains(packageName)) {
       return;
     }
-    setState(() => _loadingPackages.add(packageName));
-    final subs = await SchemaService.instance.getPackageSubprograms(
+    // Si ya está en el caché en memoria del servicio, se pinta sin spinner.
+    final cached = SchemaService.instance.peekPackageSubprograms(
       packageName,
       ambiente: _currentAmbiente,
     );
-    if (mounted) {
-      setState(() {
-        _packageSubprogs[packageName] = subs;
-        _loadingPackages.remove(packageName);
-      });
+    if (cached != null) {
+      setState(() => _packageSubprogs[packageName] = cached);
+      return;
+    }
+    setState(() => _loadingPackages.add(packageName));
+    try {
+      _packageSubprogs[packageName] = await SchemaService.instance
+          .getPackageSubprograms(packageName, ambiente: _currentAmbiente);
+    } finally {
+      _loadingPackages.remove(packageName);
+      if (mounted) setState(() {});
     }
   }
 
@@ -472,16 +488,23 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
         _loadingArgs.contains(objectName)) {
       return;
     }
-    setState(() => _loadingArgs.add(objectName));
-    final args = await SchemaService.instance.getObjectArguments(
+    final cached = SchemaService.instance.peekObjectArguments(
       objectName,
       ambiente: _currentAmbiente,
     );
-    if (mounted) {
-      setState(() {
-        _objectArgs[objectName] = args;
-        _loadingArgs.remove(objectName);
-      });
+    if (cached != null) {
+      setState(() => _objectArgs[objectName] = cached);
+      return;
+    }
+    setState(() => _loadingArgs.add(objectName));
+    try {
+      _objectArgs[objectName] = await SchemaService.instance.getObjectArguments(
+        objectName,
+        ambiente: _currentAmbiente,
+      );
+    } finally {
+      _loadingArgs.remove(objectName);
+      if (mounted) setState(() {});
     }
   }
 
@@ -1002,7 +1025,7 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
   }
 
   Widget _buildHeader(bool isDark) {
-    return Container(
+    return ConstellationHeader(
       padding: const EdgeInsets.fromLTRB(20, 14, 12, 14),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -1011,6 +1034,7 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
           end: Alignment.bottomRight,
         ),
       ),
+      onDark: true,
       child: Row(
         children: [
           const Icon(Icons.storage_rounded, color: Colors.white, size: 20),

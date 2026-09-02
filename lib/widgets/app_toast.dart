@@ -106,6 +106,65 @@ abstract final class AppToast {
     );
   }
 
+  // Shows a success toast with an action button (e.g. open file explorer).
+  static void successWithAction(
+    String message, {
+    required String actionLabel,
+    required VoidCallback onAction,
+    IconData actionIcon = Icons.folder_open_rounded,
+    String? detail,
+    Duration? duration,
+  }) {
+    ToastificationItem? item;
+    item = toastification.show(
+      alignment: _alignment,
+      animationDuration: _animDuration,
+      animationBuilder: _buildAnimation,
+      type: ToastificationType.success,
+      style: _style,
+      title: Text(
+        message,
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+      ),
+      description: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (detail != null && detail.isNotEmpty)
+            Text(
+              detail,
+              style: const TextStyle(fontSize: 11),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          const SizedBox(height: 4),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () {
+                if (item != null) toastification.dismiss(item);
+                onAction();
+              },
+              icon: Icon(actionIcon, size: 15),
+              label: Text(actionLabel, style: const TextStyle(fontSize: 11)),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: const Size(0, 28),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+          ),
+        ],
+      ),
+      autoCloseDuration: duration ?? const Duration(seconds: 6),
+      showProgressBar: true,
+      dragToClose: true,
+      pauseOnHover: true,
+      closeButton: const ToastCloseButton(showType: CloseButtonShowType.always),
+    );
+  }
+
   // Shows a warning with a tappable description that triggers an action.
   static void warningWithAction(
     String message, {
@@ -187,4 +246,64 @@ abstract final class AppToast {
       closeButton: const ToastCloseButton(showType: CloseButtonShowType.always),
     );
   }
+
+  /// Error que permanece en pantalla hasta que se lo cierra explícitamente.
+  ///
+  /// Devuelve el item para poder descartarlo con [dismiss] cuando la condición
+  /// que lo originó desaparece (p. ej. la conexión se restablece).
+  static ToastificationItem persistentError(
+    String title, {
+    String? detail,
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
+    return toastification.show(
+      alignment: _alignment,
+      animationDuration: _animDuration,
+      animationBuilder: _buildAnimation,
+      type: ToastificationType.error,
+      style: _style,
+      title: Text(
+        title,
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+      ),
+      description: (detail == null && actionLabel == null)
+          ? null
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (detail != null && detail.isNotEmpty)
+                  Text(detail, style: const TextStyle(fontSize: 11)),
+                if (actionLabel != null && onAction != null)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: onAction,
+                      icon: const Icon(Icons.refresh_rounded, size: 15),
+                      label: Text(
+                        actionLabel,
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: const Size(0, 28),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+      // Sin autoclose: la alerta vive mientras dure el problema.
+      autoCloseDuration: null,
+      showProgressBar: false,
+      dragToClose: false,
+      pauseOnHover: true,
+      closeButton: const ToastCloseButton(showType: CloseButtonShowType.always),
+    );
+  }
+
+  /// Cierra un toast obtenido de [persistentError].
+  static void dismiss(ToastificationItem item) => toastification.dismiss(item);
 }

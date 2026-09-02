@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../widgets/ambiente_selector.dart';
 import 'app_toast.dart';
+import 'constellation_background.dart';
 import 'object_source_page.dart';
 import 'source_tab_controller.dart';
 
@@ -23,10 +24,13 @@ void openSourceWindow(
   required String objectType,
   required String ambiente,
 }) {
-  // Camino principal: tab en la ventana principal
-  final controller = SourceTabController.maybeOf(context);
-  if (controller != null) {
-    controller.openTab(name: name, objectType: objectType, ambiente: ambiente);
+  // Camino principal: tab en la ventana principal.
+  // openTabOf resuelve primero por árbol y, si el contexto no es descendiente
+  // (p.ej. un diálogo montado en el root navigator) o ya fue desmontado,
+  // recurre al handler global registrado por la pantalla principal.
+  final openTab = SourceTabController.openTabOf(context);
+  if (openTab != null) {
+    openTab(name: name, objectType: objectType, ambiente: ambiente);
     return;
   }
 
@@ -65,15 +69,15 @@ Future<void> _openNativeWindow(
     // En release tampoco se necesita: el exe tiene subsistema WIN32, nunca
     // muestra consola.  El proceso hijo sigue vivo aunque la ventana principal
     // se cierre (comportamiento normal de Win32 para procesos GUI).
-    final process = await Process.start(
-      exe,
-      [
-        'multi_window',
-        '', // placeholder windowId (no se usa)
-        jsonEncode({'name': name, 'objectType': objectType, 'ambiente': ambiente}),
-      ],
-      workingDirectory: cwd,
-    );
+    final process = await Process.start(exe, [
+      'multi_window',
+      '', // placeholder windowId (no se usa)
+      jsonEncode({
+        'name': name,
+        'objectType': objectType,
+        'ambiente': ambiente,
+      }),
+    ], workingDirectory: cwd);
 
     // En debug: volcamos stderr del proceso hijo al log de la app principal
     // para poder diagnosticar fallos sin adjuntar un segundo debugger.
@@ -190,10 +194,10 @@ class _SourceFloatWindowState extends State<_SourceFloatWindow>
           Positioned(
             left: _pos.dx,
             top: _pos.dy,
-              child: SizeTransition(
-                sizeFactor: _heightAnim,
-                axis: Axis.vertical,
-                alignment: Alignment.topCenter,
+            child: SizeTransition(
+              sizeFactor: _heightAnim,
+              axis: Axis.vertical,
+              alignment: Alignment.topCenter,
               child: Container(
                 width: _size.width,
                 height: _minimized ? _titleH : _size.height,
@@ -305,9 +309,10 @@ class _SourceFloatWindowState extends State<_SourceFloatWindow>
           );
         });
       },
-      child: Container(
+      child: ConstellationHeader(
         height: _titleH,
         padding: const EdgeInsets.symmetric(horizontal: 10),
+        lineColor: color.withValues(alpha: 0.35),
         decoration: BoxDecoration(
           color: bg,
           border: Border(bottom: BorderSide(color: border)),

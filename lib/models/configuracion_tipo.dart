@@ -2,10 +2,7 @@ class ConfiguracionTipo {
   final String cdModulo;
   final String deArgumento;
 
-  const ConfiguracionTipo({
-    required this.cdModulo,
-    required this.deArgumento,
-  });
+  const ConfiguracionTipo({required this.cdModulo, required this.deArgumento});
 
   factory ConfiguracionTipo.fromJson(Map<String, dynamic> json) {
     return ConfiguracionTipo(

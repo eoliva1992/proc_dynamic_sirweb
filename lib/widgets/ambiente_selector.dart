@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'app_toast.dart';
+import 'constellation_background.dart';
 
 class AmbienteSelector extends StatelessWidget {
   final String value;
@@ -19,16 +20,22 @@ class AmbienteSelector extends StatelessWidget {
       showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.red, size: 20),
-              SizedBox(width: 8),
-              Text('Cambiar a Producción'),
-            ],
+          titlePadding: EdgeInsets.zero,
+          title: const ConstellationDialogTitle(
+            child: Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, color: Colors.red, size: 20),
+                SizedBox(width: 8),
+                Text('Cambiar a Producción'),
+              ],
+            ),
           ),
-          content: const Text(
-            'Estás a punto de cambiar al ambiente de Producción.\n'
-            'Las modificaciones afectarán datos reales.',
+          content: const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+              'Estás a punto de cambiar al ambiente de Producción.\n'
+              'Las modificaciones afectarán datos reales.',
+            ),
           ),
           actions: [
             TextButton(

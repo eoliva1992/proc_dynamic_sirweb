@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/procedimiento.dart';
 import '../providers/procedimientos_provider.dart';
+import '../services/backup_service.dart';
 import '../services/favorites_service.dart';
+import 'app_toast.dart';
+import 'code_editor_panel.dart' show showEjecutarProcedimientoWindow;
 import 'config_badge.dart';
 
 class ProcedureCard extends StatefulWidget {
@@ -153,6 +156,52 @@ class _ProcedureCardState extends State<ProcedureCard> {
     );
   }
 
+  void _copyProcedureName() {
+    final name = widget.procedimiento.cdProcedimiento;
+    Clipboard.setData(ClipboardData(text: name));
+    AppToast.success('Nombre copiado: $name');
+  }
+
+  void _copyProcedureAsCall() {
+    final name = widget.procedimiento.cdProcedimiento;
+    final isJs = widget.procedimiento.inConfiguracion == 'J';
+    final call = isJs ? '$name();' : 'BEGIN\n  $name;\nEND;';
+    Clipboard.setData(ClipboardData(text: call));
+    AppToast.success('Llamada copiada');
+  }
+
+  Future<void> _backupProcedure() async {
+    try {
+      final savedPath = await BackupService.exportar(
+        widget.procedimiento,
+        procedimientosProvider.ambiente,
+        procedimientosProvider.cdUsuario,
+      );
+      if (savedPath == null || !mounted) return;
+      AppToast.successWithAction(
+        'Backup exportado correctamente',
+        detail: savedPath,
+        actionLabel: 'Abrir ubicación',
+        onAction: () => unawaited(BackupService.revealInExplorer(savedPath)),
+      );
+    } catch (e) {
+      AppToast.error('Error al exportar backup: $e');
+    }
+  }
+
+  /// Abre la ventana de ejecución desde la consulta.
+  ///
+  /// Acá no hay editor: se manda sólo el nombre y el backend ejecuta el texto
+  /// guardado en `PROCEDIMIENTODINAMICO`.
+  void _ejecutarProcedimiento() {
+    showEjecutarProcedimientoWindow(
+      context,
+      widget.procedimiento.cdProcedimiento,
+      procedimientosProvider.ambiente,
+      inConfiguracion: widget.procedimiento.inConfiguracion,
+    );
+  }
+
   void _showContextMenu(TapUpDetails details) {
     final pos = details.globalPosition;
     showMenu<_CardAction>(
@@ -166,6 +215,16 @@ class _ProcedureCardState extends State<ProcedureCard> {
               Icon(Icons.code_rounded, size: 14),
               SizedBox(width: 8),
               Text('Ver fuente', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: _CardAction.ejecutar,
+          child: Row(
+            children: [
+              Icon(Icons.play_arrow_rounded, size: 14),
+              SizedBox(width: 8),
+              Text('Ejecutar', style: TextStyle(fontSize: 13)),
             ],
           ),
         ),
@@ -200,21 +259,26 @@ class _ProcedureCardState extends State<ProcedureCard> {
             ],
           ),
         ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: _CardAction.backup,
+          child: Row(
+            children: [
+              Icon(Icons.backup_outlined, size: 14),
+              SizedBox(width: 8),
+              Text('Backup a .sql', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+        ),
       ],
     ).then((action) {
+      if (!mounted) return;
       if (action == _CardAction.viewSource) widget.onViewSource?.call();
+      if (action == _CardAction.ejecutar) _ejecutarProcedimiento();
       if (action == _CardAction.openInNewTab) widget.onOpenInNewTab?.call();
-      if (action == _CardAction.copyName) {
-        Clipboard.setData(
-          ClipboardData(text: widget.procedimiento.cdProcedimiento),
-        );
-      }
-      if (action == _CardAction.copyAsCall) {
-        final name = widget.procedimiento.cdProcedimiento;
-        final isJs = widget.procedimiento.inConfiguracion == 'J';
-        final call = isJs ? '$name();' : 'BEGIN\n  $name;\nEND;';
-        Clipboard.setData(ClipboardData(text: call));
-      }
+      if (action == _CardAction.copyName) _copyProcedureName();
+      if (action == _CardAction.copyAsCall) _copyProcedureAsCall();
+      if (action == _CardAction.backup) unawaited(_backupProcedure());
     });
   }
 
@@ -423,6 +487,63 @@ class _ProcedureCardState extends State<ProcedureCard> {
                             ),
                           ),
                         ),
+                      AnimatedOpacity(
+                        duration: const Duration(milliseconds: 150),
+                        opacity: _hovered ? 1.0 : 0.25,
+                        child: Tooltip(
+                          message: 'Ejecutar procedimiento',
+                          child: InkWell(
+                            onTap: _ejecutarProcedimiento,
+                            borderRadius: BorderRadius.circular(4),
+                            child: const Padding(
+                              padding: EdgeInsets.all(4),
+                              child: Icon(
+                                Icons.play_arrow_rounded,
+                                size: 14,
+                                color: Color(0xFF16A34A),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      AnimatedOpacity(
+                        duration: const Duration(milliseconds: 150),
+                        opacity: _hovered ? 1.0 : 0.25,
+                        child: Tooltip(
+                          message: 'Copiar nombre',
+                          child: InkWell(
+                            onTap: _copyProcedureName,
+                            borderRadius: BorderRadius.circular(4),
+                            child: Padding(
+                              padding: const EdgeInsets.all(4),
+                              child: Icon(
+                                Icons.copy_rounded,
+                                size: 14,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      AnimatedOpacity(
+                        duration: const Duration(milliseconds: 150),
+                        opacity: _hovered ? 1.0 : 0.25,
+                        child: Tooltip(
+                          message: 'Backup a .sql',
+                          child: InkWell(
+                            onTap: () => unawaited(_backupProcedure()),
+                            borderRadius: BorderRadius.circular(4),
+                            child: Padding(
+                              padding: const EdgeInsets.all(4),
+                              child: Icon(
+                                Icons.backup_outlined,
+                                size: 14,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                       _FavStar(procId: proc.cdProcedimiento),
                       const SizedBox(width: 2),
                       Icon(
@@ -473,7 +594,14 @@ class _FavStar extends StatelessWidget {
   }
 }
 
-enum _CardAction { viewSource, openInNewTab, copyName, copyAsCall }
+enum _CardAction {
+  viewSource,
+  ejecutar,
+  openInNewTab,
+  copyName,
+  copyAsCall,
+  backup,
+}
 
 class _VersionBadge extends StatelessWidget {
   final int version;
@@ -535,7 +663,7 @@ class _EstadoBadge extends StatelessWidget {
   }
 }
 
-class _CodePreviewOverlay extends StatelessWidget {
+class _CodePreviewOverlay extends StatefulWidget {
   final Offset cardPosition;
   final Size cardSize;
   final Procedimiento proc;
@@ -552,6 +680,25 @@ class _CodePreviewOverlay extends StatelessWidget {
     required this.onMouseExit,
   });
 
+  @override
+  State<_CodePreviewOverlay> createState() => _CodePreviewOverlayState();
+}
+
+class _CodePreviewOverlayState extends State<_CodePreviewOverlay> {
+  late final ScrollController _scrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   static const double _popupW = 460;
   static const double _popupH = 320;
 
@@ -565,12 +712,12 @@ class _CodePreviewOverlay extends StatelessWidget {
         : const Color(0xFF1E1E1E);
 
     // Prefer above card; fall back to below if not enough vertical space.
-    double top = cardPosition.dy - _popupH - 4;
-    if (top < 8) top = cardPosition.dy + cardSize.height + 4;
+    double top = widget.cardPosition.dy - _popupH - 4;
+    if (top < 8) top = widget.cardPosition.dy + widget.cardSize.height + 4;
 
-    double left = cardPosition.dx + 12;
-    if (left + _popupW > screenSize.width - 8) {
-      left = screenSize.width - _popupW - 8;
+    double left = widget.cardPosition.dx + 12;
+    if (left + _popupW > widget.screenSize.width - 8) {
+      left = widget.screenSize.width - _popupW - 8;
     }
 
     return Positioned(
@@ -584,8 +731,8 @@ class _CodePreviewOverlay extends StatelessWidget {
         curve: Curves.easeOut,
         builder: (_, opacity, child) => Opacity(opacity: opacity, child: child),
         child: MouseRegion(
-          onEnter: (_) => onMouseEnter(),
-          onExit: (_) => onMouseExit(),
+          onEnter: (_) => widget.onMouseEnter(),
+          onExit: (_) => widget.onMouseExit(),
           child: Material(
             color: Colors.transparent,
             child: Container(
@@ -628,7 +775,7 @@ class _CodePreviewOverlay extends StatelessWidget {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          proc.cdProcedimiento,
+                          widget.proc.cdProcedimiento,
                           style: const TextStyle(
                             fontFamily: 'Consolas',
                             fontSize: 12,
@@ -641,11 +788,13 @@ class _CodePreviewOverlay extends StatelessWidget {
                   ),
                   Expanded(
                     child: Scrollbar(
+                      controller: _scrollController,
                       thumbVisibility: true,
                       child: SingleChildScrollView(
+                        controller: _scrollController,
                         padding: const EdgeInsets.all(12),
                         child: SelectableText(
-                          proc.deTexto,
+                          widget.proc.deTexto,
                           style: TextStyle(
                             fontFamily: 'Consolas',
                             fontSize: 11.5,

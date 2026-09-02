@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../services/schema_recents_service.dart';
 import '../services/schema_service.dart';
+import 'constellation_background.dart';
 import 'schema_object_details_sheet.dart';
 
 const _kTypeColors = {
@@ -152,7 +153,10 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
 
   void _select(_PaletteItem item) {
     if (!mounted) return;
-    Navigator.of(context).pop();
+    // Capturamos el Navigator ANTES del pop: tras cerrar la paleta este
+    // contexto queda desactivado y cualquier lookup de ancestro es inseguro.
+    final navigator = Navigator.of(context);
+    navigator.pop();
     SchemaRecentsService.instance.addRecent(
       SchemaObjectRef(
         name: item.name,
@@ -162,7 +166,7 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
       ),
     );
     showObjectDetails(
-      context,
+      navigator.context,
       name: item.name,
       type: item.type,
       ambiente: widget.ambiente,
@@ -262,8 +266,9 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
   }
 
   Widget _buildSearchField(bool isDark) {
-    return Padding(
+    return ConstellationHeader(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
       child: TextField(
         controller: _ctrl,
         autofocus: true,

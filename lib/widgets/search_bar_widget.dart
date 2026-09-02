@@ -33,6 +33,23 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
 
   static const _estados = {'1': 'Activos', '0': 'Inactivos', '': 'Todos'};
 
+  /// Debajo de este ancho los botones colapsan a solo icono.
+  static const double _kCompactWidth = 780;
+
+  /// Debajo de este ancho las acciones secundarias pasan al menú overflow.
+  static const double _kUltraWidth = 560;
+
+  /// Ancho mínimo útil: por debajo se habilita scroll horizontal.
+  static const double _kMinUsableWidth = 380;
+
+  void _onAmbienteChanged(String v) {
+    widget.onAmbienteChanged(v);
+    // Re-ejecutar búsqueda en el nuevo ambiente
+    if (widget.tabState.hasSearched) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _buscar());
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -125,55 +142,73 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
               ),
             ),
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // Breakpoints responsive de la barra de búsqueda
+                final compact = constraints.maxWidth < _kCompactWidth;
+                final ultra = constraints.maxWidth < _kUltraWidth;
+
+                final content = Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(child: _buildSearchField(cs)),
-                    const SizedBox(width: 8),
-                    _buildFavoritesButton(provider),
-                    const SizedBox(width: 8),
-                    _buildFiltersToggle(cs),
-                    const SizedBox(width: 8),
-                    _buildBuscarButton(),
-                    const SizedBox(width: 8),
-                    AmbienteSelector(
-                      value: widget.ambiente,
-                      onChanged: (v) {
-                        widget.onAmbienteChanged(v);
-                        // Re-ejecutar búsqueda en el nuevo ambiente
-                        if (widget.tabState.hasSearched) {
-                          WidgetsBinding.instance.addPostFrameCallback(
-                            (_) => _buscar(),
-                          );
-                        }
-                      },
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildSearchField(cs, compact: compact),
+                        ),
+                        const SizedBox(width: 8),
+                        _buildFavoritesButton(provider),
+                        const SizedBox(width: 8),
+                        _buildFiltersToggle(cs),
+                        const SizedBox(width: 8),
+                        _buildBuscarButton(compact: compact),
+                        const SizedBox(width: 8),
+                        AmbienteSelector(
+                          value: widget.ambiente,
+                          onChanged: _onAmbienteChanged,
+                        ),
+                        if (widget.onNewProcedure != null)
+                          if (ultra)
+                            ..._buildOverflowMenu()
+                          else
+                            ..._buildNewProcButton(compact: compact),
+                      ],
                     ),
-                    if (widget.onNewProcedure != null) ..._buildNewProcButton(),
+                    AnimatedSize(
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeInOut,
+                      child: _filtersExpanded
+                          ? Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Wrap(
+                                spacing: 8,
+                                runSpacing: 6,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  _buildConfigFilter(configuraciones, cs),
+                                  _buildEstadoFilter(cs),
+                                  if (_hasActiveFilters)
+                                    ..._buildClearFiltersButton(cs),
+                                ],
+                              ),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                    _buildHistoryRow(provider),
                   ],
-                ),
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeInOut,
-                  child: _filtersExpanded
-                      ? Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: Row(
-                            children: [
-                              _buildConfigFilter(configuraciones, cs),
-                              const SizedBox(width: 8),
-                              _buildEstadoFilter(cs),
-                              if (_hasActiveFilters)
-                                ..._buildClearFiltersButton(cs),
-                            ],
-                          ),
-                        )
-                      : const SizedBox.shrink(),
-                ),
-                _buildHistoryRow(provider),
-              ],
+                );
+
+                // Red de seguridad: por debajo del ancho mínimo útil,
+                // se habilita scroll horizontal en vez de desbordar.
+                if (constraints.maxWidth < _kMinUsableWidth) {
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SizedBox(width: _kMinUsableWidth, child: content),
+                  );
+                }
+                return content;
+              },
             ),
           );
         },
@@ -311,7 +346,7 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
     );
   }
 
-  Widget _buildSearchField(ColorScheme cs) {
+  Widget _buildSearchField(ColorScheme cs, {bool compact = false}) {
     return Focus(
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent &&
@@ -328,7 +363,11 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
           focusNode: _searchFocus,
           style: TextStyle(color: cs.onSurface, fontSize: 13),
           decoration: InputDecoration(
-            hintText: 'Buscar por código o contenido… (↵ Enter para buscar)',
+            hintText: compact
+                ? 'Buscar…'
+                : 'Buscar por código o contenido… (↵ Enter para buscar)',
+            hintMaxLines: 1,
+            isDense: true,
             prefixIcon: const Icon(Icons.search, size: 18),
             suffixIcon: _searchCtrl.text.isNotEmpty
                 ? IconButton(
@@ -473,26 +512,64 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
     );
   }
 
-  Widget _buildBuscarButton() {
+  Widget _buildBuscarButton({bool compact = false}) {
+    final style = ElevatedButton.styleFrom(
+      backgroundColor: const Color(0xFF0078D4),
+      foregroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+      padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 16),
+      minimumSize: compact ? const Size(40, 38) : null,
+    );
     return SizedBox(
       height: 38,
-      child: ElevatedButton.icon(
-        onPressed: _buscar,
-        icon: const Icon(Icons.search, size: 16),
-        label: const Text('Buscar', style: TextStyle(fontSize: 13)),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF0078D4),
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-        ),
-      ),
+      child: compact
+          ? Tooltip(
+              message: 'Buscar',
+              child: ElevatedButton(
+                onPressed: _buscar,
+                style: style,
+                child: const Icon(Icons.search, size: 16),
+              ),
+            )
+          : ElevatedButton.icon(
+              onPressed: _buscar,
+              icon: const Icon(Icons.search, size: 16),
+              label: const Text('Buscar', style: TextStyle(fontSize: 13)),
+              style: style,
+            ),
     );
+  }
+
+  List<Widget> _buildOverflowMenu() {
+    return [
+      const SizedBox(width: 4),
+      PopupMenuButton<String>(
+        tooltip: 'Más acciones',
+        icon: const Icon(Icons.more_vert, size: 18),
+        padding: EdgeInsets.zero,
+        itemBuilder: (_) => const [
+          PopupMenuItem<String>(
+            value: 'nuevo',
+            child: ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.add, size: 16, color: Color(0xFF107C10)),
+              title: Text(
+                'Nuevo procedimiento',
+                style: TextStyle(fontSize: 13),
+              ),
+            ),
+          ),
+        ],
+        onSelected: (v) {
+          if (v == 'nuevo') widget.onNewProcedure?.call();
+        },
+      ),
+    ];
   }
 
   List<Widget> _buildClearFiltersButton(ColorScheme cs) {
     return [
-      const SizedBox(width: 6),
       Tooltip(
         message: 'Limpiar filtros',
         child: InkWell(
@@ -526,26 +603,35 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
     ];
   }
 
-  List<Widget> _buildNewProcButton() {
+  List<Widget> _buildNewProcButton({bool compact = false}) {
+    final style = FilledButton.styleFrom(
+      backgroundColor: const Color(0xFF107C10),
+      foregroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+      padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 14),
+      minimumSize: compact ? const Size(40, 38) : null,
+    );
     return [
       const SizedBox(width: 8),
       const SizedBox(height: 24, child: VerticalDivider(width: 1)),
       const SizedBox(width: 8),
       SizedBox(
         height: 38,
-        child: FilledButton.icon(
-          onPressed: widget.onNewProcedure,
-          icon: const Icon(Icons.add, size: 16),
-          label: const Text('Nuevo', style: TextStyle(fontSize: 13)),
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFF107C10),
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(4),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-          ),
-        ),
+        child: compact
+            ? Tooltip(
+                message: 'Nuevo procedimiento',
+                child: FilledButton(
+                  onPressed: widget.onNewProcedure,
+                  style: style,
+                  child: const Icon(Icons.add, size: 16),
+                ),
+              )
+            : FilledButton.icon(
+                onPressed: widget.onNewProcedure,
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('Nuevo', style: TextStyle(fontSize: 13)),
+                style: style,
+              ),
       ),
     ];
   }

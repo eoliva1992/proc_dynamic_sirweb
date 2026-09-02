@@ -4,6 +4,7 @@ import 'package:mobx/mobx.dart';
 import '../models/procedimiento.dart';
 import '../models/configuracion_tipo.dart';
 import '../models/variable_dinamica.dart';
+import '../services/schema_service.dart';
 import '../services/sirweb_service.dart';
 
 part 'procedimientos_provider.g.dart';
@@ -52,6 +53,12 @@ abstract class _ProcedimientosProvider with Store {
 
   @observable
   String? error;
+
+  /// `true` cuando el último [error] se debió a un problema de red/timeout y no
+  /// a una respuesta funcional del servidor. Permite que la UI distinga
+  /// "el procedimiento no existe" de "no hay conexión".
+  @observable
+  bool errorDeConexion = false;
 
   @observable
   String? mensaje;
@@ -111,6 +118,9 @@ abstract class _ProcedimientosProvider with Store {
   void setAmbiente(String value) {
     ambiente = value;
     _variablesCargadas = false;
+    // `SchemaService` cachea por ambiente. Precargar aquí evita que la primera
+    // completion tras el cambio tenga que esperar a `get_schema_overview`.
+    SchemaService.instance.loadMetadata(ambiente: value).ignore();
   }
 
   @action
@@ -182,13 +192,15 @@ abstract class _ProcedimientosProvider with Store {
         resultados = ObservableList.of([...resultados, ...resultado.items]);
         tieneSiguiente = resultado.tieneSiguiente;
         tienePrevio = resultado.tienePrevio;
-        cargandoMas = false;
       });
     } catch (e) {
       runInAction(() {
-        error = e.toString().replaceFirst('Exception: ', '');
-        cargandoMas = false;
+        error = _mensajeDeError(e);
       });
+    } finally {
+      // El reset va en `finally`: si la llamada falla por red o timeout, el
+      // flag no puede quedar en true dejando la UI con el spinner colgado.
+      runInAction(() => cargandoMas = false);
     }
   }
 
@@ -210,13 +222,13 @@ abstract class _ProcedimientosProvider with Store {
         resultados = ObservableList.of(resultado.items);
         tieneSiguiente = resultado.tieneSiguiente;
         tienePrevio = resultado.tienePrevio;
-        cargando = false;
       });
     } catch (e) {
       runInAction(() {
-        error = e.toString().replaceFirst('Exception: ', '');
-        cargando = false;
+        error = _mensajeDeError(e);
       });
+    } finally {
+      runInAction(() => cargando = false);
     }
   }
 
@@ -227,7 +239,9 @@ abstract class _ProcedimientosProvider with Store {
     error = null;
     mensaje = null;
     procedimientoActual = proc;
-    unawaited(cargarVariablesDinamicas());
+    // Carga secundaria: si falla (p. ej. servidor caído) no debe convertirse
+    // en un error no capturado de zona ni afectar la carga del editor.
+    unawaited(cargarVariablesDinamicas().catchError((_) {}));
     try {
       final completo = await _service.obtenerProcedimiento(
         proc.cdProcedimiento,
@@ -235,14 +249,14 @@ abstract class _ProcedimientosProvider with Store {
       );
       runInAction(() {
         procedimientoActual = completo;
-        cargandoEditor = false;
       });
     } catch (e) {
       runInAction(() {
-        error = e.toString().replaceFirst('Exception: ', '');
+        error = _mensajeDeError(e);
         procedimientoActual = null;
-        cargandoEditor = false;
       });
+    } finally {
+      runInAction(() => cargandoEditor = false);
     }
   }
 
@@ -273,7 +287,6 @@ abstract class _ProcedimientosProvider with Store {
         // Compiló pero con errores — el procedimiento queda inválido
         runInAction(() {
           error = '${compileErrors.length} error(es) de compilación Oracle';
-          cargando = false;
         });
         return false;
       }
@@ -286,16 +299,16 @@ abstract class _ProcedimientosProvider with Store {
         );
         mensaje =
             'Guardado correctamente. Version ${procedimientoActual!.version}';
-        cargando = false;
       });
       return true;
     } catch (e) {
       lastCompileErrors = [];
       runInAction(() {
-        error = e.toString().replaceFirst('Exception: ', '');
-        cargando = false;
+        error = _mensajeDeError(e);
       });
       return false;
+    } finally {
+      runInAction(() => cargando = false);
     }
   }
 
@@ -323,7 +336,6 @@ abstract class _ProcedimientosProvider with Store {
       if (compileErrors.isNotEmpty) {
         runInAction(() {
           error = '${compileErrors.length} error(es) de compilación Oracle';
-          cargando = false;
         });
         return false;
       }
@@ -335,16 +347,16 @@ abstract class _ProcedimientosProvider with Store {
         );
         mensaje =
             'Compilado correctamente. Versión ${procedimientoActual!.version}';
-        cargando = false;
       });
       return true;
     } catch (e) {
       lastCompileErrors = [];
       runInAction(() {
-        error = e.toString().replaceFirst('Exception: ', '');
-        cargando = false;
+        error = _mensajeDeError(e);
       });
       return false;
+    } finally {
+      runInAction(() => cargando = false);
     }
   }
 
@@ -379,15 +391,15 @@ abstract class _ProcedimientosProvider with Store {
         mensaje = activar
             ? 'Procedimiento activado.'
             : 'Procedimiento desactivado.';
-        cargando = false;
       });
       return true;
     } catch (e) {
       runInAction(() {
-        error = e.toString().replaceFirst('Exception: ', '');
-        cargando = false;
+        error = _mensajeDeError(e);
       });
       return false;
+    } finally {
+      runInAction(() => cargando = false);
     }
   }
 
@@ -411,15 +423,24 @@ abstract class _ProcedimientosProvider with Store {
       );
       runInAction(() {
         mensaje = 'Procedimiento "$cdProcedimiento" creado correctamente.';
-        cargando = false;
       });
       return true;
     } catch (e) {
       runInAction(() {
-        error = e.toString().replaceFirst('Exception: ', '');
-        cargando = false;
+        error = _mensajeDeError(e);
       });
       return false;
+    } finally {
+      runInAction(() => cargando = false);
     }
+  }
+
+  /// Normaliza el texto de error mostrado al usuario.
+  /// Los fallos de conectividad ya traen un mensaje propio y legible, así que
+  /// solo se limpia el prefijo `Exception: ` de los errores funcionales.
+  String _mensajeDeError(Object e) {
+    errorDeConexion = e is SirwebConnectionException;
+    if (e is SirwebConnectionException) return e.message;
+    return e.toString().replaceFirst('Exception: ', '');
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
@@ -9,6 +10,7 @@ import 'package:window_manager/window_manager.dart';
 import '../models/procedimiento.dart';
 import '../providers/procedimientos_provider.dart';
 import '../services/backup_service.dart';
+import '../services/connection_status_service.dart';
 import '../services/editor_draft_service.dart';
 import '../services/schema_service.dart';
 import '../services/sirweb_service.dart';
@@ -16,6 +18,9 @@ import '../widgets/ambiente_selector.dart';
 import '../widgets/app_tab.dart';
 import '../widgets/code_editor_panel.dart';
 import '../widgets/config_badge.dart';
+import '../widgets/connection_alert.dart';
+import '../widgets/connection_indicator.dart';
+import '../widgets/constellation_background.dart';
 import '../widgets/_editor_themes.dart';
 import '../widgets/new_procedure_dialog.dart';
 import '../widgets/object_source_page.dart';
@@ -58,6 +63,21 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   final List<int> _lruTabIds = [];
   static const _maxLiveSearchTabs = 5;
 
+  /// Máximo de pestañas abiertas simultáneamente.
+  static const _maxTabs = 18;
+
+  bool get _canAddTab => _tabs.length < _maxTabs;
+
+  /// Devuelve true si se puede abrir una pestaña más; si no, avisa al usuario.
+  bool _ensureTabSlot() {
+    if (_canAddTab) return true;
+    AppToast.warning(
+      'Máximo de $_maxTabs pestañas abiertas. Cerrá alguna para continuar.',
+      duration: const Duration(seconds: 3),
+    );
+    return false;
+  }
+
   void _markTabLive(int index) {
     final id = _tabs[index].tabId;
     _lruTabIds.remove(id);
@@ -80,7 +100,12 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     windowManager.addListener(this);
     windowManager.setPreventClose(true);
     HardwareKeyboard.instance.addHandler(_handleGlobalKey);
+    // Handler global para abrir fuentes como tab desde contextos que no son
+    // descendientes del SourceTabController (diálogos en el root navigator).
+    SourceTabController.registerGlobal(_addSourceTab);
     _markTabLive(0);
+    // Monitoreo de conectividad para el indicador de la barra superior.
+    unawaited(ConnectionStatusService.instance.start());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       procedimientosProvider.cargarConfiguraciones();
     });
@@ -126,8 +151,12 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             _tabs[targetIndex].procedimiento = null;
             _tabs[targetIndex].loading = false;
           });
+          // Si el fallo fue de red no se puede afirmar que el procedimiento
+          // no exista: mostrar el error real de conexión.
           AppToast.error(
-            procCode != null ? '$procCode no existe en $amb' : error,
+            (procCode != null && !procedimientosProvider.errorDeConexion)
+                ? '$procCode no existe en $amb'
+                : error,
             duration: const Duration(seconds: 4),
           );
           return;
@@ -207,8 +236,14 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       showDialog<String>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Cambios sin guardar'),
-          content: const Text('¿Qué querés hacer con los cambios?'),
+          titlePadding: EdgeInsets.zero,
+          title: const ConstellationDialogTitle(
+            child: Text('Cambios sin guardar'),
+          ),
+          content: const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text('¿Qué querés hacer con los cambios?'),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop('cancel'),
@@ -383,9 +418,15 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       showDialog<String>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Cambios sin guardar'),
-          content: Text(
-            '${tab.procedimiento!.cdProcedimiento} tiene cambios sin guardar.',
+          titlePadding: EdgeInsets.zero,
+          title: const ConstellationDialogTitle(
+            child: Text('Cambios sin guardar'),
+          ),
+          content: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '${tab.procedimiento!.cdProcedimiento} tiene cambios sin guardar.',
+            ),
           ),
           actions: [
             TextButton(
@@ -449,6 +490,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   }
 
   void _addSearchTab() {
+    if (!_ensureTabSlot()) return;
     setState(() {
       _tabs.add(AppTab());
       _activeTab = _tabs.length - 1;
@@ -476,6 +518,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       _activateTab(existing);
       return;
     }
+    if (!_ensureTabSlot()) return;
     final tab = AppTab(ambiente: ambiente)
       ..sourceViewer = (name: name, objectType: objectType, ambiente: ambiente);
     setState(() {
@@ -491,9 +534,15 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       showDialog<String>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Cambiar ambiente'),
-          content: Text(
-            '${tab.procedimiento!.cdProcedimiento} tiene cambios sin guardar.',
+          titlePadding: EdgeInsets.zero,
+          title: const ConstellationDialogTitle(
+            child: Text('Cambiar ambiente'),
+          ),
+          content: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '${tab.procedimiento!.cdProcedimiento} tiene cambios sin guardar.',
+            ),
           ),
           actions: [
             TextButton(
@@ -594,6 +643,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       );
       return;
     }
+    if (!_ensureTabSlot()) return;
     final ambiente = _tabs[_activeTab].ambiente;
     // Sync provider to the active tab's database before opening the dialog
     procedimientosProvider.setAmbiente(ambiente);
@@ -626,12 +676,31 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       _markTabLive(_activeTab);
       procedimientosProvider.setAmbiente(result.ambiente);
       _loadingTabIndex = _tabs.length - 1;
-      unawaited(procedimientosProvider.seleccionar(stub));
+      unawaited(
+        procedimientosProvider.seleccionar(stub).catchError((Object e) {
+          if (!mounted) return;
+          setState(() {
+            _loadingTabIndex = null;
+            if (_activeTab < _tabs.length) _tabs[_activeTab].loading = false;
+          });
+          AppToast.error('$e', duration: const Duration(seconds: 4));
+        }),
+      );
     }
   }
 
   void _showSchemaCommandPalette(BuildContext context) {
     showSchemaCommandPalette(context, ambiente: _tabs[_activeTab].ambiente);
+  }
+
+  /// Ventana flotante para invocar cualquier objeto PL/SQL del esquema.
+  ///
+  /// Arranca en el ambiente de la pestaña activa; adentro se puede cambiar.
+  void _showEjecutarLlamada(BuildContext context) {
+    showEjecutarLlamadaWindow(
+      context,
+      ambiente: _tabs.isEmpty ? 'Desa' : _tabs[_activeTab].ambiente,
+    );
   }
 
   void _showShortcutsHelp(BuildContext context) {
@@ -666,12 +735,18 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(
-          newStatus ? 'Activar procedimiento' : 'Desactivar procedimiento',
+        titlePadding: EdgeInsets.zero,
+        title: ConstellationDialogTitle(
+          child: Text(
+            newStatus ? 'Activar procedimiento' : 'Desactivar procedimiento',
+          ),
         ),
-        content: Text(
-          '¿Desea ${newStatus ? 'activar' : 'desactivar'} '
-          '${proc.cdProcedimiento} en ${tab.ambiente}?',
+        content: Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            '¿Desea ${newStatus ? 'activar' : 'desactivar'} '
+            '${proc.cdProcedimiento} en ${tab.ambiente}?',
+          ),
         ),
         actions: [
           TextButton(
@@ -768,9 +843,14 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   // ── Cabecera con gradiente ──────────────────────────────
-                  Container(
+                  ConstellationHeader(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 28),
+                    onDark: true,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(16),
+                      topRight: Radius.circular(16),
+                    ),
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
                         colors: [Color(0xFF0078D4), Color(0xFF005A9E)],
@@ -978,113 +1058,135 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     return SourceTabController(
       openTab: _addSourceTab,
       child: CallbackShortcuts(
-      bindings: {
-        const SingleActivator(LogicalKeyboardKey.keyT, control: true):
-            _addSearchTab,
-        const SingleActivator(LogicalKeyboardKey.keyW, control: true): () =>
-            _closeTab(_activeTab),
-        const SingleActivator(LogicalKeyboardKey.tab, control: true): () =>
-            _cycleTab(1),
-        const SingleActivator(
-          LogicalKeyboardKey.tab,
-          control: true,
-          shift: true,
-        ): () =>
-            _cycleTab(-1),
-        const SingleActivator(LogicalKeyboardKey.f1): () =>
-            _showShortcutsHelp(context),
-      },
-      child: Focus(
-        autofocus: true,
-        child: Scaffold(
-          appBar: _buildAppBar(context),
-          body: Row(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.keyT, control: true):
+              _addSearchTab,
+          const SingleActivator(LogicalKeyboardKey.keyW, control: true): () =>
+              _closeTab(_activeTab),
+          const SingleActivator(LogicalKeyboardKey.tab, control: true): () =>
+              _cycleTab(1),
+          const SingleActivator(
+            LogicalKeyboardKey.tab,
+            control: true,
+            shift: true,
+          ): () =>
+              _cycleTab(-1),
+          const SingleActivator(LogicalKeyboardKey.f1): () =>
+              _showShortcutsHelp(context),
+          // Invocación libre de objetos PL/SQL (procedure/function/package).
+          const SingleActivator(
+            LogicalKeyboardKey.keyE,
+            control: true,
+            shift: true,
+          ): () =>
+              _showEjecutarLlamada(context),
+        },
+        child: Focus(
+          autofocus: true,
+          child: Stack(
             children: [
-              SchemaSidebar(
-                isOpen: _schemaSidebarOpen,
-                onToggle: () =>
-                    setState(() => _schemaSidebarOpen = !_schemaSidebarOpen),
-                ambiente: _tabs[_activeTab].ambiente,
-                width: _sidebarWidth,
+              // Fondo de constelación: escala con el tamaño de la ventana.
+              const Positioned.fill(
+                child: ConstellationBackground(density: 0.9, scale: 1.0),
               ),
-              // Drag handle — visible only when sidebar is open
-              if (_schemaSidebarOpen)
-                GestureDetector(
-                  onHorizontalDragUpdate: (d) {
-                    setState(() {
-                      _sidebarWidth = (_sidebarWidth + d.delta.dx).clamp(
-                        _minSidebarW,
-                        _maxSidebarW,
-                      );
-                    });
-                  },
-                  child: MouseRegion(
-                    cursor: SystemMouseCursors.resizeColumn,
-                    child: Container(
-                      width: 5,
-                      color: Colors.transparent,
-                      child: Center(
-                        child: Container(
-                          width: 1,
-                          color: Theme.of(context).dividerColor,
+              Scaffold(
+                backgroundColor: Colors.transparent,
+                appBar: _buildAppBar(context),
+                body: ConnectionAlert(
+                  child: Row(
+                    children: [
+                      SchemaSidebar(
+                        isOpen: _schemaSidebarOpen,
+                        onToggle: () => setState(
+                          () => _schemaSidebarOpen = !_schemaSidebarOpen,
+                        ),
+                        ambiente: _tabs[_activeTab].ambiente,
+                        width: _sidebarWidth,
+                      ),
+                      // Drag handle — visible only when sidebar is open
+                      if (_schemaSidebarOpen)
+                        GestureDetector(
+                          onHorizontalDragUpdate: (d) {
+                            setState(() {
+                              _sidebarWidth = (_sidebarWidth + d.delta.dx)
+                                  .clamp(_minSidebarW, _maxSidebarW);
+                            });
+                          },
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.resizeColumn,
+                            child: Container(
+                              width: 5,
+                              color: Colors.transparent,
+                              child: Center(
+                                child: Container(
+                                  width: 1,
+                                  color: Theme.of(context).dividerColor,
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        SchemaSidebarToggle(
+                          onToggle: () =>
+                              setState(() => _schemaSidebarOpen = true),
+                        ),
+                      Expanded(
+                        child: Stack(
+                          children: [
+                            Column(
+                              children: [
+                                _MainTabBar(
+                                  tabs: _tabs,
+                                  activeTab: _activeTab,
+                                  onActivate: _activateTab,
+                                  onClose: _closeTab,
+                                  onAdd: _addSearchTab,
+                                  canAdd: _canAddTab,
+                                  maxTabs: _maxTabs,
+                                  onReorder: _onTabReorder,
+                                ),
+                                Expanded(
+                                  child: IndexedStack(
+                                    index: _activeTab,
+                                    children: [
+                                      for (final tab in _tabs)
+                                        _TabFadeIn(
+                                          key: ValueKey(tab.tabId),
+                                          child: _isLive(tab)
+                                              ? _buildTabContent(tab)
+                                              : SizedBox.shrink(
+                                                  key: ValueKey(
+                                                    'dead_${tab.tabId}',
+                                                  ),
+                                                ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const Positioned(
+                              left: 12,
+                              bottom: 12,
+                              child: SchemaStatusOverlay(),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                )
-              else
-                SchemaSidebarToggle(
-                  onToggle: () => setState(() => _schemaSidebarOpen = true),
                 ),
-              Expanded(
-                child: Stack(
-                  children: [
-                    Column(
-                      children: [
-                        _MainTabBar(
-                          tabs: _tabs,
-                          activeTab: _activeTab,
-                          onActivate: _activateTab,
-                          onClose: _closeTab,
-                          onAdd: _addSearchTab,
-                          onReorder: _onTabReorder,
-                        ),
-                        Expanded(
-                          child: IndexedStack(
-                            index: _activeTab,
-                            children: [
-                              for (final tab in _tabs)
-                                _TabFadeIn(
-                                  key: ValueKey(tab.tabId),
-                                  child: _isLive(tab)
-                                      ? _buildTabContent(tab)
-                                      : SizedBox.shrink(
-                                          key: ValueKey('dead_${tab.tabId}'),
-                                        ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Positioned(
-                      left: 12,
-                      bottom: 12,
-                      child: SchemaStatusOverlay(),
-                    ),
-                   ],
-                 ),
-               ),
-             ],
-           ),
-         ),
-       ),     // Focus
-     ),       // CallbackShortcuts
-   ); // SourceTabController
- }
+              ),
+            ],
+          ),
+        ), // Focus
+      ), // CallbackShortcuts
+    ); // SourceTabController
+  }
 
-   Widget _buildTabContent(AppTab tab) {
-     // ── Visor de código fuente Oracle ────────────────────────────────────────
+  Widget _buildTabContent(AppTab tab) {
+    // ── Visor de código fuente Oracle ────────────────────────────────────────
     if (tab.inSourceViewMode) {
       final sv = tab.sourceViewer!;
       return ObjectSourcePage(
@@ -1116,6 +1218,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         onNewProcedure: () => _showNewProcedureDialog(context),
         onOpenInNewTab: (Procedimiento proc) async {
           if (!mounted) return;
+          if (!_ensureTabSlot()) return;
           final newTab = AppTab(ambiente: tab.ambiente);
           final newIndex = _tabs.length;
           setState(() {
@@ -1168,10 +1271,13 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       );
     }
     return _EditorFadeIn(
-      // Remount con nuevo fade cada vez que se carga un procedimiento distinto
-      key: ValueKey('e_${tab.tabId}_${tab.procedimiento?.cdProcedimiento}'),
+      // La key NO incluye el procedimiento: mantenerla estable por tab evita
+      // remontar el subárbol (y con él el WebView2 de Monaco) en cada apertura.
+      // El re-fade se consigue con fadeTrigger.
+      key: ValueKey('e_${tab.tabId}'),
+      fadeTrigger: tab.procedimiento?.cdProcedimiento,
       child: Column(
-        key: ValueKey('e_${tab.tabId}'),
+        key: ValueKey('e_col_${tab.tabId}'),
         children: [
           _buildEditorNav(tab),
           if (tab.ambiente == 'Prod')
@@ -1200,55 +1306,39 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                 ],
               ),
             ),
-          if (tab.loading)
-            Expanded(
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Color(0xFF0078D4),
-                      ),
-                    ),
-                    if (tab.procedimiento != null) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        'Cargando ${tab.procedimiento!.cdProcedimiento}…',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade500,
+          // El editor se mantiene montado durante la carga y el spinner se
+          // superpone. Desmontarlo (como antes) obligaba a recrear el WebView2
+          // de Monaco y a repetir todo el arranque de `_onReady`.
+          Expanded(
+            child: _suspendedTabs.contains(tab.tabId)
+                ? const Center(
+                    child: CircularProgressIndicator(color: Color(0xFF0078D4)),
+                  )
+                : Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (tab.procedimiento != null)
+                        CodeEditorPanel(
+                          key: ValueKey('editor_${tab.tabId}'),
+                          procedimiento: tab.procedimiento!,
+                          ambiente: tab.ambiente,
+                          onDirtyChanged: (dirty) {
+                            if (tab.isDirty != dirty) {
+                              setState(() => tab.isDirty = dirty);
+                            }
+                          },
+                          onSave: (code) => _saveTabProcedure(tab, code),
+                          onCompile: (code) => _compileTabProcedure(tab, code),
+                          onCodeChanged: (code) => tab.currentEditorCode = code,
                         ),
-                      ),
+                      if (tab.loading)
+                        _EditorLoadingOverlay(
+                          cdProcedimiento: tab.procedimiento?.cdProcedimiento,
+                          opaque: tab.procedimiento == null,
+                        ),
                     ],
-                  ],
-                ),
-              ),
-            )
-          else
-            Expanded(
-              child: _suspendedTabs.contains(tab.tabId)
-                  ? const Center(
-                      child: CircularProgressIndicator(
-                        color: Color(0xFF0078D4),
-                      ),
-                    )
-                  : CodeEditorPanel(
-                      key: ValueKey('editor_${tab.tabId}'),
-                      procedimiento: tab.procedimiento!,
-                      ambiente: tab.ambiente,
-                      onDirtyChanged: (dirty) {
-                        if (tab.isDirty != dirty)
-                          setState(() => tab.isDirty = dirty);
-                      },
-                      onSave: (code) => _saveTabProcedure(tab, code),
-                      onCompile: (code) => _compileTabProcedure(tab, code),
-                      onCodeChanged: (code) => tab.currentEditorCode = code,
-                    ),
-            ),
+                  ),
+          ),
         ],
       ),
     );
@@ -1326,9 +1416,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                 borderRadius: BorderRadius.circular(4),
                 onTap: () {
                   Clipboard.setData(
-                    ClipboardData(
-                      text: tab.procedimiento!.cdProcedimiento,
-                    ),
+                    ClipboardData(text: tab.procedimiento!.cdProcedimiento),
                   );
                   AppToast.success(
                     'Nombre copiado: ${tab.procedimiento!.cdProcedimiento}',
@@ -1570,30 +1658,38 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           );
           return;
         }
-        await showDialog<void>(
-          context: context,
-          builder: (_) => TransferDialog(
-            sourceProc: proc,
-            sourceCode: tab.currentEditorCode ?? proc.deTexto,
-            sourceAmbiente: tab.ambiente,
-            cdUsuario: procedimientosProvider.cdUsuario,
-            onBeforePush: () async {
-              // Save draft and remove Monaco WebView2 so only one exists during diff
-              await EditorDraftService.save(
-                proc.cdProcedimiento,
-                tab.ambiente,
-                tab.currentEditorCode ?? proc.deTexto,
-              );
-              if (mounted) setState(() => _suspendedTabs.add(tab.tabId));
-              await Future<void>.delayed(const Duration(milliseconds: 80));
-            },
-            onAfterReturn: () {
-              if (mounted) setState(() => _suspendedTabs.remove(tab.tabId));
-            },
-          ),
-        );
-        // Also remove in case dialog was cancelled without pushing
-        if (mounted) setState(() => _suspendedTabs.remove(tab.tabId));
+        try {
+          await showDialog<void>(
+            context: context,
+            builder: (_) => TransferDialog(
+              sourceProc: proc,
+              sourceCode: tab.currentEditorCode ?? proc.deTexto,
+              sourceAmbiente: tab.ambiente,
+              cdUsuario: procedimientosProvider.cdUsuario,
+              onBeforePush: () async {
+                // Save draft and remove Monaco WebView2 so only one exists during diff
+                await EditorDraftService.save(
+                  proc.cdProcedimiento,
+                  tab.ambiente,
+                  tab.currentEditorCode ?? proc.deTexto,
+                );
+                if (mounted) setState(() => _suspendedTabs.add(tab.tabId));
+                await Future<void>.delayed(const Duration(milliseconds: 80));
+              },
+              onAfterReturn: () {
+                if (mounted) setState(() => _suspendedTabs.remove(tab.tabId));
+              },
+            ),
+          );
+        } catch (e) {
+          if (mounted) {
+            AppToast.error(e.toString().replaceFirst('Exception: ', ''));
+          }
+        } finally {
+          // Imprescindible: si el diálogo falla o se cancela sin push, la tab
+          // quedaría suspendida (sin editor Monaco) y parecería congelada.
+          if (mounted) setState(() => _suspendedTabs.remove(tab.tabId));
+        }
 
       case _EditorAction.compare:
         try {
@@ -1632,13 +1728,19 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           );
           return;
         }
-        final saved = await BackupService.exportar(
+        final savedPath = await BackupService.exportar(
           proc,
           tab.ambiente,
           procedimientosProvider.cdUsuario,
         );
-        if (saved && mounted) {
-          AppToast.success('Backup exportado correctamente');
+        if (savedPath != null && mounted) {
+          AppToast.successWithAction(
+            'Backup exportado correctamente',
+            detail: savedPath,
+            actionLabel: 'Abrir ubicación',
+            onAction: () =>
+                unawaited(BackupService.revealInExplorer(savedPath)),
+          );
         }
 
       case _EditorAction.restore:
@@ -1660,7 +1762,10 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Restaurar desde backup'),
+        titlePadding: EdgeInsets.zero,
+        title: const ConstellationDialogTitle(
+          child: Text('Restaurar desde backup'),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1794,8 +1899,14 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   }
 
   AppBar _buildAppBar(BuildContext context) {
+    final appBarBg =
+        Theme.of(context).appBarTheme.backgroundColor ??
+        Theme.of(context).colorScheme.surface;
     return AppBar(
       titleSpacing: 16,
+      // Translúcido + blur suave y constelación propia dentro de la barra.
+      backgroundColor: appBarBg.withValues(alpha: 0.55),
+      flexibleSpace: const ConstellationAppBarBackground(),
       title: const Text(
         'Procedimientos Dinámicos',
         style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
@@ -1812,6 +1923,8 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         ),
       ),
       actions: [
+        const ConnectionIndicator(onlineLabelColor: Colors.white70),
+        const SizedBox(width: 4),
         Tooltip(
           message: _schemaSidebarOpen
               ? 'Cerrar explorador de esquema'
@@ -1832,6 +1945,14 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           child: IconButton(
             onPressed: () => _showSchemaCommandPalette(context),
             icon: const Icon(Icons.search_rounded),
+            color: Colors.white70,
+          ),
+        ),
+        Tooltip(
+          message: 'Ejecutar objeto PL/SQL (Ctrl+Shift+E)',
+          child: IconButton(
+            onPressed: () => _showEjecutarLlamada(context),
+            icon: const Icon(Icons.terminal_rounded),
             color: Colors.white70,
           ),
         ),

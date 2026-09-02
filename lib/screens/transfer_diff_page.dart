@@ -9,6 +9,7 @@ import '../services/transfer_service.dart';
 import '../widgets/_editor_themes.dart';
 import '../widgets/ambiente_selector.dart';
 import '../widgets/app_toast.dart';
+import '../widgets/constellation_background.dart';
 
 typedef _Hunk = ({int origStart, int origEnd, int modStart, int modEnd});
 
@@ -80,6 +81,9 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
   bool _savingTarget = false;
   bool _sideBySide = true;
   MonacoDiffController? _ctrl;
+  // El editor diff vive en un webview: una vez destruido, cualquier llamada
+  // rebota con `MonacoDisposedError`. Ver [_withCtrl].
+  bool _disposed = false;
 
   // Tracks the current ORIGEN (left) text after programmatic changes
   late String _currentOriginal;
@@ -90,6 +94,33 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
     super.initState();
     _currentOriginal = widget.sourceCode;
     unawaited(_loadTarget());
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _ctrl = null;
+    super.dispose();
+  }
+
+  /// Ejecuta [action] contra el diff editor sólo si sigue vivo, absorbiendo
+  /// el rebote por editor ya destruido (la página se cerró mid-await).
+  Future<T?> _withCtrl<T>(
+    Future<T> Function(MonacoDiffController ctrl) action,
+  ) async {
+    final ctrl = _ctrl;
+    if (ctrl == null || _disposed || !mounted) return null;
+    try {
+      return await action(ctrl);
+    } catch (e) {
+      final msg = e.toString();
+      if (msg.contains('MonacoDisposedError') ||
+          msg.contains('has been disposed')) {
+        _ctrl = null;
+        return null;
+      }
+      rethrow;
+    }
   }
 
   Future<void> _loadTarget() async {
@@ -124,12 +155,19 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
       return;
     }
     final backupProc = widget.sourceProc.copyWith(deTexto: _targetCode);
-    final saved = await BackupService.exportar(
+    final savedPath = await BackupService.exportar(
       backupProc,
       widget.targetAmbiente,
       widget.cdUsuario,
     );
-    if (saved && mounted) AppToast.success('Backup guardado correctamente');
+    if (savedPath != null && mounted) {
+      AppToast.successWithAction(
+        'Backup guardado correctamente',
+        detail: savedPath,
+        actionLabel: 'Abrir ubicación',
+        onAction: () => BackupService.revealInExplorer(savedPath),
+      );
+    }
   }
 
   Future<void> _saveToSource() async {
@@ -152,9 +190,8 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
 
   // Apply the first remaining hunk from ORIGEN to DESTINO
   Future<void> _applyOneToTarget() async {
-    final ctrl = _ctrl;
-    if (ctrl == null) return;
-    final destino = await ctrl.getModifiedText();
+    final destino = await _withCtrl((ctrl) => ctrl.getModifiedText());
+    if (destino == null) return;
     final hunks = _computeHunks(_currentOriginal, destino);
     if (hunks.isEmpty) return;
     final h = hunks.first;
@@ -168,14 +205,15 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
     setState(
       () => _history.add((original: _currentOriginal, modified: destino)),
     );
-    await ctrl.setTexts(original: _currentOriginal, modified: newDest);
+    await _withCtrl(
+      (ctrl) => ctrl.setTexts(original: _currentOriginal, modified: newDest),
+    );
   }
 
   // Apply the first remaining hunk from DESTINO to ORIGEN
   Future<void> _applyOneToSource() async {
-    final ctrl = _ctrl;
-    if (ctrl == null) return;
-    final destino = await ctrl.getModifiedText();
+    final destino = await _withCtrl((ctrl) => ctrl.getModifiedText());
+    if (destino == null) return;
     final hunks = _computeHunks(_currentOriginal, destino);
     if (hunks.isEmpty) return;
     final h = hunks.first;
@@ -190,31 +228,34 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
       _history.add((original: _currentOriginal, modified: destino));
       _currentOriginal = newOrig;
     });
-    await ctrl.setTexts(original: newOrig, modified: destino);
+    await _withCtrl(
+      (ctrl) => ctrl.setTexts(original: newOrig, modified: destino),
+    );
   }
 
   // Overwrites DESTINO (right) with current ORIGEN (left) content
   Future<void> _applyAllToTarget() async {
-    final ctrl = _ctrl;
-    if (ctrl == null) return;
-    final currentModified = await ctrl.getModifiedText();
+    final currentModified = await _withCtrl((ctrl) => ctrl.getModifiedText());
+    if (currentModified == null) return;
     setState(
       () =>
           _history.add((original: _currentOriginal, modified: currentModified)),
     );
-    await ctrl.setTexts(original: _currentOriginal, modified: _currentOriginal);
+    await _withCtrl(
+      (ctrl) =>
+          ctrl.setTexts(original: _currentOriginal, modified: _currentOriginal),
+    );
   }
 
   // Overwrites ORIGEN (left) with current DESTINO (right) content
   Future<void> _applyAllToSource() async {
-    final ctrl = _ctrl;
-    if (ctrl == null) return;
-    final code = await ctrl.getModifiedText();
+    final code = await _withCtrl((ctrl) => ctrl.getModifiedText());
+    if (code == null) return;
     setState(() {
       _history.add((original: _currentOriginal, modified: code));
       _currentOriginal = code;
     });
-    await ctrl.setTexts(original: code, modified: code);
+    await _withCtrl((ctrl) => ctrl.setTexts(original: code, modified: code));
   }
 
   Future<void> _undo() async {
@@ -224,18 +265,15 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
       _history.removeLast();
       _currentOriginal = prev.original;
     });
-    await _ctrl?.setTexts(original: prev.original, modified: prev.modified);
+    await _withCtrl(
+      (ctrl) => ctrl.setTexts(original: prev.original, modified: prev.modified),
+    );
   }
 
   Future<void> _saveToTarget() async {
-    String codeToSave = _targetCode;
-    if (_ctrl != null) {
-      try {
-        codeToSave = await _ctrl!.getModifiedText();
-      } catch (_) {
-        codeToSave = _targetCode;
-      }
-    }
+    final modified = await _withCtrl((ctrl) => ctrl.getModifiedText());
+    final codeToSave = modified ?? _targetCode;
+    if (!mounted) return;
     setState(() => _savingTarget = true);
     final result = await TransferService.transfer(
       cdProcedimiento: widget.sourceProc.cdProcedimiento,
@@ -255,14 +293,8 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
 
   Future<void> _confirmAndTransfer() async {
     // Read current content from the editable modified pane (DESTINO right side after cherry-picking)
-    String codeToTransfer = _targetCode;
-    if (_ctrl != null) {
-      try {
-        codeToTransfer = await _ctrl!.getModifiedText();
-      } catch (_) {
-        codeToTransfer = _targetCode;
-      }
-    }
+    final modified = await _withCtrl((ctrl) => ctrl.getModifiedText());
+    final codeToTransfer = modified ?? _targetCode;
 
     if (!mounted) return;
 
@@ -270,12 +302,16 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.send_rounded, size: 18, color: tgtColor),
-            const SizedBox(width: 8),
-            const Text('Confirmar transferencia'),
-          ],
+        titlePadding: EdgeInsets.zero,
+        title: ConstellationDialogTitle(
+          lineColor: tgtColor.withValues(alpha: 0.35),
+          child: Row(
+            children: [
+              Icon(Icons.send_rounded, size: 18, color: tgtColor),
+              const SizedBox(width: 8),
+              const Text('Confirmar transferencia'),
+            ],
+          ),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -331,7 +367,10 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
   Future<void> _toggleLayout() async {
     final next = !_sideBySide;
     setState(() => _sideBySide = next);
-    await _ctrl?.updateDiffOptions(MonacoDiffOptions(renderSideBySide: next));
+    await _withCtrl(
+      (ctrl) =>
+          ctrl.updateDiffOptions(MonacoDiffOptions(renderSideBySide: next)),
+    );
   }
 
   String get _language =>
@@ -347,6 +386,7 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
+        flexibleSpace: const ConstellationAppBarBackground(),
         title: Row(
           children: [
             const SizedBox(width: 4),

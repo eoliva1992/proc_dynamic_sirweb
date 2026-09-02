@@ -467,8 +467,11 @@ class _ThemePickerDialog extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               // Header
-              Container(
+              ConstellationHeader(
                 padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(10),
+                ),
                 decoration: BoxDecoration(
                   border: Border(
                     bottom: BorderSide(color: cs.outlineVariant, width: 0.5),

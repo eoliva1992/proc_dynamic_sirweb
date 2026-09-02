@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:toastification/toastification.dart';
 import 'package:window_manager/window_manager.dart';
+import 'app_navigator.dart';
 import 'providers/theme_provider.dart';
 import 'screens/main_screen.dart';
 import 'services/favorites_service.dart';
@@ -25,7 +26,9 @@ Future<void> main(List<String> args) async {
     // debug porque el proceso ya no es DETACHED_PROCESS).
     FlutterError.onError = (details) {
       FlutterError.presentError(details);
-      debugPrint('[sub-window] FlutterError: ${details.exception}\n${details.stack}');
+      debugPrint(
+        '[sub-window] FlutterError: ${details.exception}\n${details.stack}',
+      );
     };
 
     // ── Estrategia pre-resize (sin hide/show) ───────────────────────────────
@@ -447,6 +450,7 @@ class ProcDynamicApp extends StatelessWidget {
         builder: (_, _) => MaterialApp(
           title: 'Procedimientos Dinámicos',
           debugShowCheckedModeBanner: false,
+          navigatorKey: rootNavigatorKey,
           theme: ProcDynamicApp.buildThemeFor(editorThemeStore.themeId),
           home: const MainScreen(),
         ),

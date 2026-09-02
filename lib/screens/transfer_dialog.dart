@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/procedimiento.dart';
 import '../widgets/ambiente_selector.dart';
+import '../widgets/constellation_background.dart';
 import 'transfer_diff_page.dart';
 import 'multi_transfer_dialog.dart';
 
@@ -173,8 +174,9 @@ class _TransferDialogState extends State<TransferDialog> {
 
   Widget _buildHeader(bool isDark, ColorScheme cs) {
     final srcColor = AmbienteSelector.colorForAmbiente(widget.sourceAmbiente);
-    return Container(
+    return ConstellationHeader(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
       decoration: BoxDecoration(
         color: isDark ? cs.surfaceContainerHigh : cs.surfaceContainerLow,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),

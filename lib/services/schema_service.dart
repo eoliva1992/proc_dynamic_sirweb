@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'mcp_sse.dart';
+
 // ── Claves en SharedPreferences (se prefijan con el ambiente) ────────────────
 const _kTables = 'schema_tables';
 const _kViews = 'schema_views';
@@ -162,6 +164,13 @@ class SchemaService {
 
   /// Retorna columnas de [tableName].
   /// Orden de prioridad: memoria → SharedPreferences → servidor.
+  /// Columnas ya cacheadas en memoria de forma **síncrona**, o `null` si
+  /// todavía no se consultaron. Útil para pintar sin parpadeo de spinner.
+  List<({String name, String dataType})>? peekColumns(
+    String tableName, {
+    String? ambiente,
+  }) => _caches[_env(ambiente)]?.cachedColumns[tableName.toUpperCase()];
+
   Future<List<({String name, String dataType})>> getColumns(
     String tableName, {
     String? owner,
@@ -213,19 +222,72 @@ class SchemaService {
     }
   }
 
+  /// Caché en memoria de argumentos por `AMBIENTE|OBJETO`.
+  final _argsCache =
+      <String, List<({String name, String dataType, String inOut})>>{};
+  final _argsInFlight =
+      <String, Future<List<({String name, String dataType, String inOut})>>>{};
+
+  static String _argsKey(String env, String name) =>
+      '$env|${name.toUpperCase()}';
+
+  /// Devuelve los argumentos ya cacheados de forma **síncrona**, o `null` si
+  /// todavía no se consultaron. Útil para el autocompletado sin bloquear.
+  List<({String name, String dataType, String inOut})>? peekObjectArguments(
+    String objectName, {
+    String? ambiente,
+  }) => _argsCache[_argsKey(_env(ambiente), objectName)];
+
   /// Argumentos de un procedimiento o función Oracle (deduplica los duplicados del servidor).
   Future<List<({String name, String dataType, String inOut})>>
-  getObjectArguments(String objectName, {String? ambiente}) async {
+  getObjectArguments(
+    String objectName, {
+    String? ambiente,
+    bool forceRefresh = false,
+  }) {
+    final key = _argsKey(_env(ambiente), objectName);
+    if (forceRefresh) {
+      _argsCache.remove(key);
+    } else {
+      final cached = _argsCache[key];
+      if (cached != null) return Future.value(cached);
+    }
+    final inFlight = _argsInFlight[key];
+    if (inFlight != null) return inFlight;
+
+    final future = _fetchObjectArguments(objectName, ambiente: ambiente)
+        .then((args) {
+          _argsCache[key] = args;
+          return args;
+        })
+        .whenComplete(() {
+          // OJO: no usar `() => _argsInFlight.remove(key)` (arrow function):
+          // `Map.remove()` retorna el valor eliminado, que aquí es un Future.
+          // `whenComplete` espera cualquier Future devuelto por su callback,
+          // y como el valor removido es el propio `future` que se está
+          // completando, eso provoca un deadlock por auto-referencia.
+          _argsInFlight.remove(key);
+        });
+    _argsInFlight[key] = future;
+    return future;
+  }
+
+  Future<List<({String name, String dataType, String inOut})>>
+  _fetchObjectArguments(String objectName, {String? ambiente}) async {
     try {
       final result = await _call('get_object_arguments', {
         'objectName': objectName.toUpperCase(),
         if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
       });
       final rawList = result['data'] as List? ?? [];
-      final seen = <int>{};
+      final seen = <String>{};
       return rawList
           .cast<Map<String, dynamic>>()
-          .where((r) => seen.add((r['position'] as num?)?.toInt() ?? -1))
+          .where((r) {
+            final name = (r['argumentName'] as String? ?? '').toUpperCase();
+            final pos = (r['position'] as num?)?.toInt() ?? -1;
+            return seen.add('$name:$pos');
+          })
           .map(
             (r) => (
               name: (r['argumentName'] as String? ?? '').toUpperCase(),
@@ -242,7 +304,42 @@ class SchemaService {
   }
 
   /// Atributos de un TYPE Oracle objeto (vacío para colecciones TABLE/VARRAY).
+  ///
+  /// Se cachean en memoria por `AMBIENTE|TIPO` para el autocompletado.
   Future<List<({String name, String dataType})>> getTypeAttributes(
+    String typeName, {
+    String? ambiente,
+  }) {
+    final key = _argsKey(_env(ambiente), typeName);
+    final cached = _typeCache[key];
+    if (cached != null) return Future.value(cached);
+    final inFlight = _typeInFlight[key];
+    if (inFlight != null) return inFlight;
+
+    final future = _fetchTypeAttributes(typeName, ambiente: ambiente)
+        .then((attrs) {
+          _typeCache[key] = attrs;
+          return attrs;
+        })
+        .whenComplete(() {
+          // Ver comentario en getObjectArguments: no usar arrow function aquí.
+          _typeInFlight.remove(key);
+        });
+    _typeInFlight[key] = future;
+    return future;
+  }
+
+  /// Devuelve los atributos ya cacheados de forma **síncrona**, o `null`.
+  List<({String name, String dataType})>? peekTypeAttributes(
+    String typeName, {
+    String? ambiente,
+  }) => _typeCache[_argsKey(_env(ambiente), typeName)];
+
+  final _typeCache = <String, List<({String name, String dataType})>>{};
+  final _typeInFlight =
+      <String, Future<List<({String name, String dataType})>>>{};
+
+  Future<List<({String name, String dataType})>> _fetchTypeAttributes(
     String typeName, {
     String? ambiente,
   }) async {
@@ -269,6 +366,9 @@ class SchemaService {
   }
 
   /// Subprogramas de un paquete Oracle con sus argumentos en una sola llamada.
+  ///
+  /// El resultado se cachea en memoria por `AMBIENTE|PAQUETE` y las llamadas
+  /// concurrentes al mismo paquete comparten el mismo `Future`.
   Future<
     List<
       ({
@@ -278,7 +378,80 @@ class SchemaService {
       })
     >
   >
-  getPackageSubprograms(String packageName, {String? ambiente}) async {
+  getPackageSubprograms(
+    String packageName, {
+    String? ambiente,
+    bool forceRefresh = false,
+  }) {
+    final key = _argsKey(_env(ambiente), packageName);
+    if (forceRefresh) {
+      _pkgCache.remove(key);
+    } else {
+      final cached = _pkgCache[key];
+      if (cached != null) return Future.value(cached);
+    }
+    final inFlight = _pkgInFlight[key];
+    if (inFlight != null) return inFlight;
+
+    final future = _fetchPackageSubprograms(packageName, ambiente: ambiente)
+        .then((subs) {
+          _pkgCache[key] = subs;
+          return subs;
+        })
+        .whenComplete(() {
+          // Ver comentario en getObjectArguments: no usar arrow function aquí.
+          _pkgInFlight.remove(key);
+        });
+    _pkgInFlight[key] = future;
+    return future;
+  }
+
+  /// Devuelve los subprogramas ya cacheados de forma **síncrona**, o `null`.
+  List<
+    ({
+      String name,
+      String kind,
+      List<({String name, String dataType, String inOut})> arguments,
+    })
+  >?
+  peekPackageSubprograms(String packageName, {String? ambiente}) =>
+      _pkgCache[_argsKey(_env(ambiente), packageName)];
+
+  final _pkgCache =
+      <
+        String,
+        List<
+          ({
+            String name,
+            String kind,
+            List<({String name, String dataType, String inOut})> arguments,
+          })
+        >
+      >{};
+  final _pkgInFlight =
+      <
+        String,
+        Future<
+          List<
+            ({
+              String name,
+              String kind,
+              List<({String name, String dataType, String inOut})> arguments,
+            })
+          >
+        >
+      >{};
+
+  Future<
+    List<
+      ({
+        String name,
+        String kind,
+        List<({String name, String dataType, String inOut})> arguments,
+      })
+    >
+  >
+  _fetchPackageSubprograms(String packageName, {String? ambiente}) async {
     try {
       final result = await _call('get_package_subprograms', {
         'packageName': packageName.toUpperCase(),
@@ -501,6 +674,93 @@ class SchemaService {
         .toList();
   }
 
+  /// Firma de un subprograma PL/SQL para armar una llamada.
+  ///
+  /// Acepta el nombre en cualquiera de sus formas:
+  /// `MI_PROC`, `SIR.MI_PROC`, `PCK_X.MIEMBRO` o `SIR.PCK_X.MIEMBRO`.
+  ///
+  /// Para los miembros de un package se usa `get_package_subprograms` (que
+  /// `get_object_arguments` no resuelve) y se filtra por nombre; para los
+  /// standalone se usa `get_object_arguments`. Se devuelven los argumentos en
+  /// orden de posición, incluida la posición 0 (retorno de las funciones).
+  Future<List<({String name, String dataType, String inOut, int position})>>
+  getRoutineArguments(String objectName, {String? ambiente}) async {
+    final parts = objectName
+        .toUpperCase()
+        .split('.')
+        .map((p) => p.trim())
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return const [];
+
+    // 3 partes ⇒ ESQUEMA.PACKAGE.MIEMBRO (no hay ambigüedad).
+    if (parts.length >= 3) {
+      return _packageArguments(parts[1], parts[2], ambiente);
+    }
+
+    // 2 partes ⇒ puede ser PACKAGE.MIEMBRO o ESQUEMA.OBJETO: se prueban ambas.
+    if (parts.length == 2) {
+      final desdePackage = await _packageArguments(parts[0], parts[1], ambiente);
+      if (desdePackage.isNotEmpty) return desdePackage;
+      return _standaloneArguments(parts[1], ambiente);
+    }
+
+    return _standaloneArguments(parts.first, ambiente);
+  }
+
+  Future<List<({String name, String dataType, String inOut, int position})>>
+  _packageArguments(String packageName, String member, String? ambiente) async {
+    try {
+      final result = await _call('get_package_subprograms', {
+        'packageName': packageName,
+        if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+      });
+      final subprogramas = result['data'] as List? ?? [];
+      for (final raw in subprogramas) {
+        if (raw is! Map) continue;
+        if ((raw['name']?.toString() ?? '').toUpperCase() != member) continue;
+        return _mapArguments(raw['arguments']);
+      }
+    } catch (_) {
+      // Package inexistente o sin permisos: se resuelve como standalone.
+    }
+    return const [];
+  }
+
+  Future<List<({String name, String dataType, String inOut, int position})>>
+  _standaloneArguments(String objectName, String? ambiente) async {
+    try {
+      final result = await _call('get_object_arguments', {
+        'objectName': objectName,
+        if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+      });
+      return _mapArguments(result['data']);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Normaliza la lista de argumentos que devuelven ambas tools MCP.
+  List<({String name, String dataType, String inOut, int position})>
+  _mapArguments(dynamic raw) {
+    if (raw is! List) return const [];
+    final out = <({String name, String dataType, String inOut, int position})>[];
+    for (final e in raw) {
+      if (e is! Map) continue;
+      final pos = e['position'] ?? e['posicion'];
+      out.add((
+        name: (e['argumentName'] ?? e['name'] ?? e['nombre'] ?? '')
+            .toString()
+            .toUpperCase(),
+        dataType: (e['dataType'] ?? e['tipo'] ?? '').toString().toUpperCase(),
+        inOut: (e['inOut'] ?? e['modo'] ?? 'IN').toString().toUpperCase(),
+        position: pos is int ? pos : int.tryParse(pos?.toString() ?? '') ?? 0,
+      ));
+    }
+    out.sort((a, b) => a.position.compareTo(b.position));
+    return out;
+  }
+
   Future<List<({String synonymName, bool isPublic, String owner})>> getSynonyms(
     String objectName, {
     String? ambiente,
@@ -570,11 +830,20 @@ class SchemaService {
   }
 
   /// Fuerza recarga desde el servidor en la próxima llamada (para todos los ambientes).
-  void clearCache() => _caches.clear();
+  void clearCache() {
+    _caches.clear();
+    _argsCache.clear();
+    _pkgCache.clear();
+    _typeCache.clear();
+  }
 
   /// Fuerza recarga solo del ambiente dado desde el servidor.
   Future<SchemaMetadata> refreshAmbiente(String ambiente) {
-    _caches.remove(_env(ambiente));
+    final env = _env(ambiente);
+    _caches.remove(env);
+    _argsCache.removeWhere((k, _) => k.startsWith('$env|'));
+    _pkgCache.removeWhere((k, _) => k.startsWith('$env|'));
+    _typeCache.removeWhere((k, _) => k.startsWith('$env|'));
     return loadMetadata(ambiente: ambiente);
   }
 
@@ -757,26 +1026,55 @@ class SchemaService {
 
   // ── Internos: HTTP MCP ─────────────────────────────────────────────────────
 
+  /// Timeout por defecto para cualquier llamada al servidor MCP.
+  static const Duration kCallTimeout = Duration(seconds: 30);
+
+  /// Ejecuta una herramienta MCP.
+  ///
+  /// El servidor responde con `Content-Type: text/event-stream` y **mantiene el
+  /// stream abierto** tras enviar el resultado. Por eso NO se usa `client.post`
+  /// (que espera el EOF del cuerpo y dejaría el `Future` colgado aunque los
+  /// datos ya hayan llegado): se lee el stream línea a línea y se resuelve en
+  /// cuanto aparece el primer evento `data:`, cancelando la suscripción.
   Future<Map<String, dynamic>> _call(
     String toolName,
+    Map<String, dynamic> arguments, {
+    Duration timeout = kCallTimeout,
+  }) {
+    return _callInner(toolName, arguments, timeout);
+  }
+
+  Future<Map<String, dynamic>> _callInner(
+    String toolName,
     Map<String, dynamic> arguments,
+    Duration timeout,
   ) async {
-    final response = await _client.post(
-      Uri.parse(_mcpUrl),
-      headers: {
+    final request = http.Request('POST', Uri.parse(_mcpUrl))
+      ..headers.addAll({
         'Content-Type': 'application/json',
         'Accept': 'application/json, text/event-stream',
-      },
-      body: jsonEncode({
+      })
+      ..body = jsonEncode({
         'jsonrpc': '2.0',
         'id': _nextId++,
         'method': 'tools/call',
         'params': {'name': toolName, 'arguments': arguments},
-      }),
-    );
+      });
 
-    final dataStr = _extractSseData(response.body);
-    final envelope = jsonDecode(dataStr) as Map<String, dynamic>;
+    final streamed = await _client
+        .send(request)
+        .timeout(
+          timeout,
+          onTimeout: () =>
+              throw TimeoutException('MCP $toolName: sin respuesta', timeout),
+        );
+
+    final payload = await readFirstSseData(
+      streamed,
+      toolName: toolName,
+      timeout: timeout,
+    );
+    final envelope = jsonDecode(payload) as Map<String, dynamic>;
 
     if (envelope.containsKey('error')) {
       final err = envelope['error'] as Map<String, dynamic>;
@@ -786,12 +1084,5 @@ class SchemaService {
     final contentList = envelope['result']['content'] as List<dynamic>;
     final text = contentList.first['text'] as String;
     return jsonDecode(text) as Map<String, dynamic>;
-  }
-
-  String _extractSseData(String raw) {
-    for (final line in raw.split('\n')) {
-      if (line.startsWith('data: ')) return line.substring(6);
-    }
-    return raw;
   }
 }

@@ -28,7 +28,8 @@ class AppTab {
       ambiente = ambiente ?? procedimientosProvider.ambiente;
 
   /// Tab en modo búsqueda (sin procedimiento ni visor de fuente cargado).
-  bool get inSearchMode => procedimiento == null && !loading && sourceViewer == null;
+  bool get inSearchMode =>
+      procedimiento == null && !loading && sourceViewer == null;
 
   /// Tab en modo visor de código fuente Oracle.
   bool get inSourceViewMode => sourceViewer != null;

@@ -5,6 +5,7 @@ import '../services/backup_service.dart';
 import '../services/transfer_service.dart';
 import '../widgets/ambiente_selector.dart';
 import '../widgets/app_toast.dart';
+import '../widgets/constellation_background.dart';
 
 enum _Status { pending, backingUp, transferring, done, error }
 
@@ -40,6 +41,7 @@ class _MultiTransferDialogState extends State<MultiTransferDialog> {
   bool _askingBackup = true;
   bool _running = false;
   bool _done = false;
+  String? _lastBackupPath;
 
   @override
   void initState() {
@@ -84,9 +86,19 @@ class _MultiTransferDialogState extends State<MultiTransferDialog> {
 
     final errors = _states.where((s) => s.status == _Status.error).length;
     if (errors == 0) {
-      AppToast.success(
-        'Transferencia completada a ${_states.length} ambiente(s)',
-      );
+      final path = _lastBackupPath;
+      if (path != null) {
+        AppToast.successWithAction(
+          'Transferencia completada a ${_states.length} ambiente(s)',
+          detail: 'Último backup: $path',
+          actionLabel: 'Abrir ubicación',
+          onAction: () => BackupService.revealInExplorer(path),
+        );
+      } else {
+        AppToast.success(
+          'Transferencia completada a ${_states.length} ambiente(s)',
+        );
+      }
     } else {
       AppToast.warning(
         '$errors error(es) durante la transferencia — revisá los detalles',
@@ -96,7 +108,7 @@ class _MultiTransferDialogState extends State<MultiTransferDialog> {
 
   Future<void> _tryBackup(String targetAmbiente) async {
     // Delegate to BackupService which generates the proper Oracle SQL script
-    await BackupService.exportar(
+    _lastBackupPath = await BackupService.exportar(
       widget.sourceProc,
       targetAmbiente,
       widget.cdUsuario,
@@ -125,8 +137,9 @@ class _MultiTransferDialogState extends State<MultiTransferDialog> {
   }
 
   Widget _buildHeader(bool isDark, ColorScheme cs) {
-    return Container(
+    return ConstellationHeader(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
       decoration: BoxDecoration(
         color: isDark ? cs.surfaceContainerHigh : cs.surfaceContainerLow,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),

@@ -11,14 +11,17 @@ class VariableDinamica {
 
   factory VariableDinamica.fromJson(Map<String, dynamic> json) {
     return VariableDinamica(
-      cdVariable: json['cd_variable']?.toString() ??
+      cdVariable:
+          json['cd_variable']?.toString() ??
           json['cdVariable']?.toString() ??
           '',
-      deVariable: json['de_variable']?.toString() ??
+      deVariable:
+          json['de_variable']?.toString() ??
           json['deVariable']?.toString() ??
           json['deArgumento']?.toString() ??
           '',
-      inConfiguracion: json['in_configuracion']?.toString() ??
+      inConfiguracion:
+          json['in_configuracion']?.toString() ??
           json['inConfiguracion']?.toString() ??
           '',
     );

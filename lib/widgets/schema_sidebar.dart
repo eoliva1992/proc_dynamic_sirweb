@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../services/schema_recents_service.dart';
 import '../services/schema_service.dart';
 import 'ambiente_selector.dart';
 import 'app_toast.dart';
+import 'constellation_background.dart';
 import 'schema_command_palette.dart';
 import 'schema_object_details_sheet.dart';
 import 'source_float_window.dart';
@@ -152,8 +155,7 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
     });
   }
 
-  bool _isFavorite(String name) =>
-      _favoriteKeys.contains('$name::$_ambiente');
+  bool _isFavorite(String name) => _favoriteKeys.contains('$name::$_ambiente');
 
   Future<void> _toggleFavorite(SchemaObjectRef ref) async {
     if (_isFavorite(ref.name)) {
@@ -173,13 +175,25 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
         ambiente: _ambiente,
       ),
     );
-    showObjectDetails(
+    showObjectDetails(context, name: name, type: type, ambiente: _ambiente);
+    _loadSaved();
+  }
+
+  Future<void> _copyName(String name) async {
+    await Clipboard.setData(ClipboardData(text: name));
+    AppToast.info('Copiado: $name');
+  }
+
+  Future<void> _copyUsage(String name, String type) async {
+    final text = await buildObjectUsageSnippet(
       context,
       name: name,
       type: type,
       ambiente: _ambiente,
     );
-    _loadSaved();
+    if (text == null || !mounted) return;
+    await Clipboard.setData(ClipboardData(text: text));
+    AppToast.success('Ejemplo de uso copiado al portapapeles');
   }
 
   // ── Cambio de ambiente ────────────────────────────────────────────────────
@@ -190,16 +204,22 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
       showDialog<bool>(
         context: context,
         builder: (_) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.red, size: 20),
-              SizedBox(width: 8),
-              Text('Cambiar a Producción'),
-            ],
+          titlePadding: EdgeInsets.zero,
+          title: const ConstellationDialogTitle(
+            child: Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, color: Colors.red, size: 20),
+                SizedBox(width: 8),
+                Text('Cambiar a Producción'),
+              ],
+            ),
           ),
-          content: const Text(
-            'Estás a punto de cambiar al ambiente de Producción.\n'
-            'Las modificaciones afectarán datos reales.',
+          content: const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+              'Estás a punto de cambiar al ambiente de Producción.\n'
+              'Las modificaciones afectarán datos reales.',
+            ),
           ),
           actions: [
             TextButton(
@@ -257,18 +277,26 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
   Widget _buildContent(bool isDark) {
     final border = isDark ? const Color(0xFF3A3A3A) : const Color(0xFFDDE2EA);
     final bg = isDark ? const Color(0xFF1E1E1E) : Colors.white;
-    return Container(
-      decoration: BoxDecoration(
-        color: bg,
-        border: Border(right: BorderSide(color: border)),
-      ),
-      child: Column(
-        children: [
-          _buildHeader(isDark),
-          _buildSearch(isDark, border),
-          _buildFilterChips(isDark),
-          Expanded(child: _buildBody(isDark)),
-        ],
+    // Translúcido para dejar ver el fondo de constelación por detrás.
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+        child: Container(
+          decoration: BoxDecoration(
+            color: bg.withValues(alpha: isDark ? 0.62 : 0.78),
+            border: Border(
+              right: BorderSide(color: border.withValues(alpha: 0.7)),
+            ),
+          ),
+          child: Column(
+            children: [
+              _buildHeader(isDark),
+              _buildSearch(isDark, border),
+              _buildFilterChips(isDark),
+              Expanded(child: _buildBody(isDark)),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -277,9 +305,12 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
     return Container(
       height: 40,
       padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Color(0xFF0078D4), Color(0xFF005A9E)],
+          colors: [
+            const Color(0xFF0078D4).withValues(alpha: 0.85),
+            const Color(0xFF005A9E).withValues(alpha: 0.85),
+          ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -383,10 +414,7 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
               Container(
                 width: 7,
                 height: 7,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: c,
-                ),
+                decoration: BoxDecoration(shape: BoxShape.circle, color: c),
               ),
               const SizedBox(width: 8),
               Icon(AmbienteSelector.iconForAmbiente(a), size: 13, color: c),
@@ -408,10 +436,7 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.25),
           borderRadius: BorderRadius.circular(5),
-          border: Border.all(
-            color: color.withValues(alpha: 0.6),
-            width: 0.8,
-          ),
+          border: Border.all(color: color.withValues(alpha: 0.6), width: 0.8),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -473,7 +498,9 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
                 )
               : null,
           filled: true,
-          fillColor: isDark ? const Color(0xFF2D2D2D) : const Color(0xFFF5F7FA),
+          fillColor:
+              (isDark ? const Color(0xFF2D2D2D) : const Color(0xFFF5F7FA))
+                  .withValues(alpha: isDark ? 0.55 : 0.7),
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 10,
             vertical: 7,
@@ -509,42 +536,42 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
                 final icon = _kTypeIcons[t]!;
                 return Expanded(
                   child: Tooltip(
-                  message: _kTypeLabels[t]!,
-                  child: GestureDetector(
-                    onTap: () => setState(() {
-                      if (active) {
-                        _activeFilters.remove(t);
-                      } else {
-                        _activeFilters.add(t);
-                      }
-                    }),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 130),
-                      height: 28,
-                      margin: const EdgeInsets.symmetric(horizontal: 1),
-                      decoration: BoxDecoration(
-                        color: active
-                            ? color.withValues(alpha: 0.16)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
+                    message: _kTypeLabels[t]!,
+                    child: GestureDetector(
+                      onTap: () => setState(() {
+                        if (active) {
+                          _activeFilters.remove(t);
+                        } else {
+                          _activeFilters.add(t);
+                        }
+                      }),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 130),
+                        height: 28,
+                        margin: const EdgeInsets.symmetric(horizontal: 1),
+                        decoration: BoxDecoration(
                           color: active
-                              ? color.withValues(alpha: 0.8)
-                              : (isDark
-                                    ? const Color(0xFF3A3A3A)
-                                    : const Color(0xFFDDE2EA)),
-                          width: active ? 1.4 : 0.8,
+                              ? color.withValues(alpha: 0.16)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: active
+                                ? color.withValues(alpha: 0.8)
+                                : (isDark
+                                      ? const Color(0xFF3A3A3A)
+                                      : const Color(0xFFDDE2EA)),
+                            width: active ? 1.4 : 0.8,
+                          ),
+                        ),
+                        child: Icon(
+                          icon,
+                          size: 14,
+                          color: active
+                              ? color
+                              : (isDark ? Colors.white38 : Colors.black38),
                         ),
                       ),
-                      child: Icon(
-                        icon,
-                        size: 14,
-                        color: active
-                            ? color
-                            : (isDark ? Colors.white38 : Colors.black38),
-                      ),
                     ),
-                  ),
                   ),
                 );
               }),
@@ -630,39 +657,60 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
       );
     }
 
-    return CustomScrollView(
-      slivers: [
-        if (_filter.isEmpty && _favorites.isNotEmpty)
-          ..._buildSavedSection(
-            'FAVORITOS',
-            _favorites,
-            Icons.star_rounded,
-            const Color(0xFFF4C430),
-            isDark,
-            isFavoriteSection: true,
-            expanded: _favoritesExpanded,
-            onToggleExpand: () =>
-                setState(() => _favoritesExpanded = !_favoritesExpanded),
-            showMore: _favoritesShowMore,
-            onToggleShowMore: () =>
-                setState(() => _favoritesShowMore = !_favoritesShowMore),
+    return Stack(
+      children: [
+        // Constelación propia detrás de la lista de objetos.
+        Positioned.fill(
+          child: IgnorePointer(
+            child: ConstellationBackground(
+              density: 1.3,
+              scale: 0.8,
+              speed: 0.5,
+              linkDistance: 110,
+              backgroundColor: Colors.transparent,
+              starColor: isDark
+                  ? Colors.white.withValues(alpha: 0.55)
+                  : Colors.black.withValues(alpha: 0.3),
+              lineColor: const Color(0xFF0078D4).withValues(alpha: 0.3),
+              parallax: false,
+            ),
           ),
-        if (_filter.isEmpty && _recents.isNotEmpty)
-          ..._buildSavedSection(
-            'RECIENTES',
-            _recents,
-            Icons.history,
-            const Color(0xFF0078D4),
-            isDark,
-            isFavoriteSection: false,
-            expanded: _recentsExpanded,
-            onToggleExpand: () =>
-                setState(() => _recentsExpanded = !_recentsExpanded),
-            showMore: _recentsShowMore,
-            onToggleShowMore: () =>
-                setState(() => _recentsShowMore = !_recentsShowMore),
-          ),
-        ..._buildSchemaTree(meta, isDark),
+        ),
+        CustomScrollView(
+          slivers: [
+            if (_filter.isEmpty && _favorites.isNotEmpty)
+              ..._buildSavedSection(
+                'FAVORITOS',
+                _favorites,
+                Icons.star_rounded,
+                const Color(0xFFF4C430),
+                isDark,
+                isFavoriteSection: true,
+                expanded: _favoritesExpanded,
+                onToggleExpand: () =>
+                    setState(() => _favoritesExpanded = !_favoritesExpanded),
+                showMore: _favoritesShowMore,
+                onToggleShowMore: () =>
+                    setState(() => _favoritesShowMore = !_favoritesShowMore),
+              ),
+            if (_filter.isEmpty && _recents.isNotEmpty)
+              ..._buildSavedSection(
+                'RECIENTES',
+                _recents,
+                Icons.history,
+                const Color(0xFF0078D4),
+                isDark,
+                isFavoriteSection: false,
+                expanded: _recentsExpanded,
+                onToggleExpand: () =>
+                    setState(() => _recentsExpanded = !_recentsExpanded),
+                showMore: _recentsShowMore,
+                onToggleShowMore: () =>
+                    setState(() => _recentsShowMore = !_recentsShowMore),
+              ),
+            ..._buildSchemaTree(meta, isDark),
+          ],
+        ),
       ],
     );
   }
@@ -698,9 +746,15 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
                   final ok = await showDialog<bool>(
                     context: context,
                     builder: (_) => AlertDialog(
-                      title: const Text('Limpiar recientes'),
-                      content: const Text(
-                        '¿Eliminar todo el historial de recientes?',
+                      titlePadding: EdgeInsets.zero,
+                      title: const ConstellationDialogTitle(
+                        child: Text('Limpiar recientes'),
+                      ),
+                      content: const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text(
+                          '¿Eliminar todo el historial de recientes?',
+                        ),
                       ),
                       actions: [
                         TextButton(
@@ -770,8 +824,10 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
     VoidCallback? onToggle,
     VoidCallback? onClear,
   }) {
-    final divBg = isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA);
-    final divLine = isDark ? const Color(0xFF3A3A3A) : const Color(0xFFE8E8E8);
+    final divBg = (isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA))
+        .withValues(alpha: isDark ? 0.45 : 0.55);
+    final divLine = (isDark ? const Color(0xFF3A3A3A) : const Color(0xFFE8E8E8))
+        .withValues(alpha: 0.7);
     return InkWell(
       onTap: onToggle,
       child: Container(
@@ -876,6 +932,8 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
               ambiente: _ambiente,
             )
           : null,
+      onCopyName: () => _copyName(ref.name),
+      onCopyUsage: () => _copyUsage(ref.name, ref.type),
     );
   }
 
@@ -948,8 +1006,10 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
   ) {
     final color = _kTypeColors[type] ?? Colors.grey;
     final label = _kTypeLabels[type] ?? type;
-    final bg = isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA);
-    final border = isDark ? const Color(0xFF3A3A3A) : const Color(0xFFE8E8E8);
+    final bg = (isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA))
+        .withValues(alpha: isDark ? 0.45 : 0.55);
+    final border = (isDark ? const Color(0xFF3A3A3A) : const Color(0xFFE8E8E8))
+        .withValues(alpha: 0.7);
     return Material(
       color: bg,
       child: InkWell(
@@ -1036,6 +1096,8 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
               ambiente: _ambiente,
             )
           : null,
+      onCopyName: () => _copyName(name),
+      onCopyUsage: () => _copyUsage(name, type),
       onFavoriteToggle: () => _toggleFavorite(
         SchemaObjectRef(
           name: name,
@@ -1050,9 +1112,7 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
   Future<void> _refreshSchema() async {
     setState(() => _metaLoaded = false);
     try {
-      final fresh = await SchemaService.instance.refreshAmbiente(
-        _ambiente,
-      );
+      final fresh = await SchemaService.instance.refreshAmbiente(_ambiente);
       if (mounted)
         setState(() {
           _meta = fresh;
@@ -1086,6 +1146,8 @@ class _SavedCard extends StatefulWidget {
   final VoidCallback onFavoriteToggle;
   final VoidCallback? onRemove;
   final VoidCallback? onOpenSource;
+  final VoidCallback? onCopyName;
+  final VoidCallback? onCopyUsage;
 
   const _SavedCard({
     required this.ref,
@@ -1098,6 +1160,8 @@ class _SavedCard extends StatefulWidget {
     required this.onFavoriteToggle,
     this.onRemove,
     this.onOpenSource,
+    this.onCopyName,
+    this.onCopyUsage,
   });
 
   @override
@@ -1111,7 +1175,9 @@ class _SavedCardState extends State<_SavedCard> {
   Widget build(BuildContext context) {
     final bg = _hovered
         ? (widget.isDark ? const Color(0xFF2A2A2A) : const Color(0xFFEFF4FF))
-        : (widget.isDark ? const Color(0xFF232323) : const Color(0xFFFAFAFB));
+              .withValues(alpha: widget.isDark ? 0.75 : 0.85)
+        : (widget.isDark ? const Color(0xFF232323) : const Color(0xFFFAFAFB))
+              .withValues(alpha: widget.isDark ? 0.35 : 0.45);
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
@@ -1170,12 +1236,49 @@ class _SavedCardState extends State<_SavedCard> {
                       onTap: widget.onOpenSource,
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 3),
-                        child: Icon(
-                          Icons.code_rounded,
-                          size: 14,
-                          color: widget.isDark
-                              ? Colors.white38
-                              : Colors.black45,
+                        child: Tooltip(
+                          message: 'Ver fuente',
+                          child: Icon(
+                            Icons.code_rounded,
+                            size: 14,
+                            color: widget.isDark
+                                ? Colors.white38
+                                : Colors.black45,
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (widget.onCopyName != null)
+                    GestureDetector(
+                      onTap: widget.onCopyName,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: Tooltip(
+                          message: 'Copiar nombre',
+                          child: Icon(
+                            Icons.copy_rounded,
+                            size: 13,
+                            color: widget.isDark
+                                ? Colors.white38
+                                : Colors.black45,
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (widget.onCopyUsage != null)
+                    GestureDetector(
+                      onTap: widget.onCopyUsage,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: Tooltip(
+                          message: 'Copiar uso',
+                          child: Icon(
+                            Icons.integration_instructions_outlined,
+                            size: 14,
+                            color: widget.isDark
+                                ? Colors.white38
+                                : Colors.black45,
+                          ),
                         ),
                       ),
                     ),
@@ -1233,6 +1336,8 @@ class _SidebarRow extends StatefulWidget {
   final VoidCallback onTap;
   final VoidCallback onFavoriteToggle;
   final VoidCallback? onOpenSource;
+  final VoidCallback? onCopyName;
+  final VoidCallback? onCopyUsage;
 
   const _SidebarRow({
     required this.icon,
@@ -1245,6 +1350,8 @@ class _SidebarRow extends StatefulWidget {
     required this.onTap,
     required this.onFavoriteToggle,
     this.onOpenSource,
+    this.onCopyName,
+    this.onCopyUsage,
   });
 
   @override
@@ -1293,6 +1400,7 @@ class _SidebarRowState extends State<_SidebarRow> {
   Widget build(BuildContext context) {
     final bg = _hovered
         ? (widget.isDark ? const Color(0xFF2A2A2A) : const Color(0xFFEFF4FF))
+              .withValues(alpha: widget.isDark ? 0.75 : 0.85)
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
@@ -1344,6 +1452,40 @@ class _SidebarRowState extends State<_SidebarRow> {
                       ),
                     ),
                   ),
+                if (widget.onCopyName != null)
+                  GestureDetector(
+                    onTap: widget.onCopyName,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Tooltip(
+                        message: 'Copiar nombre',
+                        child: Icon(
+                          Icons.copy_rounded,
+                          size: 13,
+                          color: widget.isDark
+                              ? Colors.white54
+                              : Colors.black45,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (widget.onCopyUsage != null)
+                  GestureDetector(
+                    onTap: widget.onCopyUsage,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Tooltip(
+                        message: 'Copiar uso',
+                        child: Icon(
+                          Icons.integration_instructions_outlined,
+                          size: 14,
+                          color: widget.isDark
+                              ? Colors.white54
+                              : Colors.black45,
+                        ),
+                      ),
+                    ),
+                  ),
                 GestureDetector(
                   onTap: widget.onFavoriteToggle,
                   child: Padding(
@@ -1383,7 +1525,8 @@ class SchemaSidebarToggle extends StatelessWidget {
         child: Container(
           width: 20,
           decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF252526) : const Color(0xFFF0F2F5),
+            color: (isDark ? const Color(0xFF252526) : const Color(0xFFF0F2F5))
+                .withValues(alpha: isDark ? 0.55 : 0.75),
             border: Border(
               right: BorderSide(
                 color: isDark

@@ -103,10 +103,17 @@ class SearchTabState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addToHistory(String query) {
-    if (query.trim().isEmpty) return;
-    history = [query, ...history.where((h) => h != query)].take(8).toList();
-    notifyListeners();
+  void addToHistory(String query) => _pushHistory(query);
+
+  /// Agrega [query] al historial. [notify] permite omitir la notificación
+  /// cuando el caller ya va a llamar a `notifyListeners()` a continuación.
+  void _pushHistory(String query, {bool notify = true}) {
+    final q = query.trim();
+    if (q.isEmpty) return;
+    // Si ya está primero, no hay nada que reordenar ni persistir.
+    if (history.isNotEmpty && history.first == q) return;
+    history = [q, ...history.where((h) => h != q)].take(8).toList();
+    if (notify) notifyListeners();
     SharedPreferences.getInstance().then(
       (p) => p.setStringList(_historyKey, history),
     );
@@ -163,7 +170,6 @@ class SearchTabState extends ChangeNotifier {
     hasSearched = true;
     error = null;
     notifyListeners();
-    addToHistory(busqueda);
     try {
       final r = await _service.listarProcedimientos(
         busqueda: busqueda,
@@ -176,6 +182,13 @@ class SearchTabState extends ChangeNotifier {
       tieneSiguiente = r.tieneSiguiente;
     } catch (e) {
       error = e.toString().replaceFirst('Exception: ', '');
+      resultados = const [];
+      tieneSiguiente = false;
+    }
+    // El historial se registra recién acá: una búsqueda que falló o que no
+    // devolvió ningún registro no se guarda como búsqueda reciente.
+    if (error == null && resultados.isNotEmpty) {
+      _pushHistory(busqueda, notify: false);
     }
     cargando = false;
     notifyListeners();

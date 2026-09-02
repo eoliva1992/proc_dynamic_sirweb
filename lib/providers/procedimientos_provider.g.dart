@@ -179,6 +179,24 @@ mixin _$ProcedimientosProvider on _ProcedimientosProvider, Store {
     });
   }
 
+  late final _$errorDeConexionAtom = Atom(
+    name: '_ProcedimientosProvider.errorDeConexion',
+    context: context,
+  );
+
+  @override
+  bool get errorDeConexion {
+    _$errorDeConexionAtom.reportRead();
+    return super.errorDeConexion;
+  }
+
+  @override
+  set errorDeConexion(bool value) {
+    _$errorDeConexionAtom.reportWrite(value, super.errorDeConexion, () {
+      super.errorDeConexion = value;
+    });
+  }
+
   late final _$mensajeAtom = Atom(
     name: '_ProcedimientosProvider.mensaje',
     context: context,
@@ -490,6 +508,7 @@ cargando: ${cargando},
 cargandoEditor: ${cargandoEditor},
 cargandoMas: ${cargandoMas},
 error: ${error},
+errorDeConexion: ${errorDeConexion},
 mensaje: ${mensaje},
 pagina: ${pagina},
 tieneSiguiente: ${tieneSiguiente},

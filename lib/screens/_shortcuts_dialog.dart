@@ -5,6 +5,7 @@ class _ShortcutsDialog extends StatelessWidget {
 
   static const _shortcuts = [
     ('Ctrl + K', 'Búsqueda rápida de esquema'),
+    ('Ctrl + Shift + E', 'Ejecutar objeto PL/SQL'),
     ('Ctrl + S', 'Guardar procedimiento'),
     ('Ctrl + T', 'Nueva pestaña de búsqueda'),
     ('Ctrl + W', 'Cerrar pestaña activa'),
@@ -27,9 +28,12 @@ class _ShortcutsDialog extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
+            ConstellationHeader(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(12),
+              ),
               decoration: BoxDecoration(
                 color: isDark
                     ? cs.surfaceContainerHigh
