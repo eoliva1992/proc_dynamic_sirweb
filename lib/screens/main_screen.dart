@@ -1632,13 +1632,19 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           );
           return;
         }
-        final saved = await BackupService.exportar(
+        final savedPath = await BackupService.exportar(
           proc,
           tab.ambiente,
           procedimientosProvider.cdUsuario,
         );
-        if (saved && mounted) {
-          AppToast.success('Backup exportado correctamente');
+        if (savedPath != null && mounted) {
+          AppToast.successWithAction(
+            'Backup exportado correctamente',
+            detail: savedPath,
+            actionLabel: 'Abrir ubicación',
+            onAction: () =>
+                unawaited(BackupService.revealInExplorer(savedPath)),
+          );
         }
 
       case _EditorAction.restore:

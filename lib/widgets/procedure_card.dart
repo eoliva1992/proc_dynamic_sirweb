@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../models/procedimiento.dart';
 import '../providers/procedimientos_provider.dart';
 import '../services/favorites_service.dart';
+import 'app_toast.dart';
 import 'config_badge.dart';
 
 class ProcedureCard extends StatefulWidget {
@@ -153,6 +154,20 @@ class _ProcedureCardState extends State<ProcedureCard> {
     );
   }
 
+  void _copyProcedureName() {
+    final name = widget.procedimiento.cdProcedimiento;
+    Clipboard.setData(ClipboardData(text: name));
+    AppToast.success('Nombre copiado: $name');
+  }
+
+  void _copyProcedureAsCall() {
+    final name = widget.procedimiento.cdProcedimiento;
+    final isJs = widget.procedimiento.inConfiguracion == 'J';
+    final call = isJs ? '$name();' : 'BEGIN\n  $name;\nEND;';
+    Clipboard.setData(ClipboardData(text: call));
+    AppToast.success('Llamada copiada');
+  }
+
   void _showContextMenu(TapUpDetails details) {
     final pos = details.globalPosition;
     showMenu<_CardAction>(
@@ -204,17 +219,8 @@ class _ProcedureCardState extends State<ProcedureCard> {
     ).then((action) {
       if (action == _CardAction.viewSource) widget.onViewSource?.call();
       if (action == _CardAction.openInNewTab) widget.onOpenInNewTab?.call();
-      if (action == _CardAction.copyName) {
-        Clipboard.setData(
-          ClipboardData(text: widget.procedimiento.cdProcedimiento),
-        );
-      }
-      if (action == _CardAction.copyAsCall) {
-        final name = widget.procedimiento.cdProcedimiento;
-        final isJs = widget.procedimiento.inConfiguracion == 'J';
-        final call = isJs ? '$name();' : 'BEGIN\n  $name;\nEND;';
-        Clipboard.setData(ClipboardData(text: call));
-      }
+      if (action == _CardAction.copyName) _copyProcedureName();
+      if (action == _CardAction.copyAsCall) _copyProcedureAsCall();
     });
   }
 
@@ -423,6 +429,25 @@ class _ProcedureCardState extends State<ProcedureCard> {
                             ),
                           ),
                         ),
+                      AnimatedOpacity(
+                        duration: const Duration(milliseconds: 150),
+                        opacity: _hovered ? 1.0 : 0.25,
+                        child: Tooltip(
+                          message: 'Copiar nombre',
+                          child: InkWell(
+                            onTap: _copyProcedureName,
+                            borderRadius: BorderRadius.circular(4),
+                            child: Padding(
+                              padding: const EdgeInsets.all(4),
+                              child: Icon(
+                                Icons.copy_rounded,
+                                size: 14,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                       _FavStar(procId: proc.cdProcedimiento),
                       const SizedBox(width: 2),
                       Icon(
@@ -535,7 +560,7 @@ class _EstadoBadge extends StatelessWidget {
   }
 }
 
-class _CodePreviewOverlay extends StatelessWidget {
+class _CodePreviewOverlay extends StatefulWidget {
   final Offset cardPosition;
   final Size cardSize;
   final Procedimiento proc;
@@ -552,6 +577,25 @@ class _CodePreviewOverlay extends StatelessWidget {
     required this.onMouseExit,
   });
 
+  @override
+  State<_CodePreviewOverlay> createState() => _CodePreviewOverlayState();
+}
+
+class _CodePreviewOverlayState extends State<_CodePreviewOverlay> {
+  late final ScrollController _scrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   static const double _popupW = 460;
   static const double _popupH = 320;
 
@@ -565,12 +609,12 @@ class _CodePreviewOverlay extends StatelessWidget {
         : const Color(0xFF1E1E1E);
 
     // Prefer above card; fall back to below if not enough vertical space.
-    double top = cardPosition.dy - _popupH - 4;
-    if (top < 8) top = cardPosition.dy + cardSize.height + 4;
+    double top = widget.cardPosition.dy - _popupH - 4;
+    if (top < 8) top = widget.cardPosition.dy + widget.cardSize.height + 4;
 
-    double left = cardPosition.dx + 12;
-    if (left + _popupW > screenSize.width - 8) {
-      left = screenSize.width - _popupW - 8;
+    double left = widget.cardPosition.dx + 12;
+    if (left + _popupW > widget.screenSize.width - 8) {
+      left = widget.screenSize.width - _popupW - 8;
     }
 
     return Positioned(
@@ -584,8 +628,8 @@ class _CodePreviewOverlay extends StatelessWidget {
         curve: Curves.easeOut,
         builder: (_, opacity, child) => Opacity(opacity: opacity, child: child),
         child: MouseRegion(
-          onEnter: (_) => onMouseEnter(),
-          onExit: (_) => onMouseExit(),
+          onEnter: (_) => widget.onMouseEnter(),
+          onExit: (_) => widget.onMouseExit(),
           child: Material(
             color: Colors.transparent,
             child: Container(
@@ -628,7 +672,7 @@ class _CodePreviewOverlay extends StatelessWidget {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          proc.cdProcedimiento,
+                          widget.proc.cdProcedimiento,
                           style: const TextStyle(
                             fontFamily: 'Consolas',
                             fontSize: 12,
@@ -641,11 +685,13 @@ class _CodePreviewOverlay extends StatelessWidget {
                   ),
                   Expanded(
                     child: Scrollbar(
+                      controller: _scrollController,
                       thumbVisibility: true,
                       child: SingleChildScrollView(
+                        controller: _scrollController,
                         padding: const EdgeInsets.all(12),
                         child: SelectableText(
-                          proc.deTexto,
+                          widget.proc.deTexto,
                           style: TextStyle(
                             fontFamily: 'Consolas',
                             fontSize: 11.5,

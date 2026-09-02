@@ -40,6 +40,7 @@ class _MultiTransferDialogState extends State<MultiTransferDialog> {
   bool _askingBackup = true;
   bool _running = false;
   bool _done = false;
+  String? _lastBackupPath;
 
   @override
   void initState() {
@@ -84,9 +85,19 @@ class _MultiTransferDialogState extends State<MultiTransferDialog> {
 
     final errors = _states.where((s) => s.status == _Status.error).length;
     if (errors == 0) {
-      AppToast.success(
-        'Transferencia completada a ${_states.length} ambiente(s)',
-      );
+      final path = _lastBackupPath;
+      if (path != null) {
+        AppToast.successWithAction(
+          'Transferencia completada a ${_states.length} ambiente(s)',
+          detail: 'Último backup: $path',
+          actionLabel: 'Abrir ubicación',
+          onAction: () => BackupService.revealInExplorer(path),
+        );
+      } else {
+        AppToast.success(
+          'Transferencia completada a ${_states.length} ambiente(s)',
+        );
+      }
     } else {
       AppToast.warning(
         '$errors error(es) durante la transferencia — revisá los detalles',
@@ -96,7 +107,7 @@ class _MultiTransferDialogState extends State<MultiTransferDialog> {
 
   Future<void> _tryBackup(String targetAmbiente) async {
     // Delegate to BackupService which generates the proper Oracle SQL script
-    await BackupService.exportar(
+    _lastBackupPath = await BackupService.exportar(
       widget.sourceProc,
       targetAmbiente,
       widget.cdUsuario,

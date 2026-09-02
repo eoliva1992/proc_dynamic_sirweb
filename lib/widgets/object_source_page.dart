@@ -12,6 +12,7 @@ import '_editor_plsql_completions.dart';
 import '_editor_themes.dart';
 import 'ambiente_selector.dart';
 import 'app_toast.dart';
+import 'source_tab_controller.dart';
 import 'status_card.dart';
 
 const kTypeColors = {
@@ -36,6 +37,48 @@ enum _ViewerCompileStatus { idle, compiling, ok, error }
 
 // Shared across all editor instances — avoids re-reading the asset each time
 // _cachedAntlrJs removed — validation now uses Oracle backend
+
+// flutter_monaco's pointerDown handler calls forceFocus() (JS) whenever
+// Monaco reports blur, to reclaim native focus after clicking elsewhere.
+// That handler's own idempotency guard only skips the document.body.focus()
+// handoff when the editor's textarea already owns document.activeElement —
+// it does NOT skip it while a right-click context menu owns focus instead,
+// so clicking any context menu item (built-in or custom, e.g. "Ver
+// definición Oracle") blurs-then-closes the menu before the click is
+// processed by the browser. Patching the JS focus() calls forceFocus()
+// actually uses (document.body, the editor, its textarea) to no-op while
+// `.monaco-menu-container` is present in the DOM fixes this regardless of
+// Dart-side widget rebuild timing. See the identical patch and rationale in
+// code_editor_panel.dart's `_onReady`.
+const String _kContextMenuFocusGuardJs =
+    '(function(){'
+    '  function isMenuOpen(){'
+    '    return !!document.querySelector(".monaco-menu-container");'
+    '  }'
+    '  function patchEl(el){'
+    '    if(!el||el._fp) return;'
+    '    el._fp=true;'
+    '    var o=el.focus.bind(el);'
+    '    el.focus=function(opts){ if(!isMenuOpen()) o(opts); };'
+    '  }'
+    '  if(!document.body._fp){'
+    '    document.body._fp=true;'
+    '    var ob=document.body.focus.bind(document.body);'
+    '    document.body.focus=function(){ if(!isMenuOpen()) ob(); };'
+    '  }'
+    '  function tryPatch(){'
+    '    patchEl(document.querySelector(".monaco-editor .inputarea"));'
+    '    patchEl(document.querySelector(".monaco-editor .native-edit-context"));'
+    '    if(window.editor&&!window.editor._fp){'
+    '      window.editor._fp=true;'
+    '      var oe=window.editor.focus.bind(window.editor);'
+    '      window.editor.focus=function(){ if(!isMenuOpen()) oe(); };'
+    '    }'
+    '  }'
+    '  tryPatch();'
+    '  var obs=new MutationObserver(tryPatch);'
+    '  obs.observe(document.body,{childList:true,subtree:true});'
+    '})()';
 
 class ObjectSourcePage extends StatefulWidget {
   final String name;
@@ -553,6 +596,19 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
     return [...compile, ...syntax]..sort((a, b) => a.line.compareTo(b.line));
   }
 
+  /// Maneja la navegación a la definición de un objeto Oracle desde los editores
+  /// embebidos. Usa [SourceTabController] si está disponible en el árbol.
+  void _handleGotoDefinition(String name, String objectType) {
+    final stc = SourceTabController.maybeOf(context);
+    if (stc != null) {
+      stc.openTab(name: name, objectType: objectType, ambiente: widget.ambiente);
+    } else {
+      AppToast.info(
+        'Abrí "$name" desde el explorador de objetos del panel lateral.',
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -946,6 +1002,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
         onSpecIssuesChanged: (issues) => setState(() => _specIssues = issues),
         onBodyIssuesChanged: (issues) => setState(() => _bodyIssues = issues),
         onBackendChecking: (v) => setState(() => _backendChecking = v),
+        onGotoDefinition: _handleGotoDefinition,
       );
       final showNav = _showPackageNav && _subprograms.isNotEmpty;
       return Row(
@@ -973,6 +1030,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
       onErrorCountChanged: (n) => setState(() => _specErrors = n),
       onIssuesChanged: (issues) => setState(() => _specIssues = issues),
       onBackendChecking: (v) => setState(() => _backendChecking = v),
+      onGotoDefinition: _handleGotoDefinition,
     );
   }
 
@@ -2048,6 +2106,8 @@ class _MonacoSourceTab extends StatefulWidget {
   final void Function(int errorCount)? onErrorCountChanged;
   final void Function(List<PlSqlIssue> issues)? onIssuesChanged;
   final void Function(bool checking)? onBackendChecking;
+  /// Callback para navegar a la definición de un objeto Oracle desde el editor.
+  final void Function(String name, String objectType)? onGotoDefinition;
 
   const _MonacoSourceTab({
     required this.source,
@@ -2062,6 +2122,7 @@ class _MonacoSourceTab extends StatefulWidget {
     this.onErrorCountChanged,
     this.onIssuesChanged,
     this.onBackendChecking,
+    this.onGotoDefinition,
   });
 
   @override
@@ -2073,6 +2134,7 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
   fm.MonacoController? _ctrl;
   fm.MonacoCompletionRegistration? _kwReg;
   fm.MonacoCompletionRegistration? _schemaReg;
+  fm.MonacoActionRegistration? _gotoDefAction;
   bool _contentReady = false;
   Timer? _debounce;
   int _checkGen = 0;
@@ -2107,12 +2169,53 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     _debounce?.cancel();
     _kwReg?.dispose();
     _schemaReg?.dispose();
+    _gotoDefAction?.dispose();
     editorThemeStore.removeListener(_onEditorThemeChanged);
     super.dispose();
   }
 
   void _onEditorThemeChanged() {
     _ctrl?.setTheme(editorThemeStore.monacoTheme);
+  }
+
+  Future<void> _goToDefinition(fm.MonacoController ctrl) async {
+    if (!mounted) return;
+    try {
+      final word = await ctrl.evaluateJavaScript<String>(
+        '(()=>{try{'
+        'var p=window.editor.getPosition();'
+        'var m=window.editor.getModel();'
+        'if(!p||!m)return null;'
+        'var w=m.getWordAtPosition(p);'
+        'return w?w.word:null;'
+        '}catch(e){return null;}})()',
+      );
+      if (word == null || word.isEmpty || !mounted) return;
+      final upper = word.toUpperCase();
+      final schema = SchemaService.instance.getCached(ambiente: widget.ambiente);
+      if (schema == null) return;
+
+      String? name;
+      String? objectType;
+      final obj = schema.objects.where((o) => o.name == upper).firstOrNull;
+      if (obj != null) {
+        name = obj.name;
+        objectType = obj.type;
+      } else if (schema.tables.contains(upper)) {
+        name = upper;
+        objectType = 'TABLE';
+      } else if (schema.views.contains(upper)) {
+        name = upper;
+        objectType = 'VIEW';
+      }
+
+      if (name == null || objectType == null) return;
+      final n = name;
+      final t = objectType;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onGotoDefinition?.call(n, t);
+      });
+    } catch (_) {}
   }
 
   Future<void> _onReady(fm.MonacoController ctrl) async {
@@ -2148,6 +2251,22 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
       '  acceptSuggestionOnEnter:"off", tabCompletion:"on"'
       '}); } catch(e) {}',
     );
+    await ctrl.runJavaScript(_kContextMenuFocusGuardJs);
+
+    // Registrar acción "Ver definición Oracle" (F12 + menú contextual)
+    if (widget.onGotoDefinition != null) {
+      _gotoDefAction = await ctrl.addAction(
+        const fm.MonacoActionDescriptor(
+          id: fm.MonacoAction('oracle.source.goToDefinition'),
+          label: 'Ver definición Oracle',
+          keybindings: [fm.MonacoKeybinding(key: fm.MonacoKey.f12)],
+          contextMenuGroupId: 'navigation',
+          contextMenuOrder: 1.5,
+          precondition: 'editorTextFocus',
+        ),
+        () async => _goToDefinition(ctrl),
+      );
+    }
 
     if (widget.isPlSql && widget.source.isNotEmpty) {
       _scheduleCheck(widget.source);
@@ -2340,7 +2459,10 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     final ms = code.length > 15000 ? 3500 : 1200;
     _debounce = Timer(
       Duration(milliseconds: ms),
-      () => _checkSyntax(code, gen),
+      () {
+        if (!mounted || _ctrl == null) return;
+        _checkSyntax(code, gen);
+      },
     );
   }
 
@@ -2373,6 +2495,7 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
         issues.where((e) => e.severity == fm.MarkerSeverity.error).length,
       );
       widget.onIssuesChanged?.call(issues);
+      if (!mounted || !identical(_ctrl, ctrl)) return;
       await ctrl.document.setMarkers([
         for (final e in issues)
           fm.MarkerData(
@@ -2415,6 +2538,11 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
                 : fm.MonacoWordWrap.off,
             renderWhitespace: fm.RenderWhitespace.none,
             tabSize: 2,
+            // Ver code_editor_panel.dart: fuerza a que el menú contextual,
+            // sugerencias y hover se rendericen dentro del contenedor del
+            // editor en vez de anclados a document.body, evitando que los
+            // clics del mouse no se registren en el WebView2 embebido.
+            extra: const {'fixedOverflowWidgets': true},
           ),
           contentDebounce: const Duration(milliseconds: 600),
           onReady: _onReady,
@@ -2456,6 +2584,8 @@ class _MultiDocSourceEditor extends StatefulWidget {
   final void Function(List<PlSqlIssue>)? onSpecIssuesChanged;
   final void Function(List<PlSqlIssue>)? onBodyIssuesChanged;
   final void Function(bool checking)? onBackendChecking;
+  /// Callback para navegar a la definición de un objeto Oracle desde el editor.
+  final void Function(String name, String objectType)? onGotoDefinition;
 
   const _MultiDocSourceEditor({
     required this.spec,
@@ -2476,6 +2606,7 @@ class _MultiDocSourceEditor extends StatefulWidget {
     this.onSpecIssuesChanged,
     this.onBodyIssuesChanged,
     this.onBackendChecking,
+    this.onGotoDefinition,
   });
 
   @override
@@ -2488,6 +2619,7 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
   fm.MonacoDocument? _bodyDoc;
   fm.MonacoCompletionRegistration? _kwReg;
   fm.MonacoCompletionRegistration? _schemaReg;
+  fm.MonacoActionRegistration? _gotoDefAction;
   bool _specReady = false;
   bool _bodyReady = false;
   Timer? _debounce;
@@ -2529,12 +2661,53 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
     _debounce?.cancel();
     _kwReg?.dispose();
     _schemaReg?.dispose();
+    _gotoDefAction?.dispose();
     editorThemeStore.removeListener(_onEditorThemeChanged2);
     super.dispose();
   }
 
   void _onEditorThemeChanged2() {
     _ctrl?.setTheme(editorThemeStore.monacoTheme);
+  }
+
+  Future<void> _goToDefinition(fm.MonacoController ctrl) async {
+    if (!mounted) return;
+    try {
+      final word = await ctrl.evaluateJavaScript<String>(
+        '(()=>{try{'
+        'var p=window.editor.getPosition();'
+        'var m=window.editor.getModel();'
+        'if(!p||!m)return null;'
+        'var w=m.getWordAtPosition(p);'
+        'return w?w.word:null;'
+        '}catch(e){return null;}})()',
+      );
+      if (word == null || word.isEmpty || !mounted) return;
+      final upper = word.toUpperCase();
+      final schema = SchemaService.instance.getCached(ambiente: widget.ambiente);
+      if (schema == null) return;
+
+      String? name;
+      String? objectType;
+      final obj = schema.objects.where((o) => o.name == upper).firstOrNull;
+      if (obj != null) {
+        name = obj.name;
+        objectType = obj.type;
+      } else if (schema.tables.contains(upper)) {
+        name = upper;
+        objectType = 'TABLE';
+      } else if (schema.views.contains(upper)) {
+        name = upper;
+        objectType = 'VIEW';
+      }
+
+      if (name == null || objectType == null) return;
+      final n = name;
+      final t = objectType;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onGotoDefinition?.call(n, t);
+      });
+    } catch (_) {}
   }
 
   void _onTabChanged() async {
@@ -2598,6 +2771,22 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
       '  acceptSuggestionOnEnter:"off", tabCompletion:"on"'
       '}); } catch(e) {}',
     );
+    await ctrl.runJavaScript(_kContextMenuFocusGuardJs);
+
+    // Registrar acción "Ver definición Oracle" (F12 + menú contextual)
+    if (widget.onGotoDefinition != null) {
+      _gotoDefAction = await ctrl.addAction(
+        const fm.MonacoActionDescriptor(
+          id: fm.MonacoAction('oracle.multidoc.goToDefinition'),
+          label: 'Ver definición Oracle',
+          keybindings: [fm.MonacoKeybinding(key: fm.MonacoKey.f12)],
+          contextMenuGroupId: 'navigation',
+          contextMenuOrder: 1.5,
+          precondition: 'editorTextFocus',
+        ),
+        () async => _goToDefinition(ctrl),
+      );
+    }
 
     if (widget.isPlSql && widget.spec.isNotEmpty) {
       _currentSpecCode = widget.spec;
@@ -2906,6 +3095,11 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
                 : fm.MonacoWordWrap.off,
             renderWhitespace: fm.RenderWhitespace.none,
             tabSize: 2,
+            // Ver code_editor_panel.dart: fuerza a que el menú contextual,
+            // sugerencias y hover se rendericen dentro del contenedor del
+            // editor en vez de anclados a document.body, evitando que los
+            // clics del mouse no se registren en el WebView2 embebido.
+            extra: const {'fixedOverflowWidgets': true},
           ),
           contentDebounce: const Duration(milliseconds: 600),
           onReady: _onReady,

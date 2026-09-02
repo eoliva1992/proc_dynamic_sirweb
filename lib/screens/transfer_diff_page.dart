@@ -124,12 +124,19 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
       return;
     }
     final backupProc = widget.sourceProc.copyWith(deTexto: _targetCode);
-    final saved = await BackupService.exportar(
+    final savedPath = await BackupService.exportar(
       backupProc,
       widget.targetAmbiente,
       widget.cdUsuario,
     );
-    if (saved && mounted) AppToast.success('Backup guardado correctamente');
+    if (savedPath != null && mounted) {
+      AppToast.successWithAction(
+        'Backup guardado correctamente',
+        detail: savedPath,
+        actionLabel: 'Abrir ubicación',
+        onAction: () => BackupService.revealInExplorer(savedPath),
+      );
+    }
   }
 
   Future<void> _saveToSource() async {

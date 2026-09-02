@@ -213,9 +213,41 @@ class SchemaService {
     }
   }
 
+  /// Caché en memoria de argumentos por `AMBIENTE|OBJETO`.
+  final _argsCache = <String, List<({String name, String dataType, String inOut})>>{};
+  final _argsInFlight =
+      <String, Future<List<({String name, String dataType, String inOut})>>>{};
+
+  static String _argsKey(String env, String name) => '$env|${name.toUpperCase()}';
+
+  /// Devuelve los argumentos ya cacheados de forma **síncrona**, o `null` si
+  /// todavía no se consultaron. Útil para el autocompletado sin bloquear.
+  List<({String name, String dataType, String inOut})>? peekObjectArguments(
+    String objectName, {
+    String? ambiente,
+  }) => _argsCache[_argsKey(_env(ambiente), objectName)];
+
   /// Argumentos de un procedimiento o función Oracle (deduplica los duplicados del servidor).
   Future<List<({String name, String dataType, String inOut})>>
-  getObjectArguments(String objectName, {String? ambiente}) async {
+  getObjectArguments(String objectName, {String? ambiente}) {
+    final key = _argsKey(_env(ambiente), objectName);
+    final cached = _argsCache[key];
+    if (cached != null) return Future.value(cached);
+    final inFlight = _argsInFlight[key];
+    if (inFlight != null) return inFlight;
+
+    final future = _fetchObjectArguments(objectName, ambiente: ambiente)
+        .then((args) {
+          _argsCache[key] = args;
+          return args;
+        })
+        .whenComplete(() => _argsInFlight.remove(key));
+    _argsInFlight[key] = future;
+    return future;
+  }
+
+  Future<List<({String name, String dataType, String inOut})>>
+  _fetchObjectArguments(String objectName, {String? ambiente}) async {
     try {
       final result = await _call('get_object_arguments', {
         'objectName': objectName.toUpperCase(),
@@ -242,7 +274,39 @@ class SchemaService {
   }
 
   /// Atributos de un TYPE Oracle objeto (vacío para colecciones TABLE/VARRAY).
+  ///
+  /// Se cachean en memoria por `AMBIENTE|TIPO` para el autocompletado.
   Future<List<({String name, String dataType})>> getTypeAttributes(
+    String typeName, {
+    String? ambiente,
+  }) {
+    final key = _argsKey(_env(ambiente), typeName);
+    final cached = _typeCache[key];
+    if (cached != null) return Future.value(cached);
+    final inFlight = _typeInFlight[key];
+    if (inFlight != null) return inFlight;
+
+    final future = _fetchTypeAttributes(typeName, ambiente: ambiente)
+        .then((attrs) {
+          _typeCache[key] = attrs;
+          return attrs;
+        })
+        .whenComplete(() => _typeInFlight.remove(key));
+    _typeInFlight[key] = future;
+    return future;
+  }
+
+  /// Devuelve los atributos ya cacheados de forma **síncrona**, o `null`.
+  List<({String name, String dataType})>? peekTypeAttributes(
+    String typeName, {
+    String? ambiente,
+  }) => _typeCache[_argsKey(_env(ambiente), typeName)];
+
+  final _typeCache = <String, List<({String name, String dataType})>>{};
+  final _typeInFlight =
+      <String, Future<List<({String name, String dataType})>>>{};
+
+  Future<List<({String name, String dataType})>> _fetchTypeAttributes(
     String typeName, {
     String? ambiente,
   }) async {
@@ -269,6 +333,9 @@ class SchemaService {
   }
 
   /// Subprogramas de un paquete Oracle con sus argumentos en una sola llamada.
+  ///
+  /// El resultado se cachea en memoria por `AMBIENTE|PAQUETE` y las llamadas
+  /// concurrentes al mismo paquete comparten el mismo `Future`.
   Future<
     List<
       ({
@@ -278,7 +345,69 @@ class SchemaService {
       })
     >
   >
-  getPackageSubprograms(String packageName, {String? ambiente}) async {
+  getPackageSubprograms(String packageName, {String? ambiente}) {
+    final key = _argsKey(_env(ambiente), packageName);
+    final cached = _pkgCache[key];
+    if (cached != null) return Future.value(cached);
+    final inFlight = _pkgInFlight[key];
+    if (inFlight != null) return inFlight;
+
+    final future = _fetchPackageSubprograms(packageName, ambiente: ambiente)
+        .then((subs) {
+          _pkgCache[key] = subs;
+          return subs;
+        })
+        .whenComplete(() => _pkgInFlight.remove(key));
+    _pkgInFlight[key] = future;
+    return future;
+  }
+
+  /// Devuelve los subprogramas ya cacheados de forma **síncrona**, o `null`.
+  List<
+    ({
+      String name,
+      String kind,
+      List<({String name, String dataType, String inOut})> arguments,
+    })
+  >?
+  peekPackageSubprograms(String packageName, {String? ambiente}) =>
+      _pkgCache[_argsKey(_env(ambiente), packageName)];
+
+  final _pkgCache =
+      <
+        String,
+        List<
+          ({
+            String name,
+            String kind,
+            List<({String name, String dataType, String inOut})> arguments,
+          })
+        >
+      >{};
+  final _pkgInFlight =
+      <
+        String,
+        Future<
+          List<
+            ({
+              String name,
+              String kind,
+              List<({String name, String dataType, String inOut})> arguments,
+            })
+          >
+        >
+      >{};
+
+  Future<
+    List<
+      ({
+        String name,
+        String kind,
+        List<({String name, String dataType, String inOut})> arguments,
+      })
+    >
+  >
+  _fetchPackageSubprograms(String packageName, {String? ambiente}) async {
     try {
       final result = await _call('get_package_subprograms', {
         'packageName': packageName.toUpperCase(),

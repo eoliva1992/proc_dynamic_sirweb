@@ -33,10 +33,27 @@ part '_editor_outline_panel.dart';
 part '_editor_snippets_overlay.dart';
 part '_editor_info_evento_modal.dart';
 part '_editor_info_dato_modal.dart';
+part '_editor_navigation.dart';
+part '_editor_options_prefs.dart';
+part '_editor_completions_system.dart';
+part '_editor_save_compile.dart';
+part '_editor_build_methods.dart';
+
+// Máximo de caracteres permitidos para validación backend de Oracle DDL.
+const _kBackendSizeLimit = 100 * 1024; // 100 KB
 
 enum _SaveStatus { idle, saving, saved, error }
 
 enum _CompileStatus { idle, compiling, ok, error }
+
+enum _CtxMenuAction {
+  gotoDef,
+  infoEvento,
+  infoDato,
+  copy,
+  cut,
+  paste,
+}
 
 class CodeEditorPanel extends StatefulWidget {
   final Procedimiento procedimiento;
@@ -62,7 +79,14 @@ class CodeEditorPanel extends StatefulWidget {
 
 class _CodeEditorPanelState extends State<CodeEditorPanel> {
   // Compiled once — reused on every completion keystroke and FROM-clause parse
-  static final _reDotPrefix = RegExp(r'(\w+)\.$');
+  /// `PKG.` o `PKG.PRE` → captura el objeto y el miembro parcial que se escribe.
+  static final _reDotMember = RegExp(r'([A-Za-z]\w*)\.(\w*)$');
+
+  /// `MI_PROC(` o `MI_PKG.MI_PROC(...` → objeto, miembro y lo ya escrito
+  /// dentro de los paréntesis (para sugerir parámetros con notación nombrada).
+  static final _reCallOpen = RegExp(
+    r'([A-Za-z]\w*)(?:\.([A-Za-z]\w*))?\s*\(([^()]*)$',
+  );
   static final _reWordEnd = RegExp(r'(\w+)$');
   static final _reFromBlock = RegExp(
     r'FROM\s+([\s\S]*?)(?=\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|$)',
@@ -83,6 +107,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
   bool _ready = false;
   MonacoController? _ctrl;
+  // El State puede seguir vivo mientras MonacoEditor ya destruyó su
+  // controller (cierre del panel, recreación del webview, hot reload).
+  // Cualquier llamada posterior lanza MonacoDisposedError, así que se
+  // marca el estado y se anula la referencia — ver [_withCtrl].
+  bool _disposed = false;
   Timer? _debounce;
   Timer? _backendDebounce;
   Timer? _declareDebounce;
@@ -167,7 +196,36 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   int _lastCursorLine = 1;
   int _lastCursorCol = 1;
   StreamSubscription<Range?>? _selectionSub;
+
+  // Word captured when the context menu opens (via fmMenuOpening event).
+  // Used as secondary fallback in _wordAtContextMenu().
+  String _lastContextMenuWord = '';
+  StreamSubscription<MonacoEvent>? _contextMenuEventSub;
+  StreamSubscription<bool>? _focusChangedSub;
+  Timer? _ctxMenuSuppressTimer;
+  bool _suppressFocusRecovery = false;
   bool _tabsCanScrollRight = false;
+
+  // ── Menú contextual: Monaco/WebView2 no entrega los clics del mouse al
+  // menú contextual nativo de Monaco de forma fiable en este stack
+  // (WebView2 en modo composición / off-screen, mouse input sintético vía
+  // ICoreWebView2CompositionController.SendMouseInput). Diagnosticado en
+  // profundidad: el clic derecho abre el menú correctamente (mousedown/
+  // mouseup/contextmenu SÍ llegan al DOM), pero el clic izquierdo posterior
+  // sobre una opción del menú NUNCA llega al DOM (ni siquiera mousedown),
+  // sin importar interactionEnabled, foco de Monaco (que de hecho nunca se
+  // pierde), ni fixedOverflowWidgets — apunta a un bug de entrega de mouse
+  // sintético específico de menús nativos abiertos por 'contextmenu' en
+  // este WebView. El autocompletado (menú activado por teclado/izq. clic)
+  // SÍ funciona con clics, confirmando que el problema es específico del
+  // menú contextual, no genérico de todos los overlays de Monaco.
+  //
+  // Solución: se deshabilita el menú contextual NATIVO de Monaco
+  // (`contextMenu: false` en EditorOptions) y se reemplaza por un menú
+  // 100% Flutter (`showMenu`) posicionado en las coordenadas del clic
+  // derecho, reutilizando las mismas acciones (_goToDefinitionAtCursor,
+  // _showInfoEventoAtCursor, etc.) que ya funcionan vía teclado.
+  final GlobalKey _editorAreaKey = GlobalKey();
 
   bool get _isActiveJs {
     final proc = _openProcs.firstWhere(
@@ -207,6 +265,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
   @override
   void dispose() {
+    _disposed = true;
     _debounce?.cancel();
     _backendDebounce?.cancel();
     _declareDebounce?.cancel();
@@ -231,10 +290,39 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _cutAction?.dispose();
     _pasteAction?.dispose();
     _selectionSub?.cancel();
+    _contextMenuEventSub?.cancel();
+    _focusChangedSub?.cancel();
+    _ctxMenuSuppressTimer?.cancel();
     _tabsScrollCtrl
       ..removeListener(_onTabsScroll)
       ..dispose();
+    // Se anula al final: los callbacks async pendientes que se resuelvan
+    // después de esto verán null en vez de un controller destruido.
+    _ctrl = null;
     super.dispose();
+  }
+
+  // ── Acceso seguro al controller ────────────────────────────────────────
+
+  /// Ejecuta [action] contra el controller de Monaco sólo si sigue vivo.
+  ///
+  /// `MonacoController` no expone `isDisposed`, y muchas rutas de este panel
+  /// son asíncronas (timers de debounce, respuestas del backend, `compute`,
+  /// futures de diálogos). Si el widget se destruye mientras una de esas
+  /// operaciones está en vuelo, la llamada rebota con `MonacoDisposedError`.
+  /// Este helper centraliza el guard y degrada a null en vez de propagar.
+  Future<T?> _withCtrl<T>(
+    Future<T> Function(MonacoController ctrl) action,
+  ) async {
+    final ctrl = _ctrl;
+    if (ctrl == null || _disposed || !mounted) return null;
+    try {
+      return await action(ctrl);
+    } on MonacoDisposedError {
+      // El editor se destruyó mientras la operación estaba en vuelo.
+      _ctrl = null;
+      return null;
+    }
   }
 
   // ── Setup al estar listo ────────────────────────────────────────────────
@@ -306,14 +394,35 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
     // forceFocus (editor-api.js) calls window.focus → document.body.focus →
     // ed.focus → ta.focus in that order. document.body.focus() runs FIRST and
-    // is enough to blur the find-widget input before our other patches fire.
-    // Block all four paths when .find-widget.visible is present, then use a
-    // focusout fallback to return focus to the find input as a safety net.
+    // is enough to blur the find-widget input (or an open context menu, see
+    // below) before our other patches fire. Block all four paths whenever
+    // .find-widget.visible OR a Monaco context/action menu is present, then
+    // use a focusout fallback to return focus to the find input as a safety
+    // net.
+    //
+    // Context menu note: flutter_monaco's own forceFocus() has an idempotency
+    // guard that no-ops when the editor's textarea already owns
+    // document.activeElement (avoiding a caret flicker), but its own source
+    // comment admits that guard does NOT cover the case where a right-click
+    // context menu currently owns focus — calling document.body.focus() then
+    // "tears down an open context menu" (their words) before the click on a
+    // menu item is processed by the browser. flutter_monaco's pointerDown
+    // handler calls forceFocus() on every click while Monaco reports blurred
+    // (which is exactly the state while its own context menu is open), so
+    // clicking ANY context menu item — built-in or custom — re-triggers this
+    // and closes the menu out from under the click. Guarding here, at the
+    // JS focus() calls forceFocus() actually uses, fixes it regardless of
+    // Dart-side widget rebuild timing.
     await ctrl.runJavaScript(
       '(function(){'
       '  function isFindOpen(){'
       '    var fw=document.querySelector(".find-widget");'
-      '    return !!fw&&fw.classList.contains("visible");'
+      '    if(fw&&fw.classList.contains("visible")) return true;'
+      // Monaco appends its right-click context menu (and action/dropdown
+      // menus) as a `.context-view.monaco-menu-container` element and
+      // removes it from the DOM on close, so mere presence means it is open.
+      '    if(document.querySelector(".monaco-menu-container")) return true;'
+      '    return false;'
       '  }'
       '  function patchEl(el){'
       '    if(!el||el._fp) return;'
@@ -358,6 +467,36 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       '    }'
       '  },true);'
       '})()',
+    );
+
+    // ── Menú contextual reemplazado por uno Flutter nativo (ver docs en el
+    // campo _editorAreaKey). Captura el evento nativo 'contextmenu' del DOM
+    // (100% fiable, a diferencia del click posterior sobre un menú de
+    // Monaco), evita el menú de Monaco (ya deshabilitado vía
+    // EditorOptions.contextMenu:false, pero preventDefault por si acaso) y
+    // reporta a Dart la palabra/posición bajo el cursor + coordenadas de
+    // pantalla para abrir el menú Flutter en el lugar correcto.
+    await ctrl.runJavaScript(
+      'document.addEventListener("contextmenu",function(e){'
+      '  e.preventDefault();'
+      '  try {'
+      '    var target = window.editor.getTargetAtClientPoint'
+      '      ? window.editor.getTargetAtClientPoint(e.clientX, e.clientY)'
+      '      : null;'
+      '    var pos = (target && target.position) || window.editor.getPosition();'
+      '    var word = "";'
+      '    if (pos) {'
+      '      var w = window.editor.getModel().getWordAtPosition(pos);'
+      '      word = w ? w.word : "";'
+      '      window.editor.setPosition(pos);'
+      '    }'
+      '    window.FlutterMonaco.emit("fmMenuOpening", {'
+      '      x: e.clientX, y: e.clientY, word: word,'
+      '      line: pos ? pos.lineNumber : 0,'
+      '      col: pos ? pos.column : 0'
+      '    });'
+      '  } catch(_) {}'
+      '},true);',
     );
 
     // Conjunto de decoraciones para líneas con errores
@@ -420,9 +559,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         contextMenuGroupId: 'navigation',
         contextMenuOrder: 1.5,
       ),
-      () async {
-        unawaited(_goToDefinitionAtCursor());
-      },
+      () async => _goToDefinitionAtCursor(),
     );
 
     _infoEventoAction = await ctrl.addAction(
@@ -453,24 +590,13 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
     // Clipboard bridge: navigator.clipboard is blocked on file:// (WebView2).
     // These actions override Ctrl+C/X/V so Flutter's native clipboard is used.
-    const _selJs =
-        r'(()=>{ try { const s=window.editor.getSelection(); '
-        r'if(!s||s.isEmpty())return null; '
-        r'return window.editor.getModel().getValueInRange(s)||null; '
-        r'} catch(e){return null;} })()';
-
     _copyAction = await ctrl.addAction(
       MonacoActionDescriptor(
         id: MonacoAction('custom.clipboard.copy'),
         label: 'Copiar',
         keybindings: [MonacoKeybinding(ctrlCmd: true, key: MonacoKey.keyC)],
       ),
-      () async {
-        final text = await ctrl.evaluateJavaScript<String>(_selJs);
-        if (text != null && text.isNotEmpty) {
-          await Clipboard.setData(ClipboardData(text: text));
-        }
-      },
+      () async => _copySelectionToClipboard(),
     );
 
     _cutAction = await ctrl.addAction(
@@ -479,15 +605,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         label: 'Cortar',
         keybindings: [MonacoKeybinding(ctrlCmd: true, key: MonacoKey.keyX)],
       ),
-      () async {
-        final text = await ctrl.evaluateJavaScript<String>(_selJs);
-        if (text != null && text.isNotEmpty) {
-          await Clipboard.setData(ClipboardData(text: text));
-          await ctrl.runJavaScript(
-            'try { window.editor.executeEdits("cut",[{range:window.editor.getSelection(),text:"",forceMoveMarkers:true}]); } catch(e) {}',
-          );
-        }
-      },
+      () async => _cutSelectionToClipboard(),
     );
 
     _pasteAction = await ctrl.addAction(
@@ -496,18 +614,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         label: 'Pegar',
         keybindings: [MonacoKeybinding(ctrlCmd: true, key: MonacoKey.keyV)],
       ),
-      () async {
-        final data = await Clipboard.getData(Clipboard.kTextPlain);
-        final text = data?.text;
-        if (text == null || text.isEmpty) return;
-        final escaped = jsonEncode(text);
-        await ctrl.runJavaScript(
-          'try { window.editor.executeEdits("paste",[{range:window.editor.getSelection(),text:$escaped,forceMoveMarkers:true}]); } catch(e) {}',
-        );
-      },
+      () async => _pasteFromClipboard(),
     );
 
-    // Cache cursor position synchronously for reliable goto-definition from context menu
+    // Cache cursor position for goto-definition fallback.
     _selectionSub = ctrl.onSelectionChanged.listen((range) {
       if (range != null) {
         _lastCursorLine = range.startLine;
@@ -515,8 +625,62 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       }
     });
 
-    // Capture the word under the pointer when the context menu opens so it
-    // survives the menu interaction and is readable after the menu closes.
+    // Escucha fmMenuOpening (emitido por el listener 'contextmenu' de arriba)
+    // para abrir nuestro menú contextual Flutter en el lugar del clic.
+    _contextMenuEventSub = ctrl.events.listen((event) {
+      if (event is MonacoUnknownEvent && event.name == 'fmMenuOpening') {
+        final data = event.data;
+        final word = (data['word'] as String?) ?? '';
+        final line = (data['line'] as num?)?.toInt() ?? 0;
+        final col = (data['col'] as num?)?.toInt() ?? 0;
+        _lastContextMenuWord = word;
+        if (line > 0) {
+          _lastCursorLine = line;
+          _lastCursorCol = col;
+        }
+        // Mientras el menú contextual está abierto, evitamos que pointerDown
+        // interno de flutter_monaco robe foco nativo y cierre el menú.
+        if (mounted && !_suppressFocusRecovery) {
+          AppToast.warning('interactionEnabled = false (menú abierto)');
+          setState(() => _suppressFocusRecovery = true);
+        }
+        _ctxMenuSuppressTimer?.cancel();
+        _ctxMenuSuppressTimer = Timer(const Duration(seconds: 4), () {
+          if (mounted && _suppressFocusRecovery) {
+            AppToast.warning('interactionEnabled = true (timeout)');
+            setState(() => _suppressFocusRecovery = false);
+          }
+        });
+      } else if (event is MonacoUnknownEvent &&
+          event.name == 'fmMenuClickDebug') {
+        // DIAGNÓSTICO TEMPORAL — ver el bloque JS en _onReady que lo emite.
+        // Solo mostramos 'click' (clic izquierdo real) para aislar la señal
+        // sin ruido del mousedown/mouseup/contextmenu del clic derecho.
+        final d = event.data;
+        if (d['phase'] == 'click') {
+          AppToast.info(
+            '[${d['phase']}] tag=${d['tag']} cls=${d['cls']} '
+            'menus=${d['menus']} (${d['x']},${d['y']})',
+            duration: const Duration(seconds: 8),
+          );
+        }
+      }
+    });
+
+    // Cuando Monaco recupera el foco DOM del editor (el menú se cerró, sea
+    // por ejecutar una acción o por cancelarse), se reactiva
+    // interactionEnabled inmediatamente.
+    _focusChangedSub = ctrl.onFocusChanged.listen((focused) {
+      if (focused && mounted && _suppressFocusRecovery) {
+        _ctxMenuSuppressTimer?.cancel();
+        AppToast.warning('interactionEnabled = true (focus regained)');
+        setState(() => _suppressFocusRecovery = false);
+      }
+    });
+
+    // Captura la palabra bajo el cursor cuando se abre el menú contextual.
+    // Necesario porque cuando el callback de la action se ejecuta,
+    // _lastContextMenuWord ya tiene la palabra correcta del clic derecho.
     await ctrl.runJavaScript(
       'try {'
       '  window._fmContextWord = "";'
@@ -527,10 +691,16 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       '      if (!pos) return;'
       '      var w = window.editor.getModel().getWordAtPosition(pos);'
       '      window._fmContextWord = w ? w.word : "";'
+      '      window.FlutterMonaco.emit("fmContextMenu", {'
+      '        word: window._fmContextWord,'
+      '        line: pos.lineNumber,'
+      '        col: pos.column'
+      '      });'
       '    } catch(_) {}'
       '  });'
       '} catch(ex) {}',
     );
+
 
     if (mounted && _showOutline) {
       compute(_parseOutlineItems, _editorFullText).then((items) {
@@ -555,8 +725,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       if (mounted) setState(() => _outlineItems = items);
     });
     // Refresh from live Monaco text in case there are unsaved edits
-    _ctrl?.document.getText().then((text) {
-      if (text.isEmpty || !mounted) return;
+    _withCtrl((ctrl) => ctrl.document.getText()).then((text) {
+      if (text == null || text.isEmpty || !mounted) return;
       compute(_parseOutlineItems, text).then((items) {
         if (mounted) setState(() => _outlineItems = items);
       });
@@ -623,16 +793,20 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       }
     }
 
-    await ctrl.activateDocument(_docs[proc.cdProcedimiento]!);
+    final doc = _docs[proc.cdProcedimiento];
+    if (doc == null) return;
+    await _withCtrl((c) => c.activateDocument(doc));
     // Report active document text so currentEditorCode reflects the switched-to proc
     if (mounted) {
-      final text = await ctrl.document.getText();
-      _editorFullText = text;
-      widget.onCodeChanged?.call(text);
-      if (_showOutline) {
-        compute(_parseOutlineItems, text).then((items) {
-          if (mounted) setState(() => _outlineItems = items);
-        });
+      final text = await _withCtrl((c) => c.document.getText());
+      if (text != null) {
+        _editorFullText = text;
+        widget.onCodeChanged?.call(text);
+        if (_showOutline) {
+          compute(_parseOutlineItems, text).then((items) {
+            if (mounted) setState(() => _outlineItems = items);
+          });
+        }
       }
     }
     if (mounted) setState(() => _activeProcId = proc.cdProcedimiento);
@@ -655,92 +829,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     await doc?.close();
   }
 
-  // ── Checkers de sintaxis ───────────────────────────────────────────────
+  // ── Checkers de sintaxis / Completions / LSP → _editor_completions_system.dart
 
-  void _scheduleCheck(String code) {
-    if (_isActiveJs) return;
-    _backendDebounce?.cancel();
-    _backendDebounce = Timer(
-      const Duration(seconds: 3),
-      () => unawaited(_runBackendValidation(code, _activeProcId ?? '')),
-    );
-  }
+  // ── Guardar / Compilar → _editor_save_compile.dart ─────────────────────────
 
-  // Files above this threshold skip the Oracle DDL validation to avoid large payloads
-  static const _kBackendSizeLimit = 80000;
-
-  Future<void> _runBackendValidation(String code, String procId) async {
-    if (code.length > _kBackendSizeLimit) {
-      if (mounted) setState(() => _backendIssuesPerProc.remove(procId));
-      return;
-    }
-    final proc = _openProcs.cast<Procedimiento?>().firstWhere(
-      (p) => p?.cdProcedimiento == procId,
-      orElse: () => null,
-    );
-    if (proc == null) return;
-    _backendCheckVersion++;
-    final version = _backendCheckVersion;
-    if (!mounted) return;
-    setState(() => _backendChecking = true);
-    try {
-      final results = await SchemaService.instance
-          .compilarProcedimientoDinamico(
-            procId,
-            code,
-            proc.inConfiguracion,
-            ambiente: widget.ambiente,
-          );
-      if (!mounted || version != _backendCheckVersion) return;
-      final issues = results
-          .map(
-            (e) => PlSqlIssue(
-              line: e.line,
-              col: e.position,
-              endCol: e.position + 1,
-              message: e.text,
-              severity: e.attribute.toUpperCase() == 'WARNING'
-                  ? MarkerSeverity.warning
-                  : MarkerSeverity.error,
-              source: 'Oracle-DDL',
-            ),
-          )
-          .toList();
-      setState(() {
-        _backendIssuesPerProc[procId] = issues;
-        _errorCounts[procId] = [
-          ...(_compileErrorsPerProc[procId] ?? []),
-          ...issues,
-        ].where((e) => e.severity == MarkerSeverity.error).length;
-      });
-      if (_activeProcId == procId) {
-        final ctrl = _ctrl;
-        if (ctrl != null) {
-          await ctrl.document.setMarkers([
-            for (final e in [
-              ...(_compileErrorsPerProc[procId] ?? []),
-              ...issues,
-            ])
-              MarkerData(
-                range: Range(
-                  startLine: e.line,
-                  startColumn: e.col,
-                  endLine: e.line,
-                  endColumn: e.endCol,
-                ),
-                message: e.message,
-                severity: e.severity,
-                source: e.source,
-              ),
-          ], owner: 'plsql-checker');
-        }
-      }
-    } finally {
-      if (mounted && version == _backendCheckVersion) {
-        setState(() => _backendChecking = false);
-      }
-    }
-  }
+  // ── Go to Definition / InfoEvento / InfoDato / Diff → _editor_navigation.dart
 
   // ── LSP ────────────────────────────────────────────────────────────────
 
@@ -805,20 +898,39 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
               // Texto completo hasta la línea del cursor para detectar FROM en cualquier línea
               final fullText = _editorFullText;
 
-              // ── Caso 1: "ALIAS." o "TABLA." → columnas de esa tabla ──────────
-              if (trigger == '.' || line.endsWith('.')) {
-                final dotMatch = _reDotPrefix.firstMatch(line);
-                if (dotMatch != null) {
-                  final tableRef = dotMatch.group(1)!.toUpperCase();
+              // ── Caso 1: "PKG.", "TYPE.", "ALIAS." o "TABLA." ─────────────────
+              final dotMatch = _reDotMember.firstMatch(line);
+              if (dotMatch != null) {
+                final ref = dotMatch.group(1)!.toUpperCase();
+                final member = dotMatch.group(2)!.toUpperCase();
+                final refType = _cachedSchemaObjTypes?[ref];
+
+                // 1.a) Package → sus procedimientos y funciones
+                if (refType == 'PACKAGE') {
+                  return CompletionList(
+                    suggestions: await _packageMemberCompletions(ref, member),
+                  );
+                }
+
+                // 1.b) Type objeto → sus atributos
+                if (refType == 'TYPE') {
+                  return CompletionList(
+                    suggestions: await _typeMemberCompletions(ref, member),
+                  );
+                }
+
+                // 1.c) Tabla, vista o alias → columnas
+                if (trigger == '.' || line.endsWith('.') || member.isNotEmpty) {
                   // Resolver alias en el texto completo del documento
                   final fromMap = _extractFromTables(fullText);
-                  final realTable = fromMap[tableRef] ?? tableRef;
+                  final realTable = fromMap[ref] ?? ref;
 
                   final cols = await SchemaService.instance.getColumns(
                     realTable,
                   );
                   return CompletionList(
                     suggestions: cols
+                        .where((c) => member.isEmpty || c.name.startsWith(member))
                         .map(
                           (c) => CompletionItem(
                             label: c.name,
@@ -830,6 +942,21 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                         )
                         .toList(),
                   );
+                }
+              }
+
+              // ── Caso 1.d: dentro de "MI_PROC(" → parámetros con notación
+              // nombrada, incluidos los miembros de un package.
+              final callMatch = _reCallOpen.firstMatch(line);
+              if (callMatch != null) {
+                final params = await _parameterCompletions(
+                  owner: callMatch.group(1)!,
+                  member: callMatch.group(2),
+                  written: callMatch.group(3) ?? '',
+                  prefix: _wordBefore(line),
+                );
+                if (params.isNotEmpty) {
+                  return CompletionList(suggestions: params);
                 }
               }
 
@@ -890,21 +1017,52 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
               );
 
               // Objetos (procs, funcs, packages)
-              suggestions.addAll(
-                schema.objects
-                    .where((o) => upper.isEmpty || o.name.startsWith(upper))
-                    .map(
-                      (o) => CompletionItem(
-                        label: o.name,
-                        kind: o.type == 'FUNCTION'
-                            ? CompletionItemKind.functionType
-                            : o.type == 'PACKAGE'
-                            ? CompletionItemKind.module
-                            : CompletionItemKind.method,
-                        detail: o.type,
-                        sortText: '4${o.name}',
+              final objMatches = schema.objects
+                  .where((o) => upper.isEmpty || o.name.startsWith(upper))
+                  .take(20)
+                  .toList();
+
+              // Precarga (cacheada) de la firma para armar el snippet de llamada:
+              // argumentos de procs/funcs y atributos del constructor de types.
+              if (upper.length >= 2) {
+                final pending = objMatches
+                    .where(
+                      (o) =>
+                          o.type == 'PROCEDURE' ||
+                          o.type == 'FUNCTION' ||
+                          o.type == 'TYPE',
+                    )
+                    .take(10);
+                await Future.wait([
+                  for (final o in pending)
+                    if (o.type == 'TYPE')
+                      SchemaService.instance.getTypeAttributes(
+                        o.name,
+                        ambiente: widget.ambiente,
+                      )
+                    else
+                      SchemaService.instance.getObjectArguments(
+                        o.name,
+                        ambiente: widget.ambiente,
                       ),
-                    ),
+                ]);
+              }
+
+              suggestions.addAll(
+                objMatches.map((o) {
+                  final call = _callInsertText(o.name, o.type);
+                  return CompletionItem(
+                    label: o.name,
+                    kind: _objectKind(o.type),
+                    detail: _callDetail(o.name, o.type),
+                    documentation: _callDocumentation(o.name, o.type),
+                    insertText: call.text,
+                    insertTextRules: call.isSnippet
+                        ? {InsertTextRule.insertAsSnippet}
+                        : null,
+                    sortText: '4${o.name}',
+                  );
+                }),
               );
 
               return CompletionList(suggestions: suggestions.take(50).toList());
@@ -979,13 +1137,44 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     return match?.group(1) ?? '';
   }
 
+  Future<void> _copySelectionToClipboard() async {
+    final selected = await _withCtrl(
+      (ctrl) => ctrl.evaluateJavaScript<String>(
+        r'(()=>{ try { const s=window.editor.getSelection(); if(!s||s.isEmpty())return null; return window.editor.getModel().getValueInRange(s)||null; } catch(e){ return null; } })()',
+      ),
+    );
+    if (selected == null || selected.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: selected));
+    AppToast.info('Copiado al portapapeles');
+  }
+
+  Future<void> _cutSelectionToClipboard() async {
+    final selected = await _withCtrl(
+      (ctrl) => ctrl.evaluateJavaScript<String>(
+        r'(()=>{ try { const s=window.editor.getSelection(); if(!s||s.isEmpty())return null; const m=window.editor.getModel(); const t=m.getValueInRange(s)||null; if(!t)return null; window.editor.executeEdits("flutter-cut",[{ range:s, text:"", forceMoveMarkers:true }]); window.editor.pushUndoStop(); return t; } catch(e){ return null; } })()',
+      ),
+    );
+    if (selected == null || selected.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: selected));
+    AppToast.info('Cortado al portapapeles');
+  }
+
+  Future<void> _pasteFromClipboard() async {
+    final data = await Clipboard.getData('text/plain');
+    final text = data?.text;
+    if (text == null || text.isEmpty) return;
+    await _withCtrl((ctrl) async {
+      final pos = await ctrl.getCursorPosition();
+      if (pos == null) return;
+      await ctrl.document.insert(pos, text);
+    });
+  }
+
   void _onEditorThemeChanged() {
-    _ctrl?.setTheme(editorThemeStore.monacoTheme);
+    unawaited(_withCtrl((ctrl) => ctrl.setTheme(editorThemeStore.monacoTheme)));
   }
 
   Future<void> _registerVariableCompletions() async {
-    final ctrl = _ctrl;
-    if (ctrl == null) return;
     await _variablesReg?.dispose();
     _variablesReg = null;
     final vars = _filteredVariables();
@@ -1000,48 +1189,49 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           insertText: ':${v.cdVariable}',
         ),
     ];
-    _variablesReg = await ctrl.registerStaticCompletions(
-      id: 'plsql-variables',
-      languages: [MonacoLanguage.sql, MonacoLanguage('plsql')],
-      triggerCharacters: [':', ' ', '.', '('],
-      items: items,
+    _variablesReg = await _withCtrl(
+      (ctrl) => ctrl.registerStaticCompletions(
+        id: 'plsql-variables',
+        languages: [MonacoLanguage.sql, MonacoLanguage('plsql')],
+        triggerCharacters: [':', ' ', '.', '('],
+        items: items,
+      ),
     );
   }
 
   Future<void> _registerSnippetCompletions() async {
-    final ctrl = _ctrl;
-    if (ctrl == null) return;
     await _snippetsReg?.dispose();
     _snippetsReg = null;
     final snippets = await SnippetService.instance.loadAll();
     if (snippets.isEmpty) return;
-    _snippetsReg = await ctrl.registerStaticCompletions(
-      id: 'user-snippets',
-      languages: [
-        MonacoLanguage.sql,
-        MonacoLanguage('plsql'),
-        MonacoLanguage.javascript,
-      ],
-      triggerCharacters: [' '],
-      items: [
-        for (final s in snippets)
-          CompletionItem(
-            label: s.prefix,
-            kind: CompletionItemKind.snippet,
-            detail: s.name,
-            documentation: s.description.isNotEmpty ? s.description : null,
-            insertText: s.body,
-            insertTextRules: {InsertTextRule.insertAsSnippet},
-            // Sort above built-in keywords so user snippets appear first
-            sortText: '0${s.prefix}',
-          ),
-      ],
+    _snippetsReg = await _withCtrl(
+      (ctrl) => ctrl.registerStaticCompletions(
+        id: 'user-snippets',
+        languages: [
+          MonacoLanguage.sql,
+          MonacoLanguage('plsql'),
+          MonacoLanguage.javascript,
+        ],
+        triggerCharacters: [' '],
+        items: [
+          for (final s in snippets)
+            CompletionItem(
+              label: s.prefix,
+              kind: CompletionItemKind.snippet,
+              detail: s.name,
+              documentation: s.description.isNotEmpty ? s.description : null,
+              insertText: s.body,
+              insertTextRules: {InsertTextRule.insertAsSnippet},
+              // Sort above built-in keywords so user snippets appear first
+              sortText: '0${s.prefix}',
+            ),
+        ],
+      ),
     );
   }
 
   Future<void> _registerDeclareVarCompletions() async {
-    final ctrl = _ctrl;
-    if (ctrl == null || _isActiveJs) return;
+    if (_ctrl == null || _disposed || _isActiveJs) return;
     final code = _editorFullText.isNotEmpty
         ? _editorFullText
         : widget.procedimiento.deTexto;
@@ -1067,11 +1257,13 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       );
     }
     if (items.isEmpty) return;
-    _declareVarsReg = await ctrl.registerStaticCompletions(
-      id: 'plsql-declare-vars',
-      languages: [MonacoLanguage.sql, MonacoLanguage('plsql')],
-      triggerCharacters: [':', ' ', '.', '('],
-      items: items,
+    _declareVarsReg = await _withCtrl(
+      (ctrl) => ctrl.registerStaticCompletions(
+        id: 'plsql-declare-vars',
+        languages: [MonacoLanguage.sql, MonacoLanguage('plsql')],
+        triggerCharacters: [':', ' ', '.', '('],
+        items: items,
+      ),
     );
   }
 
@@ -1095,10 +1287,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   Future<void> _saveCurrentDocument() async {
     final onSave = widget.onSave;
     if (onSave == null || _saveStatus == _SaveStatus.saving) return;
-    final ctrl = _ctrl;
-    if (ctrl == null) return;
-    final code = await ctrl.document.getText();
-    if (!mounted) return;
+    final code = await _withCtrl((ctrl) => ctrl.document.getText());
+    if (code == null || !mounted) return;
     setState(() => _saveStatus = _SaveStatus.saving);
     _saveTimer?.cancel();
     try {
@@ -1253,10 +1443,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   Future<void> _compileCurrentDocument() async {
     final onCompile = widget.onCompile;
     if (onCompile == null || _compileStatus == _CompileStatus.compiling) return;
-    final ctrl = _ctrl;
-    if (ctrl == null) return;
-    final code = await ctrl.document.getText();
-    if (!mounted) return;
+    final code = await _withCtrl((ctrl) => ctrl.document.getText());
+    if (code == null || !mounted) return;
     setState(() => _compileStatus = _CompileStatus.compiling);
     try {
       await onCompile(code);
@@ -1274,23 +1462,25 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           _compileStatus = _CompileStatus.error;
           _showProblemsPanel = true;
         });
-        await ctrl.document.setMarkers([
-          for (final e in [
-            ...compileIssues,
-            ...(_backendIssuesPerProc[procId] ?? []),
-          ])
-            MarkerData(
-              range: Range(
-                startLine: e.line,
-                startColumn: e.col,
-                endLine: e.line,
-                endColumn: e.endCol,
+        await _withCtrl(
+          (ctrl) => ctrl.document.setMarkers([
+            for (final e in [
+              ...compileIssues,
+              ...(_backendIssuesPerProc[procId] ?? []),
+            ])
+              MarkerData(
+                range: Range(
+                  startLine: e.line,
+                  startColumn: e.col,
+                  endLine: e.line,
+                  endColumn: e.endCol,
+                ),
+                message: e.message,
+                severity: e.severity,
+                source: e.source,
               ),
-              message: e.message,
-              severity: e.severity,
-              source: e.source,
-            ),
-        ], owner: 'plsql-checker');
+          ], owner: 'plsql-checker'),
+        );
         await _errorDecos?.set([
           for (final e in compileIssues)
             DecorationOptions.line(
@@ -1339,113 +1529,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     });
   }
 
-  // ── Go to Definition ──────────────────────────────────────────────────
-
-  /// Extracts the identifier word at the cached cursor position from the in-memory text.
-  String? _wordAtCachedPosition() {
-    if (_editorFullText.isEmpty) return null;
-    final lines = _editorFullText.split('\n');
-    final line0 = _lastCursorLine - 1; // convert 1-based to 0-based
-    if (line0 < 0 || line0 >= lines.length) return null;
-    final line = lines[line0];
-    final col = (_lastCursorCol - 1).clamp(0, line.length);
-    int start = col;
-    while (start > 0 && _isWordChar(line[start - 1])) {
-      start--;
-    }
-    int end = col;
-    while (end < line.length && _isWordChar(line[end])) {
-      end++;
-    }
-    if (start == end) return null;
-    return line.substring(start, end);
-  }
-
-  bool _isWordChar(String c) => RegExp(r'\w').hasMatch(c);
-
-  /// Returns the word captured at right-click time from the JS context-menu
-  /// listener. Falls back to pure-Dart extraction from the cached text.
-  Future<String?> _wordAtContextMenu() async {
-    final ctrl = _ctrl;
-    if (ctrl != null) {
-      final js = await ctrl.evaluateJavaScript<String>(
-        '(window._fmContextWord || "")',
-      );
-      if (js != null && js.isNotEmpty) return js;
-    }
-    return _wordAtCachedPosition();
-  }
-
-  Future<void> _goToDefinitionAtCursor() async {
-    if (!mounted) return;
-    final word = await _wordAtContextMenu();
-    if (word == null || word.isEmpty) return;
-
-    final upperWord = word.toUpperCase();
-    final objects =
-        SchemaService.instance.getCached(ambiente: widget.ambiente)?.objects ??
-        [];
-    final candidates = objects.where((o) => o.name == upperWord).toList();
-
-    // Defer so the Monaco context menu has fully closed before showing Flutter UI
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      if (candidates.isNotEmpty) {
-        openSourceWindow(
-          context,
-          name: candidates.first.name,
-          objectType: candidates.first.type,
-          ambiente: widget.ambiente,
-        );
-      } else {
-        AppToast.info('No se encontró definición para "$word"');
-      }
-    });
-  }
-
-  // ── InfoEvento ─────────────────────────────────────────────────────────────
-
-  Future<void> _showInfoEventoAtCursor() async {
-    if (!mounted) return;
-    final word = await _wordAtContextMenu();
-    if (word == null || word.isEmpty) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted)
-        unawaited(_showInfoEventoModal(context, word, widget.ambiente));
-    });
-  }
-
-  // ── InfoDato ──────────────────────────────────────────────────────────────
-
-  Future<void> _showInfoDatoAtCursor() async {
-    if (!mounted) return;
-    final word = await _wordAtContextMenu();
-    if (word == null || word.isEmpty) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted)
-        unawaited(_showInfoDatoModal(context, word, widget.ambiente));
-    });
-  }
-
-  // ── Diff ──────────────────────────────────────────────────────────────────
-
-  Future<void> _openDiff() async {
-    final ctrl = _ctrl;
-    if (ctrl == null) return;
-    final activeProc = _openProcs.firstWhere(
-      (p) => p.cdProcedimiento == _activeProcId,
-      orElse: () => widget.procedimiento,
-    );
-    final current = await ctrl.document.getText();
-    if (!mounted) return;
-    await showProcedureDiff(
-      context,
-      title: 'Diff — ${activeProc.cdProcedimiento}',
-      original: activeProc.deTexto,
-      modified: current,
-      language: activeProc.inConfiguracion == 'J' ? 'javascript' : 'sql',
-    );
-  }
+  // ── Go to Definition / InfoEvento / InfoDato / Diff → _editor_navigation.dart
 
   // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -1494,15 +1578,13 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   }
 
   Future<void> _discardDraft(String procId) async {
-    final ctrl = _ctrl;
-    if (ctrl == null) return;
     final proc = _openProcs.firstWhere(
       (p) => p.cdProcedimiento == procId,
       orElse: () => widget.procedimiento,
     );
     final doc = _docs[procId];
     if (doc != null) {
-      await doc.setText(proc.deTexto);
+      await _withCtrl((_) => doc.setText(proc.deTexto));
     }
     _draftDebounce?.cancel();
     await EditorDraftService.clear(procId, widget.ambiente);
@@ -1514,125 +1596,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     widget.onDirtyChanged?.call(false);
   }
 
-  void _resetAllOptions() {
-    setState(() {
-      _minimap = true;
-      _lineNumbers = true;
-      _folding = true;
-      _readOnly = false;
-      _fontSize = 14.0;
-      _wordWrap = false;
-      _renderWhitespace = false;
-      _bracketPairColorization = true;
-      _stickyScroll = true;
-      _smoothScrolling = false;
-      _mouseWheelZoom = false;
-      _formatOnPaste = false;
-      _quickSuggestions = true;
-      _parameterHints = true;
-      _hover = true;
-      _links = true;
-      _occurrencesHighlight = true;
-      _contextMenu = true;
-    });
-    _applyEditorOptions();
-    _savePrefs();
-  }
-
-  // ── Persistencia de opciones ───────────────────────────────────────────
-
-  Future<void> _loadPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    setState(() {
-      _minimap = prefs.getBool('editor_minimap') ?? true;
-      _lineNumbers = prefs.getBool('editor_line_numbers') ?? true;
-      _folding = prefs.getBool('editor_folding') ?? true;
-      _readOnly = prefs.getBool('editor_readonly') ?? false;
-      _fontSize = prefs.getDouble('editor_font_size') ?? 14.0;
-      _wordWrap = prefs.getBool('editor_word_wrap') ?? false;
-      _renderWhitespace = prefs.getBool('editor_render_whitespace') ?? false;
-      _bracketPairColorization =
-          prefs.getBool('editor_bracket_colorization') ?? true;
-      _stickyScroll = prefs.getBool('editor_sticky_scroll') ?? true;
-      _smoothScrolling = prefs.getBool('editor_smooth_scrolling') ?? false;
-      _mouseWheelZoom = prefs.getBool('editor_mouse_wheel_zoom') ?? false;
-      _formatOnPaste = prefs.getBool('editor_format_on_paste') ?? false;
-      _quickSuggestions = prefs.getBool('editor_quick_suggestions') ?? true;
-      _parameterHints = prefs.getBool('editor_parameter_hints') ?? true;
-      _hover = prefs.getBool('editor_hover') ?? true;
-      _links = prefs.getBool('editor_links') ?? true;
-      _occurrencesHighlight =
-          prefs.getBool('editor_occurrences_highlight') ?? true;
-      _contextMenu = prefs.getBool('editor_context_menu') ?? true;
-      _problemsPanelHeight = prefs.getDouble('editor_problems_height') ?? 180.0;
-      _showOutline = prefs.getBool('editor_show_outline') ?? false;
-      _varsDocked = prefs.getBool('editor_vars_docked') ?? false;
-    });
-  }
-
-  Future<void> _savePrefs() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('editor_minimap', _minimap);
-    await prefs.setBool('editor_line_numbers', _lineNumbers);
-    await prefs.setBool('editor_folding', _folding);
-    await prefs.setBool('editor_readonly', _readOnly);
-    await prefs.setDouble('editor_font_size', _fontSize);
-    await prefs.setBool('editor_word_wrap', _wordWrap);
-    await prefs.setBool('editor_render_whitespace', _renderWhitespace);
-    await prefs.setBool(
-      'editor_bracket_colorization',
-      _bracketPairColorization,
-    );
-    await prefs.setBool('editor_sticky_scroll', _stickyScroll);
-    await prefs.setBool('editor_smooth_scrolling', _smoothScrolling);
-    await prefs.setBool('editor_mouse_wheel_zoom', _mouseWheelZoom);
-    await prefs.setBool('editor_format_on_paste', _formatOnPaste);
-    await prefs.setBool('editor_quick_suggestions', _quickSuggestions);
-    await prefs.setBool('editor_parameter_hints', _parameterHints);
-    await prefs.setBool('editor_hover', _hover);
-    await prefs.setBool('editor_links', _links);
-    await prefs.setBool('editor_occurrences_highlight', _occurrencesHighlight);
-    await prefs.setBool('editor_context_menu', _contextMenu);
-    await prefs.setDouble('editor_problems_height', _problemsPanelHeight);
-    await prefs.setBool('editor_show_outline', _showOutline);
-    await prefs.setBool('editor_vars_docked', _varsDocked);
-  }
-
-  void _applyEditorOptions() {
-    _ctrl?.updateOptions(
-      EditorOptions(
-        minimap: MonacoMinimapOptions(enabled: _minimap),
-        lineNumbers: _lineNumbers
-            ? MonacoLineNumbers.on
-            : MonacoLineNumbers.off,
-        folding: _folding,
-        readOnly: _readOnly,
-        fontSize: _fontSize,
-        wordWrap: _wordWrap ? MonacoWordWrap.on : MonacoWordWrap.off,
-        renderWhitespace: _renderWhitespace
-            ? RenderWhitespace.all
-            : RenderWhitespace.none,
-        bracketPairColorization: _bracketPairColorization,
-        stickyScroll: MonacoStickyScroll(enabled: _stickyScroll),
-        smoothScrolling: _smoothScrolling,
-        mouseWheelZoom: _mouseWheelZoom,
-        formatOnPaste: _formatOnPaste,
-        quickSuggestions: _quickSuggestions,
-        parameterHints: _parameterHints,
-        hover: _hover,
-        links: _links,
-        occurrencesHighlight: _occurrencesHighlight,
-        contextMenu: _contextMenu,
-      ),
-    );
-  }
-
-  void _toggle(VoidCallback fn) {
-    setState(fn);
-    _applyEditorOptions();
-    _savePrefs();
-  }
+  // ── Opciones & Preferencias → _editor_options_prefs.dart ─────────────
 
   // ── Build ──────────────────────────────────────────────────────────────
 
@@ -1780,6 +1744,19 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                           links: _links,
                           occurrencesHighlight: _occurrencesHighlight,
                           contextMenu: _contextMenu,
+                          // fixedOverflowWidgets: renderiza el menú
+                          // contextual, el widget de sugerencias y el hover
+                          // DENTRO del contenedor del editor en vez de
+                          // anclados a document.body con position:fixed.
+                          // Sin esto, en el WebView2 embebido como Texture
+                          // de Flutter los clics del mouse sobre esos
+                          // widgets no se registran (desajuste de mapeo de
+                          // coordenadas del puntero vs. el layout fixed de
+                          // página completa), aunque la navegación por
+                          // teclado sí funciona porque no depende de
+                          // coordenadas. Mismo fix aplicado en el HTML
+                          // legacy de Monaco (assets/monaco_editor.html).
+                          extra: const {'fixedOverflowWidgets': true},
                         ),
                         showStatusBar: true,
                         page: const MonacoPageConfig(
@@ -1790,6 +1767,13 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                         onReady: _onReady,
                         onContentChanged: _onContentChanged,
                         onError: (err, _) => debugPrint('Monaco error: $err'),
+                        // Ver _suppressFocusRecovery: desactiva el
+                        // pointerDown handler interno de flutter_monaco
+                        // (que llama a requestNativeFocus, Win32 SetFocus)
+                        // mientras el menú contextual nativo está abierto,
+                        // evitando que ese robo de foco cierre el menú
+                        // antes de que el clic en una opción se procese.
+                        interactionEnabled: !_suppressFocusRecovery,
                       ),
                     ),
                     // Docked variables panel
@@ -1828,10 +1812,12 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                         ambiente: widget.ambiente,
                         schemaObjects: _cachedSchemaObjTypes,
                         onItemTap: (line) async {
-                          await _ctrl?.revealLine(line, center: true);
-                          await _ctrl?.setCursorPosition(
-                            Position(line: line, column: 1),
-                          );
+                          await _withCtrl((ctrl) async {
+                            await ctrl.revealLine(line, center: true);
+                            await ctrl.setCursorPosition(
+                              Position(line: line, column: 1),
+                            );
+                          });
                         },
                         onClose: () {
                           setState(() => _showOutline = false);
@@ -1848,1095 +1834,6 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         // Panel de problemas (sintaxis + compilación Oracle)
         _buildProblemsPanel(context),
       ],
-    );
-  }
-
-  Widget _buildProblemsPanel(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final procId = _activeProcId ?? '';
-    final compileIssues = _compileErrorsPerProc[procId] ?? [];
-    final backendIssues = _backendIssuesPerProc[procId] ?? [];
-    final allIssues = [...compileIssues, ...backendIssues]
-      ..sort((a, b) => a.line.compareTo(b.line));
-    final errorCount = allIssues
-        .where((e) => e.severity == MarkerSeverity.error)
-        .length;
-    final warnCount = allIssues
-        .where((e) => e.severity == MarkerSeverity.warning)
-        .length;
-
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeInOut,
-      alignment: Alignment.bottomCenter,
-      child: _showProblemsPanel
-          ? Container(
-              height: _problemsPanelHeight,
-              decoration: BoxDecoration(
-                color: isDark
-                    ? const Color(0xFF1E1E1E)
-                    : cs.surfaceContainerLow,
-                border: Border(top: BorderSide(color: cs.outlineVariant)),
-              ),
-              child: Column(
-                children: [
-                  // Resize handle + header combined
-                  GestureDetector(
-                    onVerticalDragUpdate: (d) {
-                      setState(() {
-                        _problemsPanelHeight =
-                            (_problemsPanelHeight - d.delta.dy).clamp(
-                              80.0,
-                              400.0,
-                            );
-                      });
-                    },
-                    onVerticalDragEnd: (_) => _savePrefs(),
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.resizeRow,
-                      child: Container(
-                        height: 28,
-                        color: isDark
-                            ? cs.surfaceContainerHigh
-                            : cs.surfaceContainerHighest,
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.list_alt_rounded,
-                              size: 13,
-                              color: cs.onSurfaceVariant,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Problemas',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: cs.onSurface,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            if (errorCount > 0)
-                              _ProblemCount(count: errorCount, isError: true),
-                            if (warnCount > 0) ...[
-                              const SizedBox(width: 4),
-                              _ProblemCount(count: warnCount, isError: false),
-                            ],
-                            if (_backendChecking) ...[
-                              const SizedBox(width: 6),
-                              SizedBox(
-                                width: 10,
-                                height: 10,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 1.5,
-                                  color: cs.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                            const Spacer(),
-                            InkWell(
-                              onTap: () =>
-                                  setState(() => _showProblemsPanel = false),
-                              borderRadius: BorderRadius.circular(3),
-                              child: Padding(
-                                padding: const EdgeInsets.all(4),
-                                child: Icon(
-                                  Icons.close,
-                                  size: 13,
-                                  color: cs.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: allIssues.isEmpty
-                        ? Center(
-                            child: Text(
-                              'Sin problemas detectados',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: cs.onSurfaceVariant,
-                              ),
-                            ),
-                          )
-                        : ListView.builder(
-                            itemCount: allIssues.length,
-                            itemBuilder: (_, i) {
-                              final issue = allIssues[i];
-                              final isError =
-                                  issue.severity == MarkerSeverity.error;
-                              return InkWell(
-                                onTap: () async {
-                                  await _ctrl?.revealLine(
-                                    issue.line,
-                                    center: true,
-                                  );
-                                  await _ctrl?.setCursorPosition(
-                                    Position(
-                                      line: issue.line,
-                                      column: issue.col,
-                                    ),
-                                  );
-                                },
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 5,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        isError
-                                            ? Icons.error_outline
-                                            : Icons.warning_amber_rounded,
-                                        size: 14,
-                                        color: isError
-                                            ? Colors.red[400]
-                                            : Colors.orange[400],
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          issue.message,
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            fontFamily: 'Consolas',
-                                          ),
-                                          softWrap: true,
-                                          maxLines: 4,
-                                          overflow: TextOverflow.fade,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      // Solo mostrar L:C si tienen valores reales (>1)
-                                      if (issue.line > 1 || issue.col > 1)
-                                        Text(
-                                          'L${issue.line}:${issue.col}',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: cs.onSurfaceVariant,
-                                            fontFamily: 'Consolas',
-                                          ),
-                                        ),
-                                      const SizedBox(width: 6),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 5,
-                                          vertical: 1,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: cs.surfaceContainerHighest,
-                                          borderRadius: BorderRadius.circular(
-                                            3,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          issue.source,
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            color: issue.source == 'Oracle'
-                                                ? Colors.orange[400]
-                                                : cs.onSurfaceVariant,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Tooltip(
-                                        message: 'Copiar mensaje',
-                                        child: InkWell(
-                                          onTap: () {
-                                            Clipboard.setData(
-                                              ClipboardData(
-                                                text:
-                                                    '${issue.source} L${issue.line}:${issue.col} — ${issue.message}',
-                                              ),
-                                            );
-                                            AppToast.info(
-                                              'Copiado al portapapeles',
-                                            );
-                                          },
-                                          borderRadius: BorderRadius.circular(
-                                            3,
-                                          ),
-                                          child: Padding(
-                                            padding: const EdgeInsets.all(3),
-                                            child: Icon(
-                                              Icons.copy_rounded,
-                                              size: 13,
-                                              color: cs.onSurfaceVariant
-                                                  .withValues(alpha: 0.5),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              ),
-            )
-          : const SizedBox.shrink(),
-    );
-  }
-
-  Widget _buildDocTabs(bool isDark) {
-    final cs = Theme.of(context).colorScheme;
-    final bgColor = isDark
-        ? cs.surfaceContainerHighest
-        : cs.surfaceContainerLow;
-    return Container(
-      height: 30,
-      color: bgColor,
-      child: Stack(
-        children: [
-          ListView.builder(
-            controller: _tabsScrollCtrl,
-            scrollDirection: Axis.horizontal,
-            itemCount: _openProcs.length,
-            itemBuilder: (_, i) {
-              final proc = _openProcs[i];
-              final active = proc.cdProcedimiento == _activeProcId;
-              return Tooltip(
-                message: proc.cdProcedimiento,
-                waitDuration: _kTooltipWait,
-                child: _DocTab(
-                  proc: proc,
-                  isActive: active,
-                  isModified: _modifiedProcs.contains(proc.cdProcedimiento),
-                  onTap: () => _switchToProc(proc),
-                  onClose: _openProcs.length > 1 ? () => _closeDoc(proc) : null,
-                ),
-              );
-            },
-          ),
-          // Left overflow fade
-          if (_tabsCanScrollLeft)
-            Positioned(
-              left: 0,
-              top: 0,
-              bottom: 0,
-              child: IgnorePointer(
-                child: Container(
-                  width: 24,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [bgColor, bgColor.withValues(alpha: 0)],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          // Right overflow fade
-          if (_tabsCanScrollRight)
-            Positioned(
-              right: 0,
-              top: 0,
-              bottom: 0,
-              child: IgnorePointer(
-                child: Container(
-                  width: 24,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [bgColor.withValues(alpha: 0), bgColor],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildToolbar(bool isDark) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      height: 36,
-      color: isDark ? cs.surfaceContainerLow : cs.surface,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: Row(
-        children: [
-          // ── Toggles principales ─────────────────────────────────────────
-          _ToggleBtn(
-            icon: Icons.map_outlined,
-            tooltip: 'Minimap',
-            active: _minimap,
-            onPressed: () => _toggle(() => _minimap = !_minimap),
-          ),
-          _ToggleBtn(
-            icon: Icons.format_list_numbered,
-            tooltip: 'Número de líneas',
-            active: _lineNumbers,
-            onPressed: () => _toggle(() => _lineNumbers = !_lineNumbers),
-          ),
-          _ToggleBtn(
-            icon: _folding ? Icons.unfold_less : Icons.unfold_more,
-            tooltip: 'Colapsar bloques',
-            active: _folding,
-            onPressed: () => _toggle(() => _folding = !_folding),
-          ),
-          _ToggleBtn(
-            icon: _readOnly ? Icons.lock_outline : Icons.lock_open,
-            tooltip: 'Solo lectura — bloquear edición',
-            active: _readOnly,
-            onPressed: () => _toggle(() => _readOnly = !_readOnly),
-          ),
-          const SizedBox(width: 4),
-          // ── Control de zoom (pill) ─────────────────────────────────
-          Container(
-            height: 26,
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: cs.outlineVariant.withValues(alpha: 0.7),
-                width: 0.5,
-              ),
-              borderRadius: BorderRadius.circular(13),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Tooltip(
-                  message: 'Reducir fuente (Ctrl+−)',
-                  waitDuration: _kTooltipWait,
-                  preferBelow: false,
-                  decoration: _kTooltipDecoration,
-                  textStyle: _kTooltipTextStyle,
-                  child: InkWell(
-                    onTap: _fontSize > 10
-                        ? () => _toggle(
-                            () => _fontSize = (_fontSize - 2).clamp(10, 28),
-                          )
-                        : null,
-                    borderRadius: const BorderRadius.horizontal(
-                      left: Radius.circular(13),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 5,
-                      ),
-                      child: Icon(
-                        Icons.remove,
-                        size: 14,
-                        color: _fontSize > 10
-                            ? cs.onSurfaceVariant
-                            : cs.onSurfaceVariant.withValues(alpha: 0.3),
-                      ),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Text(
-                    '${_fontSize.toInt()}',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: cs.onSurfaceVariant,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                Tooltip(
-                  message: 'Aumentar fuente (Ctrl+=)',
-                  waitDuration: _kTooltipWait,
-                  preferBelow: false,
-                  decoration: _kTooltipDecoration,
-                  textStyle: _kTooltipTextStyle,
-                  child: InkWell(
-                    onTap: _fontSize < 28
-                        ? () => _toggle(
-                            () => _fontSize = (_fontSize + 2).clamp(10, 28),
-                          )
-                        : null,
-                    borderRadius: const BorderRadius.horizontal(
-                      right: Radius.circular(13),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 5,
-                      ),
-                      child: Icon(
-                        Icons.add,
-                        size: 14,
-                        color: _fontSize < 28
-                            ? cs.onSurfaceVariant
-                            : cs.onSurfaceVariant.withValues(alpha: 0.3),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 4),
-          SizedBox(
-            height: 18,
-            child: VerticalDivider(color: cs.outlineVariant, width: 12),
-          ),
-          // ── Opciones adicionales ─────────────────────────────────────────
-          // Theme quick-toggle dark/light
-          _buildThemeToggleBtn(cs),
-          _buildOptionsGear(cs),
-          _buildVarsButton(cs),
-          // Outline toggle
-          _ToggleBtn(
-            icon: Icons.account_tree_outlined,
-            tooltip: 'Outline — estructura del procedimiento',
-            active: _showOutline,
-            onPressed: _toggleOutline,
-          ),
-          _ToolBtn(
-            icon: Icons.code_rounded,
-            tooltip: 'Snippets de usuario',
-            onPressed: _openSnippetsManager,
-          ),
-          const Spacer(),
-          // ── Badge de errores ──────────────────────────────────────────────
-          _buildErrorBadge(cs),
-          const SizedBox(width: 4),
-          SizedBox(
-            height: 18,
-            child: VerticalDivider(color: cs.outlineVariant, width: 12),
-          ),
-          // ── Guardar / Acciones ───────────────────────────────────────────
-          _buildCompileBtn(cs),
-          const SizedBox(width: 4),
-          SizedBox(
-            height: 18,
-            child: VerticalDivider(color: cs.outlineVariant, width: 12),
-          ),
-          const SizedBox(width: 4),
-          _buildSaveBtn(cs),
-          _ToolBtn(
-            icon: Icons.compare_arrows,
-            tooltip: 'Ver diff vs. versión guardada (sin guardar)',
-            onPressed: _openDiff,
-          ),
-          _ToolBtn(
-            icon: Icons.format_align_left,
-            tooltip: 'Formatear documento (Shift+Alt+F)',
-            onPressed: () => _ctrl?.executeAction(MonacoAction.formatDocument),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCompileBtn(ColorScheme cs) {
-    return switch (_compileStatus) {
-      _CompileStatus.compiling => const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 9),
-        child: SizedBox(
-          width: 14,
-          height: 14,
-          child: CircularProgressIndicator(
-            strokeWidth: 1.5,
-            color: Color(0xFF569CD6),
-          ),
-        ),
-      ),
-      _CompileStatus.ok => TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0.5, end: 1.0),
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.elasticOut,
-        builder: (_, scale, child) =>
-            Transform.scale(scale: scale, child: child),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.check_rounded, size: 14, color: Colors.green[500]),
-              const SizedBox(width: 4),
-              Text(
-                'Compilado',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.green[500],
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      _CompileStatus.error => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error_outline, size: 14, color: Colors.orange[400]),
-            const SizedBox(width: 4),
-            Text(
-              'Errores',
-              style: TextStyle(fontSize: 11, color: Colors.orange[400]),
-            ),
-          ],
-        ),
-      ),
-      _CompileStatus.idle => Tooltip(
-        message:
-            'Compilar con Oracle — verifica errores sin guardar si falla (F5)',
-        waitDuration: _kTooltipWait,
-        preferBelow: false,
-        decoration: _kTooltipDecoration,
-        textStyle: _kTooltipTextStyle,
-        child: InkWell(
-          onTap: _compileCurrentDocument,
-          borderRadius: BorderRadius.circular(4),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.play_circle_outline_rounded,
-                  size: 15,
-                  color: const Color(0xFF569CD6),
-                ),
-                const SizedBox(width: 4),
-                const Text(
-                  'Compilar',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF569CD6),
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    };
-  }
-
-  Widget _buildSaveBtn(ColorScheme cs) {
-    return switch (_saveStatus) {
-      _SaveStatus.saving => const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 9),
-        child: SizedBox(
-          width: 14,
-          height: 14,
-          child: CircularProgressIndicator(
-            strokeWidth: 1.5,
-            color: Color(0xFF0078D4),
-          ),
-        ),
-      ),
-      _SaveStatus.saved => TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0.5, end: 1.0),
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.elasticOut,
-        builder: (_, scale, child) =>
-            Transform.scale(scale: scale, child: child),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.check_circle_outline,
-                size: 14,
-                color: Colors.green[600],
-              ),
-              const SizedBox(width: 4),
-              Text(
-                'Guardado',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.green[600],
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      _SaveStatus.error => Tooltip(
-        message: _lastSaveError ?? 'Error al guardar',
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.error_outline, size: 14, color: Colors.red[400]),
-              const SizedBox(width: 4),
-              Text(
-                'Error al guardar',
-                style: TextStyle(fontSize: 11, color: Colors.red[400]),
-              ),
-            ],
-          ),
-        ),
-      ),
-      _SaveStatus.idle => _buildSaveBtnIdle(cs),
-    };
-  }
-
-  Widget _buildSaveBtnIdle(ColorScheme cs) {
-    final isDirty = _modifiedProcs.contains(_activeProcId);
-    final canSave = widget.onSave != null;
-    return Tooltip(
-      message: 'Guardar (Ctrl+S)',
-      waitDuration: _kTooltipWait,
-      preferBelow: false,
-      decoration: _kTooltipDecoration,
-      textStyle: _kTooltipTextStyle,
-      child: InkWell(
-        onTap: canSave ? _saveCurrentDocument : null,
-        borderRadius: BorderRadius.circular(4),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-          decoration: BoxDecoration(
-            color: isDirty
-                ? const Color(0xFF0078D4).withValues(alpha: 0.12)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(4),
-            border: isDirty
-                ? Border.all(
-                    color: const Color(0xFF0078D4).withValues(alpha: 0.4),
-                  )
-                : null,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.save_outlined,
-                size: 15,
-                color: isDirty
-                    ? const Color(0xFF0078D4)
-                    : cs.onSurfaceVariant.withValues(alpha: 0.4),
-              ),
-              if (isDirty) ...[
-                const SizedBox(width: 4),
-                const Text(
-                  'Guardar',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF0078D4),
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildVarsButton(ColorScheme cs) {
-    final vars = _filteredVariables();
-    if (vars.isEmpty) return const SizedBox();
-    return Tooltip(
-      message: _varsDocked
-          ? 'Variables dinámicas — click derecho para desanclar panel'
-          : 'Variables dinámicas (${vars.length}) — click derecho para anclar panel',
-      waitDuration: _kTooltipWait,
-      preferBelow: true,
-      decoration: _kTooltipDecoration,
-      textStyle: _kTooltipTextStyle,
-      child: GestureDetector(
-        key: _varsButtonKey,
-        onSecondaryTap: () {
-          setState(() => _varsDocked = !_varsDocked);
-          _savePrefs();
-        },
-        onTap: _varsDocked ? null : () => _showVarsOverlay(vars),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-          decoration: BoxDecoration(
-            color: _varsDocked
-                ? cs.primaryContainer.withValues(alpha: 0.55)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Badge(
-            label: Text('${vars.length}', style: const TextStyle(fontSize: 10)),
-            child: Icon(
-              Icons.data_object,
-              size: 16,
-              color: _varsDocked ? cs.primary : cs.onSurfaceVariant,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showVarsOverlay(List<VariableDinamica> vars) {
-    final box = _varsButtonKey.currentContext?.findRenderObject() as RenderBox?;
-    if (box == null) return;
-    final anchor = box.localToGlobal(Offset(0, box.size.height + 4));
-    final screenW = MediaQuery.sizeOf(context).width;
-    const panelW = 300.0;
-    final left = (anchor.dx + panelW > screenW)
-        ? screenW - panelW - 8
-        : anchor.dx;
-
-    showGeneralDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'vars-dismiss',
-      barrierColor: Colors.transparent,
-      transitionDuration: const Duration(milliseconds: 120),
-      transitionBuilder: (_, anim, _, child) =>
-          FadeTransition(opacity: anim, child: child),
-      pageBuilder: (_, _, _) => _VarsMenuOverlay(
-        left: left,
-        top: anchor.dy,
-        width: panelW,
-        vars: vars,
-        onSelected: (v) async {
-          final ctrl = _ctrl;
-          if (ctrl == null) return;
-          final pos = await ctrl.getCursorPosition();
-          if (pos != null) await ctrl.document.insert(pos, ':${v.cdVariable}');
-        },
-      ),
-    );
-  }
-
-  // ── Theme picker (used by toolbar and gear menu) ──────────────────────────
-
-  void _showThemePickerDialog() {
-    showGeneralDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'theme-picker',
-      barrierColor: Colors.black45,
-      transitionDuration: const Duration(milliseconds: 160),
-      transitionBuilder: (_, anim, _, child) =>
-          FadeTransition(opacity: anim, child: child),
-      pageBuilder: (_, _, _) => _ThemePickerDialog(
-        currentThemeId: editorThemeStore.themeId,
-        onSelected: (id) async {
-          await editorThemeStore.setTheme(id);
-          await _ctrl?.setTheme(editorThemeStore.monacoTheme);
-        },
-      ),
-    );
-  }
-
-  Widget _buildErrorBadge(ColorScheme cs) {
-    final procId = _activeProcId ?? '';
-    final compileErrors = (_compileErrorsPerProc[procId] ?? [])
-        .where((e) => e.severity == MarkerSeverity.error)
-        .length;
-    final backendErrors = (_backendIssuesPerProc[procId] ?? [])
-        .where((e) => e.severity == MarkerSeverity.error)
-        .length;
-    final n = compileErrors + backendErrors;
-    final badge = Container(
-      margin: const EdgeInsets.only(right: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration: BoxDecoration(
-        color: n > 0
-            ? Colors.red.withValues(alpha: 0.12)
-            : Colors.green.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: n > 0
-              ? Colors.red.withValues(alpha: 0.45)
-              : Colors.green.withValues(alpha: 0.35),
-          width: 0.5,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            n > 0 ? Icons.error_outline : Icons.check_circle_outline,
-            size: 12,
-            color: n > 0 ? Colors.red[400] : Colors.green[600],
-          ),
-          const SizedBox(width: 4),
-          Text(
-            n > 0 ? '$n' : 'OK',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: n > 0 ? Colors.red[400] : Colors.green[600],
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (n == 0) {
-      return Tooltip(
-        message: 'Sin errores de sintaxis',
-        waitDuration: _kTooltipWait,
-        preferBelow: false,
-        decoration: _kTooltipDecoration,
-        textStyle: _kTooltipTextStyle,
-        child: badge,
-      );
-    }
-
-    return Tooltip(
-      message: _showProblemsPanel
-          ? 'Ocultar panel de problemas'
-          : 'Mostrar panel de problemas',
-      waitDuration: _kTooltipWait,
-      preferBelow: false,
-      decoration: _kTooltipDecoration,
-      textStyle: _kTooltipTextStyle,
-      child: InkWell(
-        onTap: () => setState(() => _showProblemsPanel = !_showProblemsPanel),
-        borderRadius: BorderRadius.circular(10),
-        child: badge,
-      ),
-    );
-  }
-
-  // dark/light pair map for the quick toggle button
-  static const _themePairs = <String, String>{
-    'oracle-dark': 'oracle-light',
-    'oracle-light': 'oracle-dark',
-    'vs-dark': 'vs',
-    'vs': 'vs-dark',
-    'hc-black': 'hc-light',
-    'hc-light': 'hc-black',
-    'github-dark': 'github-light',
-    'github-light': 'github-dark',
-    'solarized-dark': 'solarized-light',
-    'solarized-light': 'solarized-dark',
-  };
-
-  Widget _buildThemeToggleBtn(ColorScheme cs) {
-    final meta = editorThemeStore.currentMeta;
-    final isDarkTheme = meta.isDark;
-    return Tooltip(
-      message: isDarkTheme ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro',
-      waitDuration: _kTooltipWait,
-      preferBelow: false,
-      decoration: _kTooltipDecoration,
-      textStyle: _kTooltipTextStyle,
-      child: InkWell(
-        onTap: () async {
-          final target =
-              _themePairs[editorThemeStore.themeId] ??
-              (isDarkTheme ? 'oracle-light' : 'oracle-dark');
-          await editorThemeStore.setTheme(target);
-          await _ctrl?.setTheme(editorThemeStore.monacoTheme);
-        },
-        borderRadius: BorderRadius.circular(4),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
-          child: Icon(
-            isDarkTheme ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-            size: 16,
-            color: cs.onSurfaceVariant,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildOptionsGear(ColorScheme cs) {
-    final headerStyle = TextStyle(
-      fontSize: 10,
-      fontWeight: FontWeight.w700,
-      color: cs.onSurfaceVariant.withValues(alpha: 0.5),
-      letterSpacing: 0.8,
-    );
-    return PopupMenuButton<_EditorOption>(
-      tooltip: 'Más opciones del editor',
-      padding: EdgeInsets.zero,
-      icon: Icon(Icons.tune, size: 16, color: cs.onSurfaceVariant),
-      onSelected: (_EditorOption opt) {
-        if (opt == _EditorOption.resetDefaults) {
-          _resetAllOptions();
-          return;
-        }
-        _toggle(() {
-          switch (opt) {
-            case _EditorOption.wordWrap:
-              _wordWrap = !_wordWrap;
-            case _EditorOption.renderWhitespace:
-              _renderWhitespace = !_renderWhitespace;
-            case _EditorOption.bracketColorize:
-              _bracketPairColorization = !_bracketPairColorization;
-            case _EditorOption.stickyScroll:
-              _stickyScroll = !_stickyScroll;
-            case _EditorOption.smoothScrolling:
-              _smoothScrolling = !_smoothScrolling;
-            case _EditorOption.mouseWheelZoom:
-              _mouseWheelZoom = !_mouseWheelZoom;
-            case _EditorOption.formatOnPaste:
-              _formatOnPaste = !_formatOnPaste;
-            case _EditorOption.quickSuggestions:
-              _quickSuggestions = !_quickSuggestions;
-            case _EditorOption.parameterHints:
-              _parameterHints = !_parameterHints;
-            case _EditorOption.hover:
-              _hover = !_hover;
-            case _EditorOption.links:
-              _links = !_links;
-            case _EditorOption.occurrences:
-              _occurrencesHighlight = !_occurrencesHighlight;
-            case _EditorOption.contextMenu:
-              _contextMenu = !_contextMenu;
-            case _EditorOption.resetDefaults:
-              break;
-          }
-        });
-      },
-      itemBuilder: (ctx) => [
-        // ── TEMA ────────────────────────────────────────────────────────
-        PopupMenuItem<_EditorOption>(
-          enabled: false,
-          height: 28,
-          child: Text('TEMA', style: headerStyle),
-        ),
-        PopupMenuItem<_EditorOption>(
-          onTap: () => WidgetsBinding.instance.addPostFrameCallback(
-            (_) => _showThemePickerDialog(),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  color: editorThemeStore.currentMeta.swatch,
-                  borderRadius: BorderRadius.circular(2),
-                  border: Border.all(
-                    color: Theme.of(ctx).colorScheme.outlineVariant,
-                    width: 0.5,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                editorThemeStore.currentMeta.name,
-                style: const TextStyle(fontSize: 12),
-              ),
-              const Spacer(),
-              Icon(
-                Icons.chevron_right,
-                size: 14,
-                color: Theme.of(ctx).colorScheme.onSurfaceVariant,
-              ),
-            ],
-          ),
-        ),
-        const PopupMenuDivider(),
-        PopupMenuItem<_EditorOption>(
-          enabled: false,
-          height: 28,
-          child: Text('VISUALIZACIÓN', style: headerStyle),
-        ),
-        _optItem(_EditorOption.wordWrap, 'Ajuste de línea', _wordWrap),
-        _optItem(
-          _EditorOption.renderWhitespace,
-          'Mostrar espacios/tabs',
-          _renderWhitespace,
-        ),
-        _optItem(
-          _EditorOption.bracketColorize,
-          'Colorizar paréntesis',
-          _bracketPairColorization,
-        ),
-        const PopupMenuDivider(),
-        PopupMenuItem<_EditorOption>(
-          enabled: false,
-          height: 28,
-          child: Text('SCROLL', style: headerStyle),
-        ),
-        _optItem(_EditorOption.stickyScroll, 'Scroll pegajoso', _stickyScroll),
-        _optItem(
-          _EditorOption.smoothScrolling,
-          'Scroll suave',
-          _smoothScrolling,
-        ),
-        _optItem(
-          _EditorOption.mouseWheelZoom,
-          'Zoom con rueda del ratón',
-          _mouseWheelZoom,
-        ),
-        const PopupMenuDivider(),
-        PopupMenuItem<_EditorOption>(
-          enabled: false,
-          height: 28,
-          child: Text('EDICIÓN', style: headerStyle),
-        ),
-        _optItem(
-          _EditorOption.formatOnPaste,
-          'Formatear al pegar',
-          _formatOnPaste,
-        ),
-        _optItem(
-          _EditorOption.quickSuggestions,
-          'Sugerencias automáticas',
-          _quickSuggestions,
-        ),
-        _optItem(
-          _EditorOption.parameterHints,
-          'Hints de parámetros',
-          _parameterHints,
-        ),
-        const PopupMenuDivider(),
-        PopupMenuItem<_EditorOption>(
-          enabled: false,
-          height: 28,
-          child: Text('INTERFAZ', style: headerStyle),
-        ),
-        _optItem(_EditorOption.hover, 'Tooltips hover', _hover),
-        _optItem(_EditorOption.links, 'Links clicables', _links),
-        _optItem(
-          _EditorOption.occurrences,
-          'Resaltar ocurrencias',
-          _occurrencesHighlight,
-        ),
-        _optItem(_EditorOption.contextMenu, 'Menú contextual', _contextMenu),
-        const PopupMenuDivider(),
-        PopupMenuItem<_EditorOption>(
-          value: _EditorOption.resetDefaults,
-          child: Row(
-            children: [
-              Icon(
-                Icons.refresh,
-                size: 14,
-                color: Theme.of(ctx).colorScheme.onSurface,
-              ),
-              const SizedBox(width: 8),
-              const Text(
-                'Restablecer predeterminados',
-                style: TextStyle(fontSize: 12),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  CheckedPopupMenuItem<_EditorOption> _optItem(
-    _EditorOption value,
-    String label,
-    bool checked,
-  ) {
-    return CheckedPopupMenuItem<_EditorOption>(
-      value: value,
-      checked: checked,
-      child: Text(label, style: const TextStyle(fontSize: 12)),
     );
   }
 }

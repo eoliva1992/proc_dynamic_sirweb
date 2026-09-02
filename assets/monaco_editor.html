@@ -80,10 +80,58 @@
       var _schema = {
         tables: [],
         views: [],
-        objects: [],   // [{name, type}]
-        columns: {},   // { 'TABLA': [{name, type}] }
-        loaded: false, // false hasta que Dart envíe setCompletionSchema
+        objects: [],    // [{name, type}]
+        columns: {},    // { 'TABLA': [{name, type}] }
+        packages: {},   // { 'PKG': [{name, kind, args:[{name,type,inOut}]}] }
+        types: {},      // { 'TYPE': [{name, type}] }
+        objectArgs: {}, // { 'PROC': [{name, type, inOut}] }
+        loaded: false,  // false hasta que Dart envíe setCompletionSchema
       };
+
+      // Tipo Oracle del objeto (PACKAGE, TYPE, PROCEDURE, FUNCTION) o null
+      function objectTypeOf(name) {
+        for (var i = 0; i < _schema.objects.length; i++) {
+          if (_schema.objects[i].name === name) return _schema.objects[i].type;
+        }
+        return null;
+      }
+
+      // Snippet de llamada con notación nombrada: F(P1 => ${1:P1}, ...)
+      // Sólo los procedimientos terminan en ';'; funciones y constructores de
+      // types se usan como expresión.
+      function buildCallSnippet(name, kind, args) {
+        var isProc = String(kind || '').toUpperCase() === 'PROCEDURE';
+        if (!args || args.length === 0) {
+          return { text: isProc ? name + ';' : name + '()', snippet: false };
+        }
+        var parts = args.map(function(a, i) {
+          return a.name + ' => ${' + (i + 1) + ':' + a.name + '}';
+        });
+        var body = name + '(' + parts.join(', ') + ')';
+        return { text: isProc ? body + ';' : body, snippet: true };
+      }
+
+      // Firma cacheada de un objeto según su tipo (null si aún no llegó)
+      function signatureOf(name, type) {
+        if (type === 'PROCEDURE' || type === 'FUNCTION') {
+          return _schema.objectArgs[name] || null;
+        }
+        if (type === 'TYPE') return _schema.types[name] || null;
+        return null;
+      }
+
+      // Argumentos de un subprograma: suelto, miembro de un package o type
+      function argsOf(owner, member) {
+        if (member) {
+          var subs = _schema.packages[owner];
+          if (!subs) return null;
+          for (var i = 0; i < subs.length; i++) {
+            if (subs[i].name === member) return subs[i].args || [];
+          }
+          return [];
+        }
+        return _schema.objectArgs[owner] || _schema.types[owner] || null;
+      }
 
       // Extrae las tablas del bloque FROM/JOIN del texto antes del cursor
       function extractFromTables(textBefore) {
@@ -134,23 +182,98 @@
 
           var suggestions = [];
 
-          // ── Caso 1: "ALIAS." → columnas de esa tabla ──────────────────────
-          var dotMatch = textBefore.match(/(\w+)\.\s*$/);
+          // ── Caso 1: "PKG." → subprogramas · "ALIAS." → columnas ───────────
+          var dotMatch = textBefore.match(/([A-Za-z]\w*)\.(\w*)$/);
           if (dotMatch) {
             var tableRef = dotMatch[1].toUpperCase();
+            var memberPrefix = dotMatch[2].toUpperCase();
+
+            // Ajustar range para reemplazar sólo lo escrito tras el punto
+            var dotRange = {
+              startLineNumber: position.lineNumber,
+              endLineNumber: position.lineNumber,
+              startColumn: position.column - memberPrefix.length,
+              endColumn: position.column,
+            };
+
+            // 1.a) Package → procedimientos y funciones que expone
+            var refType = objectTypeOf(tableRef);
+            if (refType === 'PACKAGE') {
+              var subs = _schema.packages[tableRef];
+              if (!subs) {
+                return {
+                  suggestions: [{
+                    label: '⏳ Cargando miembros de ' + tableRef + '...',
+                    kind: monaco.languages.CompletionItemKind.Text,
+                    insertText: '',
+                    range: dotRange,
+                    sortText: 'z',
+                  }],
+                  incomplete: true,
+                };
+              }
+              subs.forEach(function(s) {
+                if (memberPrefix && s.name.indexOf(memberPrefix) !== 0) return;
+                var args = s.args || [];
+                var call = buildCallSnippet(s.name, s.kind, args);
+                suggestions.push({
+                  label: s.name,
+                  kind: s.kind === 'FUNCTION'
+                    ? monaco.languages.CompletionItemKind.Function
+                    : monaco.languages.CompletionItemKind.Method,
+                  detail: args.length === 0
+                    ? s.kind + ' · ' + tableRef
+                    : s.kind + ' (' + args.map(function(a) { return a.name; }).join(', ') + ')',
+                  documentation: args.length === 0 ? undefined : args
+                    .map(function(a) { return (a.name + ' ' + (a.inOut || '') + ' ' + (a.type || '')).trim(); })
+                    .join('\n'),
+                  insertText: call.text,
+                  insertTextRules: call.snippet
+                    ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+                    : undefined,
+                  range: dotRange,
+                  sortText: '0' + s.name,
+                });
+              });
+              return { suggestions: suggestions, incomplete: false };
+            }
+
+            // 1.b) Type objeto → sus atributos
+            if (refType === 'TYPE') {
+              var attrs = _schema.types[tableRef];
+              if (!attrs) {
+                return {
+                  suggestions: [{
+                    label: '⏳ Cargando atributos de ' + tableRef + '...',
+                    kind: monaco.languages.CompletionItemKind.Text,
+                    insertText: '',
+                    range: dotRange,
+                    sortText: 'z',
+                  }],
+                  incomplete: true,
+                };
+              }
+              attrs.forEach(function(a) {
+                if (memberPrefix && a.name.indexOf(memberPrefix) !== 0) return;
+                suggestions.push({
+                  label: a.name,
+                  kind: monaco.languages.CompletionItemKind.Field,
+                  detail: a.type + ' · ' + tableRef,
+                  insertText: a.name,
+                  range: dotRange,
+                  sortText: '0' + a.name,
+                });
+              });
+              return { suggestions: suggestions, incomplete: false };
+            }
+
+            // 1.c) Tabla o alias → columnas
             var fromMap = extractFromTables(textBefore);
             var realTable = fromMap[tableRef] || tableRef;
             var cols = _schema.columns[realTable] || [];
 
-            // Ajustar range para reemplazar desde después del punto
-            var dotRange = {
-              startLineNumber: position.lineNumber,
-              endLineNumber: position.lineNumber,
-              startColumn: position.column,
-              endColumn: position.column,
-            };
-
             cols.forEach(function(col) {
+              if (memberPrefix && col.name.indexOf(memberPrefix) !== 0) return;
               suggestions.push({
                 label: col.name,
                 kind: monaco.languages.CompletionItemKind.Field,
@@ -173,6 +296,40 @@
             }
 
             return { suggestions: suggestions, incomplete: !_schema.loaded };
+          }
+
+          // ── Caso 1.d: dentro de "MI_PROC(" → parámetros nombrados ──────────
+          var callMatch = textBefore.match(/([A-Za-z]\w*)(?:\.([A-Za-z]\w*))?\s*\(([^()]*)$/);
+          if (callMatch) {
+            var owner = callMatch[1].toUpperCase();
+            var member = callMatch[2] ? callMatch[2].toUpperCase() : null;
+            var written = (callMatch[3] || '').toUpperCase();
+            var ownerType = objectTypeOf(owner);
+            var valid = member
+              ? ownerType === 'PACKAGE'
+              : (ownerType === 'PROCEDURE' || ownerType === 'FUNCTION' ||
+                 ownerType === 'TYPE');
+            if (valid) {
+              var callArgs = argsOf(owner, member);
+              if (callArgs) {
+                var argPrefix = word.word.toUpperCase();
+                callArgs.forEach(function(a) {
+                  if (argPrefix && a.name.indexOf(argPrefix) !== 0) return;
+                  if (new RegExp('\\b' + a.name + '\\s*=>').test(written)) return;
+                  suggestions.push({
+                    label: a.name,
+                    kind: monaco.languages.CompletionItemKind.Property,
+                    detail: ((a.inOut || '') + ' ' + (a.type || '')).trim(),
+                    insertText: a.name + ' => ',
+                    range: range,
+                    sortText: '0' + a.name,
+                  });
+                });
+                if (suggestions.length > 0) {
+                  return { suggestions: suggestions, incomplete: false };
+                }
+              }
+            }
           }
 
           // ── Caso 2: palabra suelta ─────────────────────────────────────────
@@ -224,19 +381,28 @@
             }
           });
 
-          // Objetos (procedimientos, funciones, packages)
+          // Objetos (procedimientos, funciones, packages, types)
           _schema.objects.forEach(function(o) {
             if (!prefix || o.name.startsWith(prefix)) {
               var itemKind = o.type === 'FUNCTION'
                 ? monaco.languages.CompletionItemKind.Function
                 : o.type === 'PACKAGE'
                   ? monaco.languages.CompletionItemKind.Module
-                  : monaco.languages.CompletionItemKind.Method;
+                  : o.type === 'TYPE'
+                    ? monaco.languages.CompletionItemKind.Class
+                    : monaco.languages.CompletionItemKind.Method;
+              var sig = signatureOf(o.name, o.type);
+              var call = sig ? buildCallSnippet(o.name, o.type, sig) : null;
               suggestions.push({
                 label: o.name,
                 kind: itemKind,
-                detail: o.type,
-                insertText: o.name,
+                detail: sig && sig.length > 0
+                  ? o.type + ' (' + sig.map(function(a) { return a.name; }).join(', ') + ')'
+                  : o.type,
+                insertText: call ? call.text : o.name,
+                insertTextRules: (call && call.snippet)
+                  ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+                  : undefined,
                 range: range,
                 sortText: '4' + o.name,
               });
@@ -295,6 +461,12 @@
           _schema.loaded = true;
         } else if (msg.action === 'setTableColumns') {
           _schema.columns[msg.table] = msg.columns || [];
+        } else if (msg.action === 'setPackageSubprograms') {
+          _schema.packages[msg.package] = msg.subprograms || [];
+        } else if (msg.action === 'setTypeAttributes') {
+          _schema.types[msg.type] = msg.attributes || [];
+        } else if (msg.action === 'setObjectArguments') {
+          _schema.objectArgs[msg.object] = msg.args || [];
         }
       }
 
@@ -318,6 +490,15 @@
         bracketPairColorization: { enabled: true },
         formatOnPaste: false,
         contextmenu: true,
+        // Fuerza a que el menú contextual, el widget de sugerencias y el hover
+        // se rendericen DENTRO del contenedor del editor en vez de anclados a
+        // document.body con position:fixed. Sin esto, en el WebView2 embebido
+        // como Texture de Flutter, esos widgets se ven en la posición correcta
+        // pero los clics no llegan a registrarse (el mapeo de coordenadas del
+        // puntero no coincide con el layout fixed de página completa), aunque
+        // la navegación por teclado (flechas + Enter) sí funciona porque no
+        // depende de coordenadas.
+        fixedOverflowWidgets: true,
         quickSuggestions: { other: true, comments: false, strings: false },
         suggestOnTriggerCharacters: true,
         acceptSuggestionOnEnter: 'off',   // Tab acepta, Enter NO
@@ -438,6 +619,9 @@
           case 'format':              monacoFormat(); break;
           case 'setCompletionSchema': monacoReceiveMessage(msg); break;
           case 'setTableColumns':     monacoReceiveMessage(msg); break;
+          case 'setPackageSubprograms': monacoReceiveMessage(msg); break;
+          case 'setTypeAttributes':   monacoReceiveMessage(msg); break;
+          case 'setObjectArguments':  monacoReceiveMessage(msg); break;
         }
       } catch(e) { /* ignorar mensajes malformados */ }
     });
