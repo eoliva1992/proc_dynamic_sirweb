@@ -43,3 +43,10 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Graphify knowledge graph output (regenerado localmente con `graphify update .`)
+graphify-out/
+
+# Herramientas locales
+nuget.exe
+
