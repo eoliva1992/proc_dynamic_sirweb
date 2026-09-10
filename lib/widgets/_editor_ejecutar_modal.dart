@@ -129,7 +129,15 @@ class _EjecutarProcedimientoModalState
   bool _cancelado = false;
   EjecucionResultado? _resultado;
   String? _error;
-  int _tab = 0; // 0 = salidas, 1 = traza, 2 = contexto, 3 = json
+
+  /// Ambiente contra el que se ejecuta. Arranca en el del tab pero se puede
+  /// cambiar sin cerrar la ventana: probar la misma regla en Desa y en QA es
+  /// el caso de uso habitual.
+  late String _ambiente = widget.ambiente;
+
+  /// 0 = salidas, 1 = traza, 2 = contexto, 3 = variables dinámicas,
+  /// 4 = variables declaradas (bloque `DECLARE` del orquestador).
+  int _tab = 0;
 
   Offset _position = Offset.zero;
   double? _modalW;
@@ -319,7 +327,7 @@ class _EjecutarProcedimientoModalState
       stringMatriz: _str('stringMatriz'),
       camposAdicionales: extra,
       tipoContexto: _str('tipoContexto'),
-      ambiente: widget.ambiente == 'Desa' ? null : widget.ambiente,
+      ambiente: _ambiente == 'Desa' ? null : _ambiente,
       timeoutSegundos: timeout,
     );
 
@@ -373,7 +381,9 @@ class _EjecutarProcedimientoModalState
       if (res.tieneError) {
         AppToast.error('La ejecución devolvió un error de Oracle');
       } else {
-        AppToast.info('Ejecutado en ${_formatearTiempoMsYSeg(res.duracionMs ?? 0)}');
+        AppToast.info(
+          'Ejecutado en ${_formatearTiempoMsYSeg(res.duracionMs ?? 0)}',
+        );
       }
     } catch (e) {
       if (!mounted || _cancelado) return;
@@ -421,6 +431,199 @@ class _EjecutarProcedimientoModalState
     const encoder = JsonEncoder.withIndent('  ');
     await Clipboard.setData(ClipboardData(text: encoder.convert(res.raw)));
     AppToast.info('Resultado copiado al portapapeles');
+  }
+
+  // ── Ambiente ──────────────────────────────────────────
+  /// Cambia la base contra la que se ejecuta sin cerrar la ventana.
+  ///
+  /// El resultado anterior se descarta a propósito: sus salidas, su traza y su
+  /// contexto son de otra base y mezclarlos lleva a conclusiones equivocadas.
+  void _onAmbienteChanged(String nuevo) {
+    if (nuevo == _ambiente || _ejecutando) return;
+    setState(() {
+      _ambiente = nuevo;
+      _resultado = null;
+      _error = null;
+      _tab = 0;
+    });
+  }
+
+  // ── Exportación ────────────────────────────────────────
+  static String _stamp() {
+    final now = DateTime.now();
+    String p(int v) => v.toString().padLeft(2, '0');
+    return '${now.year}${p(now.month)}${p(now.day)}_'
+        '${p(now.hour)}${p(now.minute)}${p(now.second)}';
+  }
+
+  /// Pide la ruta, escribe [contenido] y avisa con un toast que permite abrir
+  /// la carpeta destino. Centraliza el manejo de errores de disco.
+  Future<void> _guardarArchivo({
+    required String contenido,
+    required String fileName,
+    required String extension,
+    required String titulo,
+  }) async {
+    if (contenido.trim().isEmpty) {
+      AppToast.warning('No hay datos para exportar');
+      return;
+    }
+    try {
+      final path = await FilePicker.saveFile(
+        dialogTitle: titulo,
+        fileName: fileName,
+        type: FileType.custom,
+        allowedExtensions: [extension],
+      );
+      if (path == null) return;
+      await File(path).writeAsString(contenido, flush: true);
+      AppLog.instance.transaction(
+        'Exportar ejecución ${widget.cdProcedimiento}',
+        source: 'Ejecución',
+        datos: {'Ambiente': _ambiente, 'Archivo': path},
+      );
+      AppToast.successWithAction(
+        'Exportado: ${path.split(Platform.pathSeparator).last}',
+        actionLabel: 'Abrir ubicación',
+        onAction: () => unawaited(BackupService.revealInExplorer(path)),
+      );
+    } catch (e, st) {
+      AppLog.instance.exception(
+        'Exportar ejecución ${widget.cdProcedimiento}',
+        e,
+        stack: st,
+        source: 'Ejecución',
+        datos: {'Ambiente': _ambiente, 'Archivo': fileName},
+      );
+      AppToast.error('No se pudo exportar: ${AppLog.describe(e)}');
+    }
+  }
+
+  /// Parámetros de contexto con los que se disparó la ejecución (sin vacíos).
+  Map<String, String> get _parametrosUsados => {
+    for (final e in _ctrls.entries)
+      if (e.value.text.trim().isNotEmpty) e.key: e.value.text.trim(),
+    if (_camposAdicionalesCtrl.text.trim().isNotEmpty)
+      'camposAdicionales': _camposAdicionalesCtrl.text.trim(),
+    'timeoutSegundos': _timeoutCtrl.text.trim(),
+  };
+
+  /// Exporta todo: parámetros enviados + la respuesta completa del backend.
+  Future<void> _exportarTodo() async {
+    final res = _resultado;
+    if (res == null) {
+      AppToast.warning('Ejecutá el procedimiento antes de exportar');
+      return;
+    }
+    const encoder = JsonEncoder.withIndent('  ');
+    final contenido = encoder.convert({
+      'cdProcedimiento': widget.cdProcedimiento,
+      'ambiente': _ambiente,
+      'origen': widget.obtenerTexto != null
+          ? 'borrador (código del editor)'
+          : 'guardado en PROCEDIMIENTODINAMICO',
+      'exportado': DateTime.now().toIso8601String(),
+      'parametros': _parametrosUsados,
+      'resultado': res.raw,
+    });
+    await _guardarArchivo(
+      contenido: contenido,
+      fileName:
+          'ejecucion_${widget.cdProcedimiento}_'
+          '${_ambiente.toUpperCase()}_${_stamp()}.json',
+      extension: 'json',
+      titulo: 'Exportar ejecución completa',
+    );
+  }
+
+  String get _nombreTab => switch (_tab) {
+    0 => 'salidas',
+    1 => 'traza',
+    2 => 'contexto',
+    3 => 'variables',
+    _ => 'declaradas',
+  };
+  static String _tsv(Iterable<List<String>> filas) =>
+      filas.map((f) => f.join('\t')).join('\n');
+  static String _txt(dynamic v) => v?.toString() ?? '';
+
+  /// Contenido y extensión del tab activo, en el formato que mejor le calza:
+  /// tabular (TSV, para pegar en una planilla) o texto plano para la traza.
+  (String, String) _contenidoTab(EjecucionResultado res) {
+    switch (_tab) {
+      case 0:
+        final e = res.salidas.entries.toList()
+          ..sort((a, b) => a.key.compareTo(b.key));
+        return (
+          _tsv([
+            ['CAMPO', 'VALOR'],
+            ...e.map((x) => [x.key, _txt(x.value)]),
+          ]),
+          'tsv',
+        );
+      case 1:
+        final buf = StringBuffer();
+        if (res.tieneError) buf.writeln('ERROR ORACLE: ${res.errorOracle}\n');
+        buf.writeAll(res.traza, '\n');
+        return (buf.toString(), 'log');
+      case 2:
+        final ctx = res.contexto;
+        final campos = ctx.camposDesdeBd.entries.toList()
+          ..sort((a, b) => a.key.compareTo(b.key));
+        final buf = StringBuffer()
+          ..writeln('Tipo de contexto: ${_txt(ctx.tipo)}')
+          ..writeln('Record          : ${_txt(ctx.record)}')
+          ..writeln()
+          ..writeln('CAMPO\tVALOR\tORIGEN');
+        for (final c in campos) {
+          buf.writeln('${c.key}\t${_txt(c.value)}\tBD');
+        }
+        for (final c in ctx.camposSobreescritos) {
+          buf.writeln('$c\t\tSOBRESCRITO');
+        }
+        for (final c in ctx.camposSinResolver) {
+          buf.writeln('$c\t\tSIN RESOLVER');
+        }
+        return (buf.toString(), 'txt');
+      case 3:
+        final e = res.variablesDinamicasUsadas.entries.toList()
+          ..sort((a, b) => a.key.compareTo(b.key));
+        return (
+          _tsv([
+            ['VARIABLE', 'VALOR'],
+            ...e.map((x) => [x.key, _txt(x.value)]),
+          ]),
+          'tsv',
+        );
+      default:
+        return (
+          _tsv([
+            ['VARIABLE', 'TIPO', 'INICIAL', 'VALOR FINAL'],
+            ...res.variablesDeclaradas.map(
+              (v) => [
+                v.nombre,
+                _txt(v.tipo),
+                _txt(v.valorInicial),
+                _txt(v.valor),
+              ],
+            ),
+          ]),
+          'tsv',
+        );
+    }
+  }
+
+  /// Exporta únicamente lo que se está viendo en el tab activo.
+  Future<void> _exportarTab(EjecucionResultado res) async {
+    final (contenido, ext) = _contenidoTab(res);
+    await _guardarArchivo(
+      contenido: contenido,
+      fileName:
+          '${_nombreTab}_${widget.cdProcedimiento}_'
+          '${_ambiente.toUpperCase()}_${_stamp()}.$ext',
+      extension: ext,
+      titulo: 'Exportar $_nombreTab',
+    );
   }
 
   // ── Build ───────────────────────────────────────────────────────────────
@@ -658,11 +861,11 @@ class _EjecutarProcedimientoModalState
                             ),
                           ),
                           const SizedBox(width: 8),
-                          _StatusBadge(
-                            label: widget.ambiente,
-                            color: widget.ambiente == 'Prod'
-                                ? Colors.redAccent
-                                : const Color(0xFF0078D4),
+                          // El ambiente se cambia acá mismo: no hace falta
+                          // cerrar la ventana ni volver al tab del editor.
+                          AmbienteSelector(
+                            value: _ambiente,
+                            onChanged: _onAmbienteChanged,
                           ),
                           if (widget.inConfiguracion != null &&
                               widget.inConfiguracion!.isNotEmpty) ...[
@@ -693,6 +896,19 @@ class _EjecutarProcedimientoModalState
                         ),
                       ),
                     ],
+                  ),
+                ),
+              if (!_minimized)
+                IconButton(
+                  icon: const Icon(Icons.save_alt_rounded, size: 17),
+                  tooltip: 'Exportar toda la ejecución (JSON)',
+                  onPressed: _resultado == null
+                      ? null
+                      : () => unawaited(_exportarTodo()),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
                   ),
                 ),
               if (!_minimized)
@@ -804,10 +1020,9 @@ class _EjecutarProcedimientoModalState
                   _CampoTexto(
                     controller: _ctrls[c.key]!,
                     label: c.label,
-                    hint: c.hint,
+                    hint: c.hint ?? '',
                     numerico: c.numerico,
                     isDark: isDark,
-                    onSubmitted: (_) => unawaited(_ejecutar()),
                   ),
                   const SizedBox(height: 8),
                 ],
@@ -818,10 +1033,9 @@ class _EjecutarProcedimientoModalState
                   _CampoTexto(
                     controller: _ctrls[c.key]!,
                     label: c.label,
-                    hint: c.hint,
+                    hint: c.hint ?? '',
                     numerico: c.numerico,
                     isDark: isDark,
-                    onSubmitted: (_) => unawaited(_ejecutar()),
                   ),
                   const SizedBox(height: 8),
                 ],
@@ -843,6 +1057,7 @@ class _EjecutarProcedimientoModalState
                 _CampoTexto(
                   controller: _timeoutCtrl,
                   label: 'Timeout (segundos)',
+                  hint: '30',
                   numerico: true,
                   isDark: isDark,
                 ),
@@ -1039,6 +1254,20 @@ class _EjecutarProcedimientoModalState
               label: 'Config ${res.inConfiguracion}',
               color: const Color(0xFF607D8B),
             ),
+          // Estado del procedimiento en la base: un '0' avisa que la regla
+          // está inactiva aunque la ejecución haya salido bien.
+          if (res.stProcedimiento != null && res.stProcedimiento!.isNotEmpty)
+            _StatusBadge(
+              label: res.stProcedimiento == '1' ? 'Activo' : 'Inactivo',
+              color: res.stProcedimiento == '1'
+                  ? const Color(0xFF16A34A)
+                  : Colors.redAccent,
+            ),
+          if (res.variablesDeclaradas.isNotEmpty)
+            _StatusBadge(
+              label: '${res.variablesDeclaradas.length} declaradas',
+              color: const Color(0xFF2E9E6B),
+            ),
         ],
       ),
     );
@@ -1090,7 +1319,23 @@ class _EjecutarProcedimientoModalState
             isDark: isDark,
             onTap: () => setState(() => _tab = 3),
           ),
+          const SizedBox(width: 6),
+          _TabChip(
+            label: 'Declaradas',
+            count: res.variablesDeclaradas.length,
+            active: _tab == 4,
+            accent: const Color(0xFF2E9E6B),
+            isDark: isDark,
+            onTap: () => setState(() => _tab = 4),
+          ),
           const Spacer(),
+          IconButton(
+            icon: const Icon(Icons.file_download_outlined, size: 16),
+            tooltip: 'Exportar $_nombreTab',
+            onPressed: () => unawaited(_exportarTab(res)),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+          ),
           IconButton(
             icon: const Icon(Icons.copy_all_rounded, size: 16),
             tooltip: 'Copiar resultado (JSON)',
@@ -1108,7 +1353,8 @@ class _EjecutarProcedimientoModalState
       0 => _buildSalidas(res, isDark),
       1 => _buildTraza(res, isDark),
       2 => _buildContexto(res, isDark),
-      _ => _buildVariables(res, isDark),
+      3 => _buildVariables(res, isDark),
+      _ => _buildDeclaradas(res, isDark),
     };
   }
 
@@ -1286,110 +1532,190 @@ class _EjecutarProcedimientoModalState
       ),
     );
   }
+
+  /// Bloque `DECLARE` que armó el orquestador: nombre, tipo y valor inicial de
+  /// cada variable con la que se envolvió el texto de la regla.
+  Widget _buildDeclaradas(EjecucionResultado res, bool isDark) {
+    final vars = res.variablesDeclaradas;
+    if (vars.isEmpty) {
+      return _EmptyState(
+        icon: Icons.code_rounded,
+        message: 'El orquestador no declaró variables',
+        isDark: isDark,
+      );
+    }
+
+    final borderColor = isDark
+        ? const Color(0xFF2F2F2F)
+        : const Color(0xFFEDF0F5);
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+      children: [
+        _SeccionLabel(
+          label: 'Variables declaradas (${vars.length})',
+          isDark: isDark,
+        ),
+        const SizedBox(height: 6),
+        Container(
+          decoration: BoxDecoration(
+            border: Border.all(color: borderColor),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              _HeaderDeclaradas(isDark: isDark),
+              Divider(height: 1, color: borderColor),
+              for (var i = 0; i < vars.length; i++) ...[
+                if (i > 0) Divider(height: 1, color: borderColor),
+                _FilaVariableDeclarada(variable: vars[i], isDark: isDark),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }
 
-/// Título de sección del formulario / panel de contexto.
-class _SeccionLabel extends StatelessWidget {
-  final String label;
+/// Fila del detalle de una variable declarada: nombre, tipo PL/SQL, el valor
+/// inicial del `DECLARE` y el valor con el que quedó al terminar la ejecución.
+///
+/// Cuando la regla modificó la variable, el valor final se resalta: es el dato
+/// que se mira al depurar por qué el procedimiento devolvió lo que devolvió.
+class _FilaVariableDeclarada extends StatelessWidget {
+  final VariableDeclarada variable;
   final bool isDark;
-
-  const _SeccionLabel({required this.label, required this.isDark});
-
+  const _FilaVariableDeclarada({required this.variable, required this.isDark});
   @override
   Widget build(BuildContext context) {
-    return Text(
-      label.toUpperCase(),
-      style: TextStyle(
-        fontSize: 10,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 0.6,
-        color: isDark ? Colors.white38 : Colors.black38,
+    final tipo = (variable.tipo ?? '').trim();
+    final inicial = variable.valorInicial?.toString() ?? '';
+    final valor = variable.valor?.toString() ?? '';
+    final muted = isDark ? Colors.white38 : Colors.black38;
+    final cambio = variable.cambio;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 170,
+            child: SelectableText(
+              variable.nombre,
+              style: const TextStyle(
+                fontSize: 12,
+                fontFamily: 'Consolas',
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 120,
+            child: tipo.isEmpty
+                ? const SizedBox.shrink()
+                : Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2E9E6B).withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: const Color(0xFF2E9E6B).withValues(alpha: 0.4),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: Text(
+                        tipo,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 10.5,
+                          fontFamily: 'Consolas',
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF2E9E6B),
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: SelectableText(
+              inicial.isEmpty ? 'NULL' : inicial,
+              style: TextStyle(
+                fontSize: 12,
+                fontFamily: 'Consolas',
+                color: inicial.isEmpty ? muted : null,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Icon(Icons.arrow_right_alt_rounded, size: 15, color: muted),
+          const SizedBox(width: 8),
+          Expanded(
+            child: SelectableText(
+              valor.isEmpty ? 'NULL' : valor,
+              style: TextStyle(
+                fontSize: 12,
+                fontFamily: 'Consolas',
+                fontWeight: cambio ? FontWeight.w700 : FontWeight.w400,
+                color: valor.isEmpty
+                    ? muted
+                    : (cambio ? const Color(0xFF2E9E6B) : null),
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.content_copy_rounded, size: 13),
+            tooltip: 'Copiar valor final',
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: valor));
+              AppToast.info('${variable.nombre} copiado');
+            },
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// Campo de texto compacto del formulario de ejecución.
-class _CampoTexto extends StatelessWidget {
-  final TextEditingController controller;
-  final String label;
-  final String? hint;
-  final bool numerico;
+/// Encabezado de la tabla de variables declaradas.
+class _HeaderDeclaradas extends StatelessWidget {
   final bool isDark;
-  final int maxLines;
-  final List<TextInputFormatter>? inputFormatters;
-  final ValueChanged<String>? onSubmitted;
-  final ValueChanged<String>? onChanged;
-
-  const _CampoTexto({
-    required this.controller,
-    required this.label,
-    required this.numerico,
-    required this.isDark,
-    this.hint,
-    this.maxLines = 1,
-    this.inputFormatters,
-    this.onSubmitted,
-    this.onChanged,
-  });
-
+  const _HeaderDeclaradas({required this.isDark});
   @override
   Widget build(BuildContext context) {
-    final borderColor = isDark
-        ? const Color(0xFF3A3A3A)
-        : const Color(0xFFDDE2EA);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (label.isNotEmpty) ...[
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white60 : Colors.black54,
-            ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 170,
+            child: _SeccionLabel(label: 'Variable', isDark: isDark),
           ),
-          const SizedBox(height: 3),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 120,
+            child: _SeccionLabel(label: 'Tipo', isDark: isDark),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _SeccionLabel(label: 'Inicial', isDark: isDark),
+          ),
+          const SizedBox(width: 31),
+          Expanded(
+            child: _SeccionLabel(label: 'Valor final', isDark: isDark),
+          ),
         ],
-        TextField(
-          controller: controller,
-          maxLines: maxLines,
-          keyboardType: numerico
-              ? TextInputType.number
-              : (maxLines > 1 ? TextInputType.multiline : TextInputType.text),
-          inputFormatters: inputFormatters ??
-              (numerico
-                  ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9\-]'))]
-                  : null),
-          onSubmitted: onSubmitted,
-          onChanged: onChanged,
-          style: const TextStyle(fontSize: 12, fontFamily: 'Consolas'),
-          decoration: InputDecoration(
-            isDense: true,
-            hintText: hint,
-            hintStyle: TextStyle(
-              fontSize: 11,
-              fontFamily: 'Consolas',
-              color: isDark ? Colors.white24 : Colors.black26,
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 8,
-              vertical: 8,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(6),
-              borderSide: BorderSide(color: borderColor),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(6),
-              borderSide: BorderSide(color: borderColor),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -1741,7 +2067,10 @@ class _FilaValorState extends State<_FilaValor> {
                 onTap: () => setState(() => _colapsado = false),
                 borderRadius: BorderRadius.circular(4),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 4,
+                  ),
                   child: Row(
                     children: [
                       Expanded(
@@ -1752,7 +2081,9 @@ class _FilaValorState extends State<_FilaValor> {
                           style: TextStyle(
                             fontSize: 11.5,
                             fontFamily: 'Consolas',
-                            color: widget.isDark ? Colors.white54 : Colors.black54,
+                            color: widget.isDark
+                                ? const Color(0xFFD4D4D4)
+                                : const Color(0xFF1E293B),
                           ),
                         ),
                       ),
@@ -1792,8 +2123,12 @@ class _FilaValorState extends State<_FilaValor> {
 
     // Estado expandido con Beautify y scroll
     final textoFormateado = _obtenerTextoFormateado();
-    final bgCode = widget.isDark ? const Color(0xFF181818) : const Color(0xFFF8F9FA);
-    final borderCode = widget.isDark ? const Color(0xFF333333) : const Color(0xFFE2E8F0);
+    final bgCode = widget.isDark
+        ? const Color(0xFF181818)
+        : const Color(0xFFF8F9FA);
+    final borderCode = widget.isDark
+        ? const Color(0xFF333333)
+        : const Color(0xFFE2E8F0);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 6, 6, 8),
@@ -1836,14 +2171,19 @@ class _FilaValorState extends State<_FilaValor> {
                 onTap: () => setState(() => _beautify = !_beautify),
                 borderRadius: BorderRadius.circular(4),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: _beautify
                         ? const Color(0xFF0078D4).withValues(alpha: 0.15)
                         : (widget.isDark ? Colors.white10 : Colors.black12),
                     borderRadius: BorderRadius.circular(4),
                     border: Border.all(
-                      color: _beautify ? const Color(0xFF0078D4) : Colors.transparent,
+                      color: _beautify
+                          ? const Color(0xFF0078D4)
+                          : Colors.transparent,
                       width: 0.8,
                     ),
                   ),
@@ -1851,9 +2191,13 @@ class _FilaValorState extends State<_FilaValor> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        _beautify ? Icons.auto_fix_high_rounded : Icons.compress_rounded,
+                        _beautify
+                            ? Icons.auto_fix_high_rounded
+                            : Icons.compress_rounded,
                         size: 13,
-                        color: _beautify ? const Color(0xFF0078D4) : (widget.isDark ? Colors.white70 : Colors.black87),
+                        color: _beautify
+                            ? const Color(0xFF0078D4)
+                            : (widget.isDark ? Colors.white70 : Colors.black87),
                       ),
                       const SizedBox(width: 4),
                       Text(
@@ -1861,7 +2205,11 @@ class _FilaValorState extends State<_FilaValor> {
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          color: _beautify ? const Color(0xFF0078D4) : (widget.isDark ? Colors.white70 : Colors.black87),
+                          color: _beautify
+                              ? const Color(0xFF0078D4)
+                              : (widget.isDark
+                                    ? Colors.white70
+                                    : Colors.black87),
                         ),
                       ),
                     ],
@@ -1871,7 +2219,8 @@ class _FilaValorState extends State<_FilaValor> {
               const SizedBox(width: 6),
               IconButton(
                 icon: const Icon(Icons.content_copy_rounded, size: 14),
-                tooltip: 'Copiar JSON (${_beautify ? 'formateado' : 'compacto'})',
+                tooltip:
+                    'Copiar JSON (${_beautify ? 'formateado' : 'compacto'})',
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: textoFormateado));
                   AppToast.info('JSON copiado');

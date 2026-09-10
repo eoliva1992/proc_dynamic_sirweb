@@ -42,17 +42,20 @@ void main() {
       expect(res.borrador, isFalse);
     });
 
-    test('acepta variablesDinamicasUsadas como lista de nombres (formato viejo)', () {
-      final res = EjecucionResultado.fromJson({
-        'variablesDinamicasUsadas': ['#FECHA#', '#USUARIO#'],
-      });
+    test(
+      'acepta variablesDinamicasUsadas como lista de nombres (formato viejo)',
+      () {
+        final res = EjecucionResultado.fromJson({
+          'variablesDinamicasUsadas': ['#FECHA#', '#USUARIO#'],
+        });
 
-      expect(res.variablesDinamicasUsadas.keys.toList(), [
-        '#FECHA#',
-        '#USUARIO#',
-      ]);
-      expect(res.variablesDinamicasUsadas['#FECHA#'], isNull);
-    });
+        expect(res.variablesDinamicasUsadas.keys.toList(), [
+          '#FECHA#',
+          '#USUARIO#',
+        ]);
+        expect(res.variablesDinamicasUsadas['#FECHA#'], isNull);
+      },
+    );
 
     test('acepta el formato viejo de camposDesdeBd (lista de nombres)', () {
       final res = EjecucionResultado.fromJson({
@@ -82,6 +85,56 @@ void main() {
       expect(res.variablesDinamicasUsadas, isEmpty);
     });
 
+    test('parsea variablesDeclaradas con nombre, tipo y valor inicial', () {
+      final res = EjecucionResultado.fromJson({
+        'variablesDeclaradas': [
+          {
+            'nombre': 'v_total',
+            'tipo': 'NUMBER',
+            'valorInicial': null,
+            'valor': 125,
+          },
+          {
+            'nombre': 'v_desc',
+            'tipo': 'VARCHAR2(30)',
+            'valorInicial': 'OK',
+            'valor': 'OK',
+          },
+        ],
+      });
+      expect(res.variablesDeclaradas.length, 2);
+      expect(res.variablesDeclaradas.first.nombre, 'v_total');
+      expect(res.variablesDeclaradas.first.tipo, 'NUMBER');
+      expect(res.variablesDeclaradas.first.valorInicial, isNull);
+      expect(res.variablesDeclaradas.first.valor, 125);
+      expect(res.variablesDeclaradas.first.cambio, isTrue);
+      expect(res.variablesDeclaradas.last.valor, 'OK');
+      expect(res.variablesDeclaradas.last.cambio, isFalse);
+      expect(res.variablesDeclaradas.first.declaracion, 'v_total NUMBER;');
+      expect(
+        res.variablesDeclaradas.last.declaracion,
+        'v_desc VARCHAR2(30) := OK;',
+      );
+    });
+    test('variablesDeclaradas queda vacia si el backend no la manda', () {
+      final res = EjecucionResultado.fromJson({'cdProcedimiento': 'DR_TEST'});
+      expect(res.variablesDeclaradas, isEmpty);
+    });
+    test('acepta variablesDeclaradas como lista de nombres o mapa', () {
+      final lista = EjecucionResultado.fromJson({
+        'variablesDeclaradas': ['v_a', 'v_b'],
+      });
+      expect(lista.variablesDeclaradas.map((v) => v.nombre).toList(), [
+        'v_a',
+        'v_b',
+      ]);
+      expect(lista.variablesDeclaradas.first.declaracion, 'v_a;');
+      final mapa = EjecucionResultado.fromJson({
+        'variablesDeclaradas': {'v_c': 'DATE'},
+      });
+      expect(mapa.variablesDeclaradas.single.nombre, 'v_c');
+      expect(mapa.variablesDeclaradas.single.tipo, 'DATE');
+    });
     test('expone el error de Oracle cuando viene', () {
       final res = EjecucionResultado.fromJson({
         'errorOracle': 'ORA-06550: line 1',
@@ -127,4 +180,3 @@ void main() {
     });
   });
 }
-

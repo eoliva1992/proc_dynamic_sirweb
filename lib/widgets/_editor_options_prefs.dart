@@ -55,6 +55,7 @@ extension _EditorOptionsMethods on _CodeEditorPanelState {
       _problemsPanelHeight = prefs.getDouble('editor_problems_height') ?? 180.0;
       _showOutline = prefs.getBool('editor_show_outline') ?? false;
       _varsDocked = prefs.getBool('editor_vars_docked') ?? false;
+      _showAiChat = prefs.getBool('editor_show_ai_chat') ?? false;
     });
   }
 
@@ -84,6 +85,7 @@ extension _EditorOptionsMethods on _CodeEditorPanelState {
     await prefs.setDouble('editor_problems_height', _problemsPanelHeight);
     await prefs.setBool('editor_show_outline', _showOutline);
     await prefs.setBool('editor_vars_docked', _varsDocked);
+    await prefs.setBool('editor_show_ai_chat', _showAiChat);
   }
 
   void _applyEditorOptions() {

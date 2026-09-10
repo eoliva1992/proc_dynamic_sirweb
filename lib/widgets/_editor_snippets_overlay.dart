@@ -1,7 +1,32 @@
 part of 'code_editor_panel.dart';
 
+/// Abre el gestor de snippets del usuario.
+///
+/// Público para que cualquier editor de la app (no sólo el de procedimientos
+/// dinámicos) pueda ofrecer la misma administración de snippets.
+///
+/// Se monta como **ventana flotante** en el overlay raíz (no como diálogo con
+/// barrera) para que pueda moverse, redimensionarse y **minimizarse** dejando
+/// el editor utilizable por detrás. El `Future` se completa al cerrarla.
+Future<void> showSnippetsManager(BuildContext context) {
+  final done = Completer<void>();
+  showFloatingWindow(
+    context,
+    (close) => _SnippetsManagerDialog(
+      onClose: () {
+        close();
+        if (!done.isCompleted) done.complete();
+      },
+    ),
+  );
+  return done.future;
+}
+
 class _SnippetsManagerDialog extends StatefulWidget {
-  const _SnippetsManagerDialog();
+  const _SnippetsManagerDialog({required this.onClose});
+
+  /// Cierra la ventana flotante que contiene este gestor.
+  final VoidCallback onClose;
 
   @override
   State<_SnippetsManagerDialog> createState() => _SnippetsManagerDialogState();
@@ -35,6 +60,27 @@ class _SnippetsManagerDialogState extends State<_SnippetsManagerDialog> {
   bool _maximized = false;
   String? _error;
   String _query = '';
+
+  // ── Geometría de la ventana flotante ───────────────────────────────────────
+  /// Alto de la barra de título en modo normal.
+  static const double _kHeaderH = 54;
+
+  /// Desplazamiento respecto del centro de la pantalla (arrastre).
+  Offset _position = Offset.zero;
+  double? _winW;
+  double? _winH;
+
+  /// Ventana minimizada a la barra inferior.
+  bool _minimized = false;
+  int? _slot;
+
+  /// Geometría previa, para restaurar al des-maximizar.
+  double? _restoreW;
+  double? _restoreH;
+  Offset _restorePos = Offset.zero;
+
+  /// 180 ms al maximizar/minimizar; cero mientras se arrastra o redimensiona.
+  Duration _anim = Duration.zero;
 
   /// Última consulta efectivamente enviada al servidor (vacía = lista completa).
   String _lastServerQuery = '';
@@ -103,7 +149,40 @@ class _SnippetsManagerDialogState extends State<_SnippetsManagerDialog> {
     if (d != _dirty && mounted) setState(() => _dirty = d);
   }
 
-  void _toggleMaximized() => setState(() => _maximized = !_maximized);
+  void _toggleMaximized() {
+    setState(() {
+      _anim = const Duration(milliseconds: 180);
+      if (_maximized) {
+        _winW = _restoreW;
+        _winH = _restoreH;
+        _position = _restorePos;
+        _maximized = false;
+      } else {
+        _restoreW = _winW;
+        _restoreH = _winH;
+        _restorePos = _position;
+        _position = Offset.zero;
+        _maximized = true;
+      }
+    });
+  }
+
+  /// Minimiza la ventana a la barra inferior (o la restaura).
+  void _toggleMinimized() {
+    setState(() {
+      _anim = const Duration(milliseconds: 180);
+      if (_minimized) {
+        FloatingWindowSlots.release(_slot);
+        _slot = null;
+        _minimized = false;
+      } else {
+        _slot = FloatingWindowSlots.take();
+        _minimized = true;
+        // Devolver el teclado al editor mientras está minimizada.
+        FocusManager.instance.primaryFocus?.unfocus();
+      }
+    });
+  }
 
   Future<void> _load({String? query}) async {
     final effectiveQuery = (query ?? _query).trim();
@@ -182,53 +261,92 @@ class _SnippetsManagerDialogState extends State<_SnippetsManagerDialog> {
     );
   }
 
+  /// Confirmación dentro de la ventana flotante.
+  ///
+  /// No se usa `showDialog`: la ventana vive en el overlay raíz por encima de
+  /// las rutas del Navigator, así que un diálogo montado como ruta quedaría
+  /// detrás y sería inaccesible.
   Future<bool> _confirm({
     required String title,
     required String message,
     required String confirmLabel,
     bool danger = false,
   }) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        final cs = Theme.of(ctx).colorScheme;
-        return AlertDialog(
-          icon: Icon(
-            danger ? Icons.warning_amber_rounded : Icons.help_outline_rounded,
-            color: danger ? cs.error : cs.primary,
-          ),
-          titlePadding: EdgeInsets.zero,
-          title: ConstellationDialogTitle(
-            padding: const EdgeInsets.fromLTRB(24, 8, 24, 14),
-            lineColor: (danger ? cs.error : cs.primary).withValues(alpha: 0.3),
-            child: Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 15),
+    final done = Completer<bool>();
+    showFloatingWindow(context, barrierColor: Colors.black45, (dismiss) {
+      void answer(bool value) {
+        dismiss();
+        if (!done.isCompleted) done.complete(value);
+      }
+
+      final cs = Theme.of(context).colorScheme;
+      return Center(
+        child: Material(
+          color: cs.surface,
+          elevation: 16,
+          borderRadius: BorderRadius.circular(14),
+          clipBehavior: Clip.antiAlias,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 380),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ConstellationDialogTitle(
+                  padding: const EdgeInsets.fromLTRB(24, 18, 24, 14),
+                  lineColor: (danger ? cs.error : cs.primary).withValues(
+                    alpha: 0.3,
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        danger
+                            ? Icons.warning_amber_rounded
+                            : Icons.help_outline_rounded,
+                        color: danger ? cs.error : cs.primary,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        title,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 15),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 4),
+                  child: Text(message, style: const TextStyle(fontSize: 13)),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => answer(false),
+                        child: const Text('Cancelar'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        style: danger
+                            ? FilledButton.styleFrom(
+                                backgroundColor: cs.error,
+                                foregroundColor: cs.onError,
+                              )
+                            : null,
+                        onPressed: () => answer(true),
+                        child: Text(confirmLabel),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-          content: Text(message, style: const TextStyle(fontSize: 13)),
-          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              style: danger
-                  ? FilledButton.styleFrom(
-                      backgroundColor: cs.error,
-                      foregroundColor: cs.onError,
-                    )
-                  : null,
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: Text(confirmLabel),
-            ),
-          ],
-        );
-      },
-    );
-    return result ?? false;
+        ),
+      );
+    });
+    return done.future;
   }
 
   Future<void> _select(Snippet s) async {
@@ -284,7 +402,9 @@ class _SnippetsManagerDialogState extends State<_SnippetsManagerDialog> {
 
   Future<void> _close() async {
     if (!await _confirmDiscardIfDirty()) return;
-    if (mounted) Navigator.of(context).pop();
+    FloatingWindowSlots.release(_slot);
+    _slot = null;
+    widget.onClose();
   }
 
   Future<void> _save() async {
@@ -374,74 +494,221 @@ class _SnippetsManagerDialogState extends State<_SnippetsManagerDialog> {
         : cs.surfaceContainerLowest;
     final divColor = isDark ? const Color(0xFF3C3C3C) : cs.outlineVariant;
     final screen = MediaQuery.sizeOf(context);
+    final gripColor = (isDark ? Colors.white : Colors.black).withValues(
+      alpha: 0.18,
+    );
 
     // Maximized keeps a small margin around the available area.
-    final targetW = _maximized
-        ? (screen.width - 48).clamp(360.0, screen.width)
-        : 820.0;
-    final targetH = _maximized
-        ? (screen.height - 48).clamp(320.0, screen.height)
-        : 560.0;
+    if (_maximized) {
+      _winW = (screen.width - 48).clamp(360.0, screen.width);
+      _winH = (screen.height - 48).clamp(320.0, screen.height);
+    } else {
+      _winW ??= 820.0;
+      _winH ??= 560.0;
+    }
+    if (_winW! > screen.width) _winW = screen.width;
+    if (_winH! > screen.height) _winH = screen.height;
     // Wider layout gives more room to the snippets list.
     final listWidth = _maximized ? 320.0 : 250.0;
 
-    return Center(
-      child: CallbackShortcuts(
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.f11): _toggleMaximized,
-          const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
-            if (!_saving) unawaited(_save());
-          },
-          const SingleActivator(LogicalKeyboardKey.keyN, control: true): () =>
-              unawaited(_newSnippet()),
-          const SingleActivator(LogicalKeyboardKey.escape): () {
-            if (_maximized) {
-              _toggleMaximized();
-            } else {
-              unawaited(_close());
-            }
-          },
+    // Geometría efectiva: minimizada ocupa solo la barra de título.
+    final double w, h, left, top;
+    if (_minimized) {
+      w = FloatingWindowSlots.barW;
+      h = FloatingWindowSlots.barH;
+      final (l, t) = FloatingWindowSlots.offsetFor(_slot ?? 0, screen);
+      left = l;
+      top = t;
+    } else {
+      w = _winW!;
+      h = _winH!;
+      left = ((screen.width - w) / 2 + _position.dx).clamp(
+        0.0,
+        (screen.width - w).clamp(0.0, double.infinity),
+      );
+      top = ((screen.height - h) / 2 + _position.dy).clamp(
+        0.0,
+        (screen.height - h).clamp(0.0, double.infinity),
+      );
+    }
+
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.f11): _toggleMaximized,
+        const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
+          if (!_saving) unawaited(_save());
         },
-        child: Focus(
-          autofocus: true,
-          child: Material(
-            color: Colors.transparent,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
+        const SingleActivator(LogicalKeyboardKey.keyN, control: true): () =>
+            unawaited(_newSnippet()),
+        const SingleActivator(LogicalKeyboardKey.escape): () {
+          if (_maximized) {
+            _toggleMaximized();
+          } else {
+            unawaited(_close());
+          }
+        },
+      },
+      child: Focus(
+        // Minimizada no debe retener el teclado: el foco vuelve al editor.
+        autofocus: !_minimized,
+        canRequestFocus: !_minimized,
+        descendantsAreFocusable: !_minimized,
+        child: Stack(
+          children: [
+            AnimatedPositioned(
+              duration: _anim,
               curve: Curves.easeOutCubic,
-              width: targetW,
-              height: targetH,
-              decoration: BoxDecoration(
-                color: bg,
-                borderRadius: BorderRadius.circular(_maximized ? 6 : 12),
-                border: Border.all(color: divColor, width: 0.5),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.38),
-                    blurRadius: 28,
-                    offset: const Offset(0, 10),
+              left: left,
+              top: top,
+              width: w,
+              height: h,
+              child: Material(
+                color: Colors.transparent,
+                child: AnimatedContainer(
+                  duration: _anim,
+                  curve: Curves.easeOutCubic,
+                  decoration: BoxDecoration(
+                    color: bg,
+                    borderRadius: BorderRadius.circular(
+                      _maximized ? 6 : (_minimized ? 8 : 12),
+                    ),
+                    border: Border.all(color: divColor, width: 0.5),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.38),
+                        blurRadius: _minimized ? 16 : 28,
+                        offset: Offset(0, _minimized ? 4 : 10),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: Column(
-                children: [
-                  _buildHeader(cs, divColor),
-                  if (_error != null) _buildErrorBanner(cs),
-                  Expanded(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildList(cs, divColor, panelBg, listWidth),
-                        Container(width: 0.5, color: divColor),
-                        Expanded(child: _buildForm(cs, divColor)),
-                      ],
+                  clipBehavior: Clip.antiAlias,
+                  // El contenido se mantiene SIEMPRE montado con el tamaño de
+                  // la ventana restaurada: al minimizar sólo se recorta. Si se
+                  // quitara del árbol, al restaurar se recargaría la lista y se
+                  // perdería lo que se estaba editando.
+                  child: OverflowBox(
+                    alignment: Alignment.topLeft,
+                    minWidth: 0,
+                    maxWidth: double.infinity,
+                    minHeight: 0,
+                    maxHeight: double.infinity,
+                    child: SizedBox(
+                      width: _winW,
+                      height: _winH,
+                      child: Stack(
+                        children: [
+                          Positioned.fill(
+                            child: Column(
+                              children: [
+                                // Hueco reservado para la barra de título.
+                                const SizedBox(height: _kHeaderH),
+                                if (_error != null) _buildErrorBanner(cs),
+                                Expanded(
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      _buildList(
+                                        cs,
+                                        divColor,
+                                        panelBg,
+                                        listWidth,
+                                      ),
+                                      Container(width: 0.5, color: divColor),
+                                      Expanded(child: _buildForm(cs, divColor)),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          // La barra de título usa el ancho *visible* para que
+                          // al minimizar siga viéndose completa.
+                          Positioned(
+                            left: 0,
+                            top: 0,
+                            width: w,
+                            child: _buildHeader(cs, divColor),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ],
+                ),
               ),
             ),
-          ),
+
+            // ── Resize: borde derecho ─────────────────────────────────────
+            if (!_maximized && !_minimized)
+              Positioned(
+                left: left + w - 5,
+                top: top + 54,
+                width: 10,
+                height: (h - 64).clamp(0.0, double.infinity),
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.resizeLeftRight,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onPanUpdate: (d) => setState(() {
+                      _anim = Duration.zero;
+                      _winW = (_winW! + d.delta.dx).clamp(
+                        560.0,
+                        screen.width - 40,
+                      );
+                    }),
+                  ),
+                ),
+              ),
+
+            // ── Resize: borde inferior ────────────────────────────────────
+            if (!_maximized && !_minimized)
+              Positioned(
+                left: left + 16,
+                top: top + h - 5,
+                width: (w - 32).clamp(0.0, double.infinity),
+                height: 10,
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.resizeUpDown,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onPanUpdate: (d) => setState(() {
+                      _anim = Duration.zero;
+                      _winH = (_winH! + d.delta.dy).clamp(
+                        360.0,
+                        screen.height - 40,
+                      );
+                    }),
+                  ),
+                ),
+              ),
+
+            // ── Resize: esquina inferior derecha (grip) ───────────────────
+            if (!_maximized && !_minimized)
+              Positioned(
+                left: left + w - 18,
+                top: top + h - 18,
+                width: 22,
+                height: 22,
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.resizeUpLeftDownRight,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onPanUpdate: (d) => setState(() {
+                      _anim = Duration.zero;
+                      _winW = (_winW! + d.delta.dx).clamp(
+                        560.0,
+                        screen.width - 40,
+                      );
+                      _winH = (_winH! + d.delta.dy).clamp(
+                        360.0,
+                        screen.height - 40,
+                      );
+                    }),
+                    child: CustomPaint(painter: WindowGripPainter(gripColor)),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -449,67 +716,125 @@ class _SnippetsManagerDialogState extends State<_SnippetsManagerDialog> {
 
   Widget _buildHeader(ColorScheme cs, Color divColor) {
     final total = _snippets.length;
-    return GestureDetector(
+    // El doble clic (maximizar) se aplica sólo al área del título: si
+    // envolviera también a los botones, el `onTap` de cada uno quedaría a la
+    // espera del timeout del doble clic (~300 ms) antes de dispararse.
+    Widget titleArea(Widget child) => GestureDetector(
       behavior: HitTestBehavior.opaque,
-      // Double-tap on the title bar toggles maximize, like a real window.
-      onDoubleTap: _toggleMaximized,
-      child: ConstellationHeader(
-        height: 54,
-        padding: const EdgeInsets.only(left: 16, right: 10),
-        lineColor: cs.primary.withValues(alpha: 0.32),
-        decoration: BoxDecoration(
-          border: Border(bottom: BorderSide(color: divColor, width: 0.5)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                color: cs.primary.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(7),
-              ),
-              child: Icon(Icons.code_rounded, size: 16, color: cs.primary),
-            ),
-            const SizedBox(width: 10),
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Snippets de usuario',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: cs.onSurface,
+      onDoubleTap: _minimized ? _toggleMinimized : _toggleMaximized,
+      child: child,
+    );
+
+    return MouseRegion(
+      cursor: (_maximized || _minimized)
+          ? SystemMouseCursors.basic
+          : SystemMouseCursors.grab,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        // Arrastrar la barra de título mueve la ventana.
+        onPanUpdate: (_maximized || _minimized)
+            ? null
+            : (d) => setState(() {
+                _anim = Duration.zero;
+                _position += d.delta;
+              }),
+        child: ConstellationHeader(
+          height: _minimized ? FloatingWindowSlots.barH : _kHeaderH,
+          padding: const EdgeInsets.only(left: 16, right: 10),
+          lineColor: cs.primary.withValues(alpha: 0.32),
+          decoration: BoxDecoration(
+            border: _minimized
+                ? null
+                : Border(bottom: BorderSide(color: divColor, width: 0.5)),
+          ),
+          child: Row(
+            children: [
+              titleArea(
+                Container(
+                  width: _minimized ? 22 : 28,
+                  height: _minimized ? 22 : 28,
+                  decoration: BoxDecoration(
+                    color: cs.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: Icon(
+                    Icons.code_rounded,
+                    size: _minimized ? 13 : 16,
+                    color: cs.primary,
                   ),
                 ),
-                Text(
-                  _loading
-                      ? 'Cargando…'
-                      : '$total snippet${total == 1 ? '' : 's'} disponibles',
-                  style: TextStyle(fontSize: 10.5, color: cs.onSurfaceVariant),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: titleArea(
+                  _minimized
+                      ? Text(
+                          'Snippets de usuario',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: cs.onSurface,
+                          ),
+                        )
+                      : Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Snippets de usuario',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: cs.onSurface,
+                              ),
+                            ),
+                            Text(
+                              _loading
+                                  ? 'Cargando…'
+                                  : '$total snippet${total == 1 ? '' : 's'} disponibles',
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
                 ),
-              ],
-            ),
-            const Spacer(),
-            _HeaderIconButton(
-              icon: _maximized
-                  ? Icons.close_fullscreen_rounded
-                  : Icons.open_in_full_rounded,
-              tooltip: _maximized
-                  ? 'Restaurar tamaño (F11)'
-                  : 'Maximizar (F11)',
-              onTap: _toggleMaximized,
-            ),
-            const SizedBox(width: 2),
-            _HeaderIconButton(
-              icon: Icons.close_rounded,
-              tooltip: 'Cerrar (Esc)',
-              danger: true,
-              onTap: () => unawaited(_close()),
-            ),
-          ],
+              ),
+              _HeaderIconButton(
+                icon: _minimized
+                    ? Icons.expand_less_rounded
+                    : Icons.remove_rounded,
+                tooltip: _minimized ? 'Restaurar' : 'Minimizar',
+                onTap: _toggleMinimized,
+              ),
+              const SizedBox(width: 2),
+              _HeaderIconButton(
+                icon: _maximized
+                    ? Icons.close_fullscreen_rounded
+                    : Icons.open_in_full_rounded,
+                tooltip: _maximized
+                    ? 'Restaurar tamaño (F11)'
+                    : 'Maximizar (F11)',
+                onTap: () {
+                  if (_minimized) {
+                    _toggleMinimized();
+                  } else {
+                    _toggleMaximized();
+                  }
+                },
+              ),
+              const SizedBox(width: 2),
+              _HeaderIconButton(
+                icon: Icons.close_rounded,
+                tooltip: 'Cerrar (Esc)',
+                danger: true,
+                onTap: () => unawaited(_close()),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1056,11 +1381,16 @@ class _SnippetsManagerDialogState extends State<_SnippetsManagerDialog> {
                     ),
                   ),
                 const Spacer(),
-                Text(
-                  'Ctrl+S guardar · Ctrl+N nuevo · Esc cerrar',
-                  style: TextStyle(
-                    fontSize: 9.5,
-                    color: cs.onSurfaceVariant.withValues(alpha: 0.65),
+                // La ayuda de atajos cede espacio antes que los botones para
+                // que la barra nunca desborde en ventanas angostas.
+                Flexible(
+                  child: Text(
+                    'Ctrl+S guardar · Ctrl+N nuevo · Esc cerrar',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      color: cs.onSurfaceVariant.withValues(alpha: 0.65),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),

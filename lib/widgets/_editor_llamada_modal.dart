@@ -259,9 +259,7 @@ class _LlamadaPlsqlModalState extends State<_LlamadaPlsqlModal> {
     final q = _buscarMiembroCtrl.text.trim().toUpperCase();
     final filtrados = q.isEmpty
         ? _subprogramas.toList()
-        : _subprogramas
-              .where((s) => s.name.toUpperCase().contains(q))
-              .toList();
+        : _subprogramas.where((s) => s.name.toUpperCase().contains(q)).toList();
     filtrados.sort((a, b) => a.name.compareTo(b.name));
     return filtrados;
   }
@@ -597,7 +595,9 @@ class _LlamadaPlsqlModalState extends State<_LlamadaPlsqlModal> {
 
         if (prevMiembroName != null && prevMiembroName.isNotEmpty) {
           final coincidencias = subs
-              .where((s) => s.name.toUpperCase() == prevMiembroName.toUpperCase())
+              .where(
+                (s) => s.name.toUpperCase() == prevMiembroName.toUpperCase(),
+              )
               .toList();
 
           if (coincidencias.isNotEmpty) {
@@ -775,7 +775,6 @@ class _LlamadaPlsqlModalState extends State<_LlamadaPlsqlModal> {
       _valores.putIfAbsent(p.nombre, TextEditingController.new);
     }
   }
-
 
   // ── Armado de la llamada ────────────────────────────────────────────────
 
@@ -1025,7 +1024,9 @@ class _LlamadaPlsqlModalState extends State<_LlamadaPlsqlModal> {
     if (tieneDeclaraciones) {
       buf.writeln();
       if (retorno != null) {
-        buf.writeln('  DBMS_OUTPUT.PUT_LINE(\'RETORNO = \' || ${_formatoSalidaSql(retorno, 'v_retorno')});');
+        buf.writeln(
+          '  DBMS_OUTPUT.PUT_LINE(\'RETORNO = \' || ${_formatoSalidaSql(retorno, 'v_retorno')});',
+        );
       }
       for (final p in salidas) {
         final vName = varNames[p.nombre]!;
@@ -1042,7 +1043,9 @@ class _LlamadaPlsqlModalState extends State<_LlamadaPlsqlModal> {
             tUpper.contains('%')) {
           buf.writeln('  -- $vName ($t) devuelto por Oracle');
         } else {
-          buf.writeln('  DBMS_OUTPUT.PUT_LINE(\'${p.nombre} = \' || ${_formatoSalidaSql(p, vName)});');
+          buf.writeln(
+            '  DBMS_OUTPUT.PUT_LINE(\'${p.nombre} = \' || ${_formatoSalidaSql(p, vName)});',
+          );
         }
       }
     }
@@ -1095,7 +1098,9 @@ class _LlamadaPlsqlModalState extends State<_LlamadaPlsqlModal> {
     final real = _tiposDeclaracion[nombre];
     if (real != null && real.isNotEmpty) {
       final realUpper = real.toUpperCase().trim();
-      if (realUpper == 'VARCHAR2' || realUpper == 'VARCHAR' || realUpper == 'NVARCHAR2') {
+      if (realUpper == 'VARCHAR2' ||
+          realUpper == 'VARCHAR' ||
+          realUpper == 'NVARCHAR2') {
         return 'VARCHAR2(4000)';
       }
       if (realUpper == 'CHAR' || realUpper == 'NCHAR') {
@@ -1169,13 +1174,16 @@ class _LlamadaPlsqlModalState extends State<_LlamadaPlsqlModal> {
       clean = clean.substring(4);
     }
 
-    final types = meta.objects.where((o) => o.type.toUpperCase() == 'TYPE').toList();
+    final types = meta.objects
+        .where((o) => o.type.toUpperCase() == 'TYPE')
+        .toList();
 
     for (final prefijo in ['C_OFV_', 'C_', 'OBJ_OFV_', 'OBJ_']) {
       final candidata = '$prefijo$clean';
       for (final t in types) {
         if (t.name.toUpperCase() == candidata ||
-            t.name.toUpperCase() == candidata.replaceAll(RegExp(r'ES$|S$'), '')) {
+            t.name.toUpperCase() ==
+                candidata.replaceAll(RegExp(r'ES$|S$'), '')) {
           final owner = t.owner.isNotEmpty ? t.owner : meta.owner;
           return owner.isNotEmpty ? '$owner.${t.name}' : t.name;
         }
@@ -1183,7 +1191,8 @@ class _LlamadaPlsqlModalState extends State<_LlamadaPlsqlModal> {
     }
 
     for (final t in types) {
-      if (t.name.toUpperCase().contains(clean) || clean.contains(t.name.toUpperCase())) {
+      if (t.name.toUpperCase().contains(clean) ||
+          clean.contains(t.name.toUpperCase())) {
         final owner = t.owner.isNotEmpty ? t.owner : meta.owner;
         return owner.isNotEmpty ? '$owner.${t.name}' : t.name;
       }
@@ -1201,7 +1210,8 @@ class _LlamadaPlsqlModalState extends State<_LlamadaPlsqlModal> {
         obj.type,
         ambiente: _ambiente,
       );
-      final text = (obj.type.toUpperCase() == 'PACKAGE' ? src.spec : src.body) ?? '';
+      final text =
+          (obj.type.toUpperCase() == 'PACKAGE' ? src.spec : src.body) ?? '';
       if (text.isEmpty) return;
 
       final subName = _miembroSel?.name ?? obj.name;
@@ -1215,10 +1225,15 @@ class _LlamadaPlsqlModalState extends State<_LlamadaPlsqlModal> {
   }
 
   /// Extrae el mapa `PARAM_NAME -> TIPO_DECLARADO` desde el código fuente PL/SQL.
-  static Map<String, String> _extraerTiposParametros(String source, String subprograma) {
+  static Map<String, String> _extraerTiposParametros(
+    String source,
+    String subprograma,
+  ) {
     final cleanSource = _limpiarComentarios(source);
     final procRe = RegExp(
-      r'(?:PROCEDURE|FUNCTION)\s+' + RegExp.escape(subprograma) + r'\s*\(([\s\S]*?)\)',
+      r'(?:PROCEDURE|FUNCTION)\s+' +
+          RegExp.escape(subprograma) +
+          r'\s*\(([\s\S]*?)\)',
       caseSensitive: false,
     );
     final match = procRe.firstMatch(cleanSource);
@@ -1337,7 +1352,9 @@ class _LlamadaPlsqlModalState extends State<_LlamadaPlsqlModal> {
       if (res.tieneError) {
         AppToast.error('La llamada devolvió un error de Oracle');
       } else {
-        AppToast.info('Ejecutado en ${_formatearTiempoMsYSeg(res.duracionMs ?? 0)}');
+        AppToast.info(
+          'Ejecutado en ${_formatearTiempoMsYSeg(res.duracionMs ?? 0)}',
+        );
       }
     } catch (e) {
       if (!mounted || _cancelado) return;
@@ -1878,8 +1895,9 @@ class _LlamadaPlsqlModalState extends State<_LlamadaPlsqlModal> {
                               );
                               unawaited(
                                 _cargarCatalogo(
-                                  seleccionInicial:
-                                      selActual.isEmpty ? null : selActual,
+                                  seleccionInicial: selActual.isEmpty
+                                      ? null
+                                      : selActual,
                                   forceRefresh: true,
                                 ),
                               );
@@ -2335,7 +2353,10 @@ class _LlamadaPlsqlModalState extends State<_LlamadaPlsqlModal> {
             ),
           if (res.duracionLlamadaMs != null)
             _StatusBadge(
-              label: _formatearTiempoMsYSeg(res.duracionLlamadaMs!, prefix: 'Oracle '),
+              label: _formatearTiempoMsYSeg(
+                res.duracionLlamadaMs!,
+                prefix: 'Oracle ',
+              ),
               color: const Color(0xFF0F766E),
             ),
           if (res.rollback)
@@ -2522,7 +2543,8 @@ class _LlamadaPlsqlModalState extends State<_LlamadaPlsqlModal> {
       padding: const EdgeInsets.symmetric(vertical: 4),
       itemCount: res.firma.length,
       separatorBuilder: (_, _) => Divider(height: 1, color: borderColor),
-      itemBuilder: (_, i) => _FirmaTile(parametro: res.firma[i], isDark: isDark),
+      itemBuilder: (_, i) =>
+          _FirmaTile(parametro: res.firma[i], isDark: isDark),
     );
   }
 
@@ -2824,10 +2846,7 @@ class _ConfirmacionInline extends StatelessWidget {
                   minimumSize: const Size(0, 28),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-                child: const Text(
-                  'Cancelar',
-                  style: TextStyle(fontSize: 11),
-                ),
+                child: const Text('Cancelar', style: TextStyle(fontSize: 11)),
               ),
               const SizedBox(width: 6),
               FilledButton(
@@ -3106,10 +3125,7 @@ class _ParamEntradaRow extends StatelessWidget {
                   : const Color(0xFF0078D4),
             ),
             const SizedBox(width: 4),
-            _StatusBadge(
-              label: parametro.tipo,
-              color: const Color(0xFF607D8B),
-            ),
+            _StatusBadge(label: parametro.tipo, color: const Color(0xFF607D8B)),
             if (parametro.tieneDefault) ...[
               const SizedBox(width: 4),
               const _StatusBadge(label: 'DEFAULT', color: Color(0xFF8E44AD)),
@@ -3161,7 +3177,9 @@ class _ParamEntradaRow extends StatelessWidget {
             label: '',
             hint: esExpresion
                 ? 'SYSDATE, TO_DATE(…)'
-                : (parametro.esNumerico ? '123 · vacío = NULL' : 'vacío = NULL'),
+                : (parametro.esNumerico
+                      ? '123 · vacío = NULL'
+                      : 'vacío = NULL'),
             numerico: !esExpresion && parametro.esNumerico,
             inputFormatters: (!esExpresion && parametro.esNumerico)
                 ? [
@@ -3280,7 +3298,10 @@ class _LlamadaPreview extends StatelessWidget {
                       'Copiar script con variables de salida para Oracle SQL Developer',
                   onPressed: vacio ? null : onCopiarSqlDeveloper,
                   padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                  constraints: const BoxConstraints(
+                    minWidth: 26,
+                    minHeight: 26,
+                  ),
                 ),
             ],
           ),
@@ -3373,7 +3394,11 @@ class _AvisoInline extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.info_outline_rounded, size: 14, color: Colors.orange),
+          const Icon(
+            Icons.info_outline_rounded,
+            size: 14,
+            color: Colors.orange,
+          ),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
@@ -3500,7 +3525,10 @@ class _CampoFecha extends StatelessWidget {
                     icon: const Icon(Icons.clear_rounded, size: 14),
                     tooltip: 'Limpiar (NULL)',
                     padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+                    constraints: const BoxConstraints(
+                      minWidth: 22,
+                      minHeight: 22,
+                    ),
                     color: isDark ? Colors.white38 : Colors.black38,
                     onPressed: () {
                       controller.clear();
@@ -3515,7 +3543,10 @@ class _CampoFecha extends StatelessWidget {
                   ),
                   tooltip: conHora ? 'Elegir fecha y hora' : 'Elegir fecha',
                   padding: const EdgeInsets.only(right: 6),
-                  constraints: const BoxConstraints(minWidth: 26, minHeight: 22),
+                  constraints: const BoxConstraints(
+                    minWidth: 26,
+                    minHeight: 22,
+                  ),
                   onPressed: () => _mostrarSelectorFechaModal(
                     context: context,
                     controller: controller,
@@ -3588,9 +3619,7 @@ void _mostrarSelectorFechaModal({
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: cerrar,
-              child: Container(
-                color: Colors.black.withValues(alpha: 0.45),
-              ),
+              child: Container(color: Colors.black.withValues(alpha: 0.45)),
             ),
           ),
           // Diálogo centrado
@@ -3634,7 +3663,9 @@ void _mostrarSelectorFechaModal({
                       border: Border.all(color: borderCol),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: isDark ? 0.6 : 0.2),
+                          color: Colors.black.withValues(
+                            alpha: isDark ? 0.6 : 0.2,
+                          ),
                           blurRadius: 20,
                           offset: const Offset(0, 8),
                         ),
@@ -3648,9 +3679,15 @@ void _mostrarSelectorFechaModal({
                         Container(
                           padding: const EdgeInsets.fromLTRB(16, 12, 10, 12),
                           decoration: BoxDecoration(
-                            border: Border(bottom: BorderSide(color: borderCol)),
-                            color: isDark ? const Color(0xFF252526) : const Color(0xFFF8FAFC),
-                            borderRadius: const BorderRadius.vertical(top: Radius.circular(9)),
+                            border: Border(
+                              bottom: BorderSide(color: borderCol),
+                            ),
+                            color: isDark
+                                ? const Color(0xFF252526)
+                                : const Color(0xFFF8FAFC),
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(9),
+                            ),
                           ),
                           child: Row(
                             children: [
@@ -3662,7 +3699,9 @@ void _mostrarSelectorFechaModal({
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  conHora ? 'Seleccionar fecha y hora' : 'Seleccionar fecha',
+                                  conHora
+                                      ? 'Seleccionar fecha y hora'
+                                      : 'Seleccionar fecha',
                                   style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w700,
@@ -3674,7 +3713,10 @@ void _mostrarSelectorFechaModal({
                                 icon: const Icon(Icons.close, size: 16),
                                 onPressed: cerrar,
                                 tooltip: 'Cerrar',
-                                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                                constraints: const BoxConstraints(
+                                  minWidth: 28,
+                                  minHeight: 28,
+                                ),
                                 padding: EdgeInsets.zero,
                               ),
                             ],
@@ -3682,14 +3724,19 @@ void _mostrarSelectorFechaModal({
                         ),
                         // Calendario interactivo
                         Theme(
-                          data: (isDark ? ThemeData.dark() : ThemeData.light()).copyWith(
-                            colorScheme: (isDark ? const ColorScheme.dark() : const ColorScheme.light()).copyWith(
-                              primary: _kLlamadaAccent,
-                              onPrimary: Colors.white,
-                              surface: bg,
-                              onSurface: textCol,
-                            ),
-                          ),
+                          data: (isDark ? ThemeData.dark() : ThemeData.light())
+                              .copyWith(
+                                colorScheme:
+                                    (isDark
+                                            ? const ColorScheme.dark()
+                                            : const ColorScheme.light())
+                                        .copyWith(
+                                          primary: _kLlamadaAccent,
+                                          onPrimary: Colors.white,
+                                          surface: bg,
+                                          onSurface: textCol,
+                                        ),
+                              ),
                           child: SizedBox(
                             height: 280,
                             child: CalendarDatePicker(
@@ -3708,10 +3755,17 @@ void _mostrarSelectorFechaModal({
                         if (conHora) ...[
                           Divider(height: 1, color: borderCol),
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
                             child: Row(
                               children: [
-                                const Icon(Icons.access_time_rounded, size: 16, color: _kLlamadaAccent),
+                                const Icon(
+                                  Icons.access_time_rounded,
+                                  size: 16,
+                                  color: _kLlamadaAccent,
+                                ),
                                 const SizedBox(width: 8),
                                 Text(
                                   'Hora (HH:MM:SS):',
@@ -3722,10 +3776,19 @@ void _mostrarSelectorFechaModal({
                                   ),
                                 ),
                                 const Spacer(),
-                                _InputHora(controller: horaCtrl, isDark: isDark),
-                                const Text(' : ', style: TextStyle(fontWeight: FontWeight.bold)),
+                                _InputHora(
+                                  controller: horaCtrl,
+                                  isDark: isDark,
+                                ),
+                                const Text(
+                                  ' : ',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
                                 _InputHora(controller: minCtrl, isDark: isDark),
-                                const Text(' : ', style: TextStyle(fontWeight: FontWeight.bold)),
+                                const Text(
+                                  ' : ',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
                                 _InputHora(controller: segCtrl, isDark: isDark),
                               ],
                             ),
@@ -3739,25 +3802,40 @@ void _mostrarSelectorFechaModal({
                             children: [
                               OutlinedButton.icon(
                                 icon: const Icon(Icons.today_rounded, size: 14),
-                                label: const Text('Hoy', style: TextStyle(fontSize: 11)),
+                                label: const Text(
+                                  'Hoy',
+                                  style: TextStyle(fontSize: 11),
+                                ),
                                 style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
                                   minimumSize: Size.zero,
                                 ),
                                 onPressed: () {
                                   final ahora = DateTime.now();
                                   setModalState(() {
                                     fechaSel = ahora;
-                                    horaCtrl.text = ahora.hour.toString().padLeft(2, '0');
-                                    minCtrl.text = ahora.minute.toString().padLeft(2, '0');
-                                    segCtrl.text = ahora.second.toString().padLeft(2, '0');
+                                    horaCtrl.text = ahora.hour
+                                        .toString()
+                                        .padLeft(2, '0');
+                                    minCtrl.text = ahora.minute
+                                        .toString()
+                                        .padLeft(2, '0');
+                                    segCtrl.text = ahora.second
+                                        .toString()
+                                        .padLeft(2, '0');
                                   });
                                 },
                               ),
                               const SizedBox(width: 6),
                               TextButton(
                                 style: TextButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 6,
+                                  ),
                                   minimumSize: Size.zero,
                                 ),
                                 onPressed: () {
@@ -3767,23 +3845,35 @@ void _mostrarSelectorFechaModal({
                                 },
                                 child: const Text(
                                   'NULL',
-                                  style: TextStyle(fontSize: 11, color: Colors.orange),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.orange,
+                                  ),
                                 ),
                               ),
                               const Spacer(),
                               TextButton(
                                 onPressed: cerrar,
-                                child: const Text('Cancelar', style: TextStyle(fontSize: 12)),
+                                child: const Text(
+                                  'Cancelar',
+                                  style: TextStyle(fontSize: 12),
+                                ),
                               ),
                               const SizedBox(width: 6),
                               FilledButton(
                                 style: FilledButton.styleFrom(
                                   backgroundColor: _kLlamadaAccent,
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 7,
+                                  ),
                                   minimumSize: Size.zero,
                                 ),
                                 onPressed: () => confirmar(fechaSel),
-                                child: const Text('Aceptar', style: TextStyle(fontSize: 12)),
+                                child: const Text(
+                                  'Aceptar',
+                                  style: TextStyle(fontSize: 12),
+                                ),
                               ),
                             ],
                           ),
@@ -3808,10 +3898,7 @@ class _InputHora extends StatelessWidget {
   final TextEditingController controller;
   final bool isDark;
 
-  const _InputHora({
-    required this.controller,
-    required this.isDark,
-  });
+  const _InputHora({required this.controller, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
@@ -3828,7 +3915,10 @@ class _InputHora extends StatelessWidget {
         ],
         decoration: InputDecoration(
           isDense: true,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 2,
+            vertical: 5,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(4),
             borderSide: BorderSide(
@@ -3850,5 +3940,3 @@ class _InputHora extends StatelessWidget {
     );
   }
 }
-
-

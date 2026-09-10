@@ -1,10 +1,11 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 import 'package:mobx/mobx.dart';
 import '../models/procedimiento.dart';
 import '../models/configuracion_tipo.dart';
 import '../models/variable_dinamica.dart';
 import '../services/schema_service.dart';
+import '../services/app_log.dart';
 import '../services/sirweb_service.dart';
 
 part 'procedimientos_provider.g.dart';
@@ -300,12 +301,32 @@ abstract class _ProcedimientosProvider with Store {
         mensaje =
             'Guardado correctamente. Version ${procedimientoActual!.version}';
       });
+      AppLog.instance.transaction(
+        'Guardar ${procedimientoActual!.cdProcedimiento}',
+        source: 'Procedimientos',
+        datos: {
+          'Ambiente': ambiente,
+          'Usuario': cdUsuario,
+          'Version': procedimientoActual!.version.toString(),
+        },
+      );
+      AppLog.instance.transaction(
+        'Compilar ' + procedimientoActual!.cdProcedimiento,
+        source: 'Procedimientos',
+        datos: {'Ambiente': ambiente, 'Usuario': cdUsuario},
+      );
       return true;
     } catch (e) {
       lastCompileErrors = [];
       runInAction(() {
         error = _mensajeDeError(e);
       });
+      AppLog.instance.exception(
+        'Guardar ${procedimientoActual?.cdProcedimiento ?? 'procedimiento'}',
+        e,
+        source: 'Procedimientos',
+        datos: {'Ambiente': ambiente, 'Usuario': cdUsuario},
+      );
       return false;
     } finally {
       runInAction(() => cargando = false);
@@ -348,6 +369,11 @@ abstract class _ProcedimientosProvider with Store {
         mensaje =
             'Compilado correctamente. Versión ${procedimientoActual!.version}';
       });
+      AppLog.instance.transaction(
+        'Compilar ' + procedimientoActual!.cdProcedimiento,
+        source: 'Procedimientos',
+        datos: {'Ambiente': ambiente, 'Usuario': cdUsuario},
+      );
       return true;
     } catch (e) {
       lastCompileErrors = [];
@@ -392,6 +418,12 @@ abstract class _ProcedimientosProvider with Store {
             ? 'Procedimiento activado.'
             : 'Procedimiento desactivado.';
       });
+      AppLog.instance.transaction(
+        (activar ? 'Activar ' : 'Desactivar ') +
+            procedimientoActual!.cdProcedimiento,
+        source: 'Procedimientos',
+        datos: {'Ambiente': ambiente, 'Usuario': cdUsuario},
+      );
       return true;
     } catch (e) {
       runInAction(() {
@@ -424,6 +456,15 @@ abstract class _ProcedimientosProvider with Store {
       runInAction(() {
         mensaje = 'Procedimiento "$cdProcedimiento" creado correctamente.';
       });
+      AppLog.instance.transaction(
+        'Crear ' + cdProcedimiento,
+        source: 'Procedimientos',
+        datos: {
+          'Ambiente': ambiente,
+          'Usuario': cdUsuario,
+          'Categoria': inConfiguracion,
+        },
+      );
       return true;
     } catch (e) {
       runInAction(() {
@@ -440,6 +481,14 @@ abstract class _ProcedimientosProvider with Store {
   /// solo se limpia el prefijo `Exception: ` de los errores funcionales.
   String _mensajeDeError(Object e) {
     errorDeConexion = e is SirwebConnectionException;
+    // Punto unico: todos los catch del provider pasan por aca, asi que ningun
+    // fallo de negocio queda fuera del log.
+    AppLog.instance.exception(
+      procedimientoActual?.cdProcedimiento ?? 'Procedimientos',
+      e,
+      source: 'Procedimientos',
+      datos: {'Ambiente': ambiente, 'Usuario': cdUsuario},
+    );
     if (e is SirwebConnectionException) return e.message;
     return e.toString().replaceFirst('Exception: ', '');
   }

@@ -1,17 +1,57 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_monaco/flutter_monaco.dart';
 import '../providers/procedimientos_provider.dart';
 import 'ambiente_selector.dart';
 import 'config_badge.dart';
 import 'constellation_background.dart';
+import 'floating_window.dart';
 import '_editor_themes.dart';
+
+/// Resultado de la creación de un procedimiento dinámico.
+typedef NuevoProcedimiento = ({
+  String cdProcedimiento,
+  String inConfiguracion,
+  String ambiente,
+});
+
+/// Abre el alta de procedimiento dinámico como **ventana flotante**.
+///
+/// Igual que el resto de los modales de la app: se mueve arrastrando la barra
+/// de título, se puede minimizar a la barra inferior, maximizar (F11) y aparece
+/// y se cierra con animación. Completa con `null` si el usuario cancela.
+Future<NuevoProcedimiento?> showNewProcedureDialog(
+  BuildContext context, {
+  required String ambiente,
+}) {
+  final done = Completer<NuevoProcedimiento?>();
+  showFloatingWindow(
+    context,
+    (close) => NewProcedureDialog(
+      ambiente: ambiente,
+      onClose: (result) {
+        close();
+        if (!done.isCompleted) done.complete(result);
+      },
+    ),
+  );
+  return done.future;
+}
 
 class NewProcedureDialog extends StatefulWidget {
   final String ambiente;
-  const NewProcedureDialog({super.key, required this.ambiente});
+
+  /// Cierra la ventana devolviendo el procedimiento creado (o `null`).
+  final void Function(NuevoProcedimiento? result) onClose;
+
+  const NewProcedureDialog({
+    super.key,
+    required this.ambiente,
+    required this.onClose,
+  });
 
   @override
   State<NewProcedureDialog> createState() => _NewProcedureDialogState();
@@ -26,6 +66,66 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
   String _code = _kDefaultCode;
   bool _editorReady = false;
   MonacoController? _editorCtrl;
+
+  // ── Geometría de la ventana flotante ───────────────────────────────────────
+  /// Alto de la barra de título en modo normal (reserva el hueco del header).
+  static const double _kHeaderH = 66;
+
+  /// Desplazamiento respecto del centro de la pantalla (arrastre).
+  Offset _position = Offset.zero;
+  double? _winW;
+  double? _winH;
+  bool _maximized = false;
+  bool _minimized = false;
+  int? _slot;
+
+  /// Geometría previa, para restaurar al des-maximizar.
+  double? _restoreW;
+  double? _restoreH;
+  Offset _restorePos = Offset.zero;
+
+  /// 180 ms al maximizar/minimizar; cero mientras se arrastra o redimensiona.
+  Duration _anim = Duration.zero;
+
+  void _toggleMaximized() {
+    setState(() {
+      _anim = const Duration(milliseconds: 180);
+      if (_maximized) {
+        _winW = _restoreW;
+        _winH = _restoreH;
+        _position = _restorePos;
+        _maximized = false;
+      } else {
+        _restoreW = _winW;
+        _restoreH = _winH;
+        _restorePos = _position;
+        _position = Offset.zero;
+        _maximized = true;
+      }
+    });
+  }
+
+  /// Minimiza la ventana a la barra inferior (o la restaura).
+  void _toggleMinimized() {
+    setState(() {
+      _anim = const Duration(milliseconds: 180);
+      if (_minimized) {
+        FloatingWindowSlots.release(_slot);
+        _slot = null;
+        _minimized = false;
+      } else {
+        _slot = FloatingWindowSlots.take();
+        _minimized = true;
+        FocusManager.instance.primaryFocus?.unfocus();
+      }
+    });
+  }
+
+  void _close([NuevoProcedimiento? result]) {
+    FloatingWindowSlots.release(_slot);
+    _slot = null;
+    widget.onClose(result);
+  }
 
   static const _kDefaultCode =
       'BEGIN\n'
@@ -154,7 +254,7 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
     );
     if (ok && mounted) {
       provider.setCdUsuario(_usuarioCtrl.text.trim());
-      Navigator.of(context).pop((
+      _close((
         cdProcedimiento: cdProc,
         inConfiguracion: _selectedConfig,
         ambiente: _selectedAmbiente,
@@ -166,27 +266,195 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
+    final screen = MediaQuery.sizeOf(context);
+    final gripColor = (isDark ? Colors.white : Colors.black).withValues(
+      alpha: 0.18,
+    );
 
-    return Dialog(
-      backgroundColor: cs.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      elevation: 24,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: 940,
-            maxHeight: MediaQuery.of(context).size.height * 0.88,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildHeader(isDark, cs),
-              _buildForm(isDark, cs),
-              Expanded(child: _buildCodeSection(isDark, cs)),
-              _buildFooter(isDark, cs),
-            ],
-          ),
+    if (_maximized) {
+      _winW = (screen.width - 48).clamp(360.0, screen.width);
+      _winH = (screen.height - 48).clamp(320.0, screen.height);
+    } else {
+      _winW ??= (screen.width * 0.9).clamp(560.0, 940.0);
+      _winH ??= (screen.height * 0.88).clamp(420.0, 780.0);
+    }
+    if (_winW! > screen.width) _winW = screen.width;
+    if (_winH! > screen.height) _winH = screen.height;
+
+    // Geometría efectiva: minimizada ocupa solo la barra de título.
+    final double w, h, left, top;
+    if (_minimized) {
+      w = FloatingWindowSlots.barW;
+      h = FloatingWindowSlots.barH;
+      final (l, t) = FloatingWindowSlots.offsetFor(_slot ?? 0, screen);
+      left = l;
+      top = t;
+    } else {
+      w = _winW!;
+      h = _winH!;
+      left = ((screen.width - w) / 2 + _position.dx).clamp(
+        0.0,
+        (screen.width - w).clamp(0.0, double.infinity),
+      );
+      top = ((screen.height - h) / 2 + _position.dy).clamp(
+        0.0,
+        (screen.height - h).clamp(0.0, double.infinity),
+      );
+    }
+
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.f11): _toggleMaximized,
+        const SingleActivator(LogicalKeyboardKey.escape): () => _close(),
+      },
+      child: Focus(
+        autofocus: !_minimized,
+        canRequestFocus: !_minimized,
+        descendantsAreFocusable: !_minimized,
+        child: Stack(
+          children: [
+            AnimatedPositioned(
+              duration: _anim,
+              curve: Curves.easeOutCubic,
+              left: left,
+              top: top,
+              width: w,
+              height: h,
+              child: Material(
+                color: Colors.transparent,
+                child: AnimatedContainer(
+                  duration: _anim,
+                  curve: Curves.easeOutCubic,
+                  decoration: BoxDecoration(
+                    color: cs.surface,
+                    borderRadius: BorderRadius.circular(
+                      _maximized ? 6 : (_minimized ? 8 : 10),
+                    ),
+                    border: Border.all(color: cs.outlineVariant, width: 0.5),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(
+                          alpha: isDark ? 0.5 : 0.22,
+                        ),
+                        blurRadius: _minimized ? 16 : 32,
+                        offset: Offset(0, _minimized ? 4 : 12),
+                      ),
+                    ],
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: OverflowBox(
+                    alignment: Alignment.topLeft,
+                    minWidth: 0,
+                    maxWidth: double.infinity,
+                    minHeight: 0,
+                    maxHeight: double.infinity,
+                    // El contenido se mantiene SIEMPRE montado con el tamaño
+                    // de la ventana restaurada: al minimizar sólo se recorta.
+                    // Si se quitara del árbol, el editor Monaco se destruiría
+                    // y al restaurar se recargaría perdiendo lo escrito.
+                    child: SizedBox(
+                      width: _winW,
+                      height: _winH,
+                      child: Stack(
+                        children: [
+                          Positioned.fill(
+                            child: Column(
+                              children: [
+                                // Hueco reservado para la barra de título.
+                                const SizedBox(height: _kHeaderH),
+                                _buildForm(isDark, cs),
+                                Expanded(child: _buildCodeSection(isDark, cs)),
+                                _buildFooter(isDark, cs),
+                              ],
+                            ),
+                          ),
+                          // La barra de título usa el ancho *visible* para que
+                          // al minimizar siga viéndose completa.
+                          Positioned(
+                            left: 0,
+                            top: 0,
+                            width: w,
+                            child: _buildHeader(isDark, cs),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            // ── Resize: borde derecho ─────────────────────────────────────
+            if (!_maximized && !_minimized)
+              Positioned(
+                left: left + w - 5,
+                top: top + 64,
+                width: 10,
+                height: (h - 74).clamp(0.0, double.infinity),
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.resizeLeftRight,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onPanUpdate: (d) => setState(() {
+                      _anim = Duration.zero;
+                      _winW = (_winW! + d.delta.dx).clamp(
+                        560.0,
+                        screen.width - 40,
+                      );
+                    }),
+                  ),
+                ),
+              ),
+
+            // ── Resize: borde inferior ────────────────────────────────────
+            if (!_maximized && !_minimized)
+              Positioned(
+                left: left + 16,
+                top: top + h - 5,
+                width: (w - 32).clamp(0.0, double.infinity),
+                height: 10,
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.resizeUpDown,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onPanUpdate: (d) => setState(() {
+                      _anim = Duration.zero;
+                      _winH = (_winH! + d.delta.dy).clamp(
+                        420.0,
+                        screen.height - 40,
+                      );
+                    }),
+                  ),
+                ),
+              ),
+
+            // ── Resize: esquina inferior derecha (grip) ───────────────────
+            if (!_maximized && !_minimized)
+              Positioned(
+                left: left + w - 18,
+                top: top + h - 18,
+                width: 22,
+                height: 22,
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.resizeUpLeftDownRight,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onPanUpdate: (d) => setState(() {
+                      _anim = Duration.zero;
+                      _winW = (_winW! + d.delta.dx).clamp(
+                        560.0,
+                        screen.width - 40,
+                      );
+                      _winH = (_winH! + d.delta.dy).clamp(
+                        420.0,
+                        screen.height - 40,
+                      );
+                    }),
+                    child: CustomPaint(painter: WindowGripPainter(gripColor)),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -200,102 +468,184 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
         : const Color(0xFF0053A6);
     final onHeader = isDark ? cs.onSurface : Colors.white;
 
-    return ConstellationHeader(
-      padding: const EdgeInsets.fromLTRB(20, 15, 14, 15),
-      decoration: BoxDecoration(color: headerBg),
-      onDark: true,
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.15),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(Icons.post_add_rounded, color: onHeader, size: 20),
-          ),
-          const SizedBox(width: 14),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+    // El doble clic (maximizar) se aplica sólo al área del título: si
+    // envolviera también a los botones, el `onTap` de cada uno quedaría a la
+    // espera del timeout del doble clic (~300 ms) antes de dispararse.
+    Widget titleArea(Widget child) => GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onDoubleTap: _minimized ? _toggleMinimized : _toggleMaximized,
+      child: child,
+    );
+
+    return MouseRegion(
+      cursor: (_maximized || _minimized)
+          ? SystemMouseCursors.basic
+          : SystemMouseCursors.grab,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        // Arrastrar la barra de título mueve la ventana.
+        onPanUpdate: (_maximized || _minimized)
+            ? null
+            : (d) => setState(() {
+                _anim = Duration.zero;
+                _position += d.delta;
+              }),
+        child: ConstellationHeader(
+          height: _minimized ? FloatingWindowSlots.barH : _kHeaderH,
+          padding: _minimized
+              ? const EdgeInsets.fromLTRB(12, 0, 6, 0)
+              : const EdgeInsets.fromLTRB(20, 0, 14, 0),
+          decoration: BoxDecoration(color: headerBg),
+          onDark: true,
+          child: Row(
             children: [
-              Text(
-                'Nuevo Procedimiento Dinámico',
-                style: TextStyle(
-                  color: onHeader,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.2,
+              titleArea(
+                Container(
+                  padding: EdgeInsets.all(_minimized ? 5 : 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.post_add_rounded,
+                    color: onHeader,
+                    size: _minimized ? 14 : 20,
+                  ),
                 ),
               ),
-              const SizedBox(height: 2),
-              Text(
-                'Completa los datos e ingresa el código inicial',
-                style: TextStyle(
-                  color: onHeader.withValues(alpha: 0.65),
-                  fontSize: 11,
+              SizedBox(width: _minimized ? 8 : 14),
+              if (_minimized)
+                Expanded(
+                  child: titleArea(
+                    Text(
+                      'Nuevo Procedimiento',
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: onHeader,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                )
+              else ...[
+                Expanded(
+                  child: titleArea(
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Nuevo Procedimiento Dinámico',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: onHeader,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Completa los datos e ingresa el código inicial',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: onHeader.withValues(alpha: 0.65),
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
+                // Ambiente badge — prominently shows target DB
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AmbienteSelector.colorForAmbiente(
+                            _selectedAmbiente,
+                          ).withValues(alpha: 0.15)
+                        : Colors.white.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: isDark
+                          ? AmbienteSelector.colorForAmbiente(
+                              _selectedAmbiente,
+                            ).withValues(alpha: 0.5)
+                          : Colors.white.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.storage_rounded,
+                        size: 13,
+                        color: isDark
+                            ? AmbienteSelector.colorForAmbiente(
+                                _selectedAmbiente,
+                              )
+                            : Colors.white,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        _selectedAmbiente,
+                        style: TextStyle(
+                          color: isDark
+                              ? AmbienteSelector.colorForAmbiente(
+                                  _selectedAmbiente,
+                                )
+                              : Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+              ],
+              // ── Controles de ventana ────────────────────────────────────
+              _WinBtn(
+                icon: _minimized
+                    ? Icons.expand_less_rounded
+                    : Icons.remove_rounded,
+                tooltip: _minimized ? 'Restaurar' : 'Minimizar',
+                color: onHeader,
+                onTap: _toggleMinimized,
+              ),
+              _WinBtn(
+                icon: _maximized
+                    ? Icons.close_fullscreen_rounded
+                    : Icons.open_in_full_rounded,
+                tooltip: _maximized
+                    ? 'Restaurar tamaño (F11)'
+                    : 'Maximizar (F11)',
+                size: 15,
+                color: onHeader,
+                onTap: () {
+                  if (_minimized) {
+                    _toggleMinimized();
+                  } else {
+                    _toggleMaximized();
+                  }
+                },
+              ),
+              _WinBtn(
+                icon: Icons.close_rounded,
+                tooltip: 'Cerrar (Esc)',
+                color: onHeader,
+                danger: true,
+                onTap: _close,
               ),
             ],
           ),
-          const Spacer(),
-          // Ambiente badge — prominently shows target DB
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? AmbienteSelector.colorForAmbiente(
-                      _selectedAmbiente,
-                    ).withValues(alpha: 0.15)
-                  : Colors.white.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: isDark
-                    ? AmbienteSelector.colorForAmbiente(
-                        _selectedAmbiente,
-                      ).withValues(alpha: 0.5)
-                    : Colors.white.withValues(alpha: 0.35),
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.storage_rounded,
-                  size: 13,
-                  color: isDark
-                      ? AmbienteSelector.colorForAmbiente(_selectedAmbiente)
-                      : Colors.white,
-                ),
-                const SizedBox(width: 5),
-                Text(
-                  _selectedAmbiente,
-                  style: TextStyle(
-                    color: isDark
-                        ? AmbienteSelector.colorForAmbiente(_selectedAmbiente)
-                        : Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          IconButton(
-            onPressed: () => Navigator.of(context).pop(),
-            icon: Icon(
-              Icons.close_rounded,
-              size: 20,
-              color: onHeader.withValues(alpha: 0.7),
-            ),
-            style: IconButton.styleFrom(
-              minimumSize: const Size(36, 36),
-              padding: EdgeInsets.zero,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -646,7 +996,7 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
                 const Spacer(),
               const SizedBox(width: 12),
               TextButton(
-                onPressed: () => Navigator.of(context).pop(),
+                onPressed: _close,
                 style: TextButton.styleFrom(
                   foregroundColor: cs.onSurfaceVariant,
                   padding: const EdgeInsets.symmetric(
@@ -766,3 +1116,69 @@ const _kFallbackConfigs = <(String, String)>[
   ('O', 'Otro'),
   ('I', 'Integración'),
 ];
+
+/// Botón de control de ventana sobre la cabecera de color del modal.
+///
+/// No se usa [WindowButton] porque aquí el fondo es oscuro/azul y los iconos
+/// deben heredar el color del header.
+class _WinBtn extends StatefulWidget {
+  const _WinBtn({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+    required this.color,
+    this.size = 17,
+    this.danger = false,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+  final Color color;
+  final double size;
+  final bool danger;
+
+  @override
+  State<_WinBtn> createState() => _WinBtnState();
+}
+
+class _WinBtnState extends State<_WinBtn> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: widget.tooltip,
+      waitDuration: const Duration(milliseconds: 400),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 100),
+            width: 32,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: _hovered
+                  ? (widget.danger
+                        ? const Color(0xFFE81123)
+                        : widget.color.withValues(alpha: 0.18))
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(
+              widget.icon,
+              size: widget.size,
+              color: _hovered && widget.danger
+                  ? Colors.white
+                  : widget.color.withValues(alpha: 0.75),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

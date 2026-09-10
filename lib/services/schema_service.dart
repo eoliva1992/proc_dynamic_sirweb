@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'app_log.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -495,6 +496,15 @@ class SchemaService {
       'objectType': objectType.toUpperCase(),
       if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
     });
+    if (result['success'] == false) {
+      // El detalle (ORA-, argumentos y DDL enviado) ya quedó en el log dentro
+      // de `_callInner`; acá sólo se propaga el mensaje al llamador.
+      throw Exception(
+        result['error']?.toString() ??
+            result['message']?.toString() ??
+            'Error ejecutando el DDL',
+      );
+    }
     final rawList = result['data'] as List? ?? [];
     return rawList
         .cast<Map<String, dynamic>>()
@@ -508,6 +518,18 @@ class SchemaService {
         )
         .toList();
   }
+
+  /// Ejecuta una sentencia DDL suelta (GRANT, CREATE SYNONYM, …) contra el
+  /// ambiente indicado.
+  ///
+  /// Reutiliza el endpoint `compile_object_ddl`, que ejecuta el DDL tal cual
+  /// contra Oracle. Lanza [Exception] con el `ORA-` si la sentencia falla.
+  Future<void> executeDdl(
+    String ddl, {
+    required String objectName,
+    required String objectType,
+    String? ambiente,
+  }) => compileObject(ddl, objectName, objectType, ambiente: ambiente);
 
   /// Valida la sintaxis de un objeto Oracle estático (PROCEDURE, PACKAGE, etc.) sin persistir.
   Future<List<({int line, int position, String text, String attribute})>>
@@ -700,7 +722,11 @@ class SchemaService {
 
     // 2 partes ⇒ puede ser PACKAGE.MIEMBRO o ESQUEMA.OBJETO: se prueban ambas.
     if (parts.length == 2) {
-      final desdePackage = await _packageArguments(parts[0], parts[1], ambiente);
+      final desdePackage = await _packageArguments(
+        parts[0],
+        parts[1],
+        ambiente,
+      );
       if (desdePackage.isNotEmpty) return desdePackage;
       return _standaloneArguments(parts[1], ambiente);
     }
@@ -744,7 +770,8 @@ class SchemaService {
   List<({String name, String dataType, String inOut, int position})>
   _mapArguments(dynamic raw) {
     if (raw is! List) return const [];
-    final out = <({String name, String dataType, String inOut, int position})>[];
+    final out =
+        <({String name, String dataType, String inOut, int position})>[];
     for (final e in raw) {
       if (e is! Map) continue;
       final pos = e['position'] ?? e['posicion'];
@@ -1049,6 +1076,7 @@ class SchemaService {
     Map<String, dynamic> arguments,
     Duration timeout,
   ) async {
+    final reloj = Stopwatch()..start();
     final request = http.Request('POST', Uri.parse(_mcpUrl))
       ..headers.addAll({
         'Content-Type': 'application/json',
@@ -1061,28 +1089,82 @@ class SchemaService {
         'params': {'name': toolName, 'arguments': arguments},
       });
 
-    final streamed = await _client
-        .send(request)
-        .timeout(
-          timeout,
-          onTimeout: () =>
-              throw TimeoutException('MCP $toolName: sin respuesta', timeout),
-        );
+    final http.StreamedResponse streamed;
+    final String payload;
+    try {
+      streamed = await _client
+          .send(request)
+          .timeout(
+            timeout,
+            onTimeout: () =>
+                throw TimeoutException('MCP $toolName: sin respuesta', timeout),
+          );
+      payload = await readFirstSseData(
+        streamed,
+        toolName: toolName,
+        timeout: timeout,
+      );
+    } catch (e) {
+      // Fallo de transporte (timeout, socket, TLS…): el servidor no respondió.
+      AppLog.instance.server(
+        toolName,
+        message: AppLog.describe(e),
+        argumentos: arguments,
+        source: 'Servidor (MCP)',
+      );
+      rethrow;
+    }
 
-    final payload = await readFirstSseData(
-      streamed,
-      toolName: toolName,
-      timeout: timeout,
-    );
     final envelope = jsonDecode(payload) as Map<String, dynamic>;
 
     if (envelope.containsKey('error')) {
       final err = envelope['error'] as Map<String, dynamic>;
-      throw Exception(err['message']?.toString() ?? 'Error MCP');
+      final msg = err['message']?.toString() ?? 'Error MCP';
+      AppLog.instance.server(
+        toolName,
+        message: msg,
+        argumentos: arguments,
+        respuesta: payload,
+        source: 'Servidor (MCP)',
+      );
+      throw Exception(msg);
     }
 
     final contentList = envelope['result']['content'] as List<dynamic>;
     final text = contentList.first['text'] as String;
-    return jsonDecode(text) as Map<String, dynamic>;
+    final data = jsonDecode(text) as Map<String, dynamic>;
+
+    // El backend puede responder 200 con `success:false`: se registra siempre,
+    // aunque el llamador decida ignorarlo o convertirlo en excepción.
+    if (data['success'] == false || data['ok'] == false) {
+      AppLog.instance.server(
+        toolName,
+        message:
+            data['error']?.toString() ??
+            data['message']?.toString() ??
+            'El servidor respondió success:false',
+        argumentos: arguments,
+        respuesta: text,
+        source: 'Servidor (MCP)',
+      );
+    } else {
+      // Transacción normal: queda el rastro de qué se pidió y cuánto tardó.
+      AppLog.instance.transaction(
+        toolName,
+        source: 'MCP',
+        duracion: reloj.elapsed,
+        datos: {
+          'Ambiente': arguments['ambiente']?.toString() ?? 'Desa',
+          'Filas': _rowCount(data['data'])?.toString(),
+        },
+        detalle: arguments.isEmpty
+            ? null
+            : 'Argumentos: ${arguments.keys.join(', ')}',
+      );
+    }
+    return data;
   }
+
+  /// Cantidad de filas devueltas, cuando el envelope trae una lista.
+  static int? _rowCount(Object? data) => data is List ? data.length : null;
 }

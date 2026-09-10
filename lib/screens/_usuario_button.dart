@@ -4,7 +4,14 @@ class _UsuarioButton extends StatelessWidget {
   final String cdUsuario;
   final VoidCallback onTap;
 
-  const _UsuarioButton({required this.cdUsuario, required this.onTap});
+  /// Color de primer plano de la AppBar que lo contiene.
+  final Color foreground;
+
+  const _UsuarioButton({
+    required this.cdUsuario,
+    required this.onTap,
+    required this.foreground,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +36,7 @@ class _UsuarioButton extends StatelessWidget {
             decoration: BoxDecoration(
               color: isEmpty
                   ? Colors.orange.withValues(alpha: 0.15)
-                  : Colors.white.withValues(alpha: 0.1),
+                  : foreground.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(4),
               border: isEmpty
                   ? Border.all(color: Colors.orange.withValues(alpha: 0.5))
@@ -41,13 +48,17 @@ class _UsuarioButton extends StatelessWidget {
                 Icon(
                   isEmpty ? Icons.person_off_outlined : Icons.person_outline,
                   size: 14,
-                  color: isEmpty ? Colors.orange.shade300 : Colors.white70,
+                  color: isEmpty
+                      ? Colors.orange.shade800
+                      : foreground.withValues(alpha: 0.7),
                 ),
                 const SizedBox(width: 5),
                 Text(
                   isEmpty ? 'Sin usuario' : cdUsuario,
                   style: TextStyle(
-                    color: isEmpty ? Colors.orange.shade300 : Colors.white70,
+                    color: isEmpty
+                        ? Colors.orange.shade800
+                        : foreground.withValues(alpha: 0.7),
                     fontSize: 12,
                     fontWeight: isEmpty ? FontWeight.w600 : FontWeight.normal,
                   ),
@@ -56,7 +67,9 @@ class _UsuarioButton extends StatelessWidget {
                 Icon(
                   Icons.edit,
                   size: 12,
-                  color: isEmpty ? Colors.orange.shade400 : Colors.white38,
+                  color: isEmpty
+                      ? Colors.orange.shade700
+                      : foreground.withValues(alpha: 0.4),
                 ),
               ],
             ),

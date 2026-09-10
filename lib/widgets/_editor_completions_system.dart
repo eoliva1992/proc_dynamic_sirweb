@@ -738,16 +738,7 @@ extension _EditorCompletionsMethods on _CodeEditorPanelState {
   }
 
   void _openSnippetsManager() {
-    showGeneralDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'snippets-dismiss',
-      barrierColor: Colors.black45,
-      transitionDuration: const Duration(milliseconds: 160),
-      transitionBuilder: (_, anim, _, child) =>
-          FadeTransition(opacity: anim, child: child),
-      pageBuilder: (_, _, _) => const _SnippetsManagerDialog(),
-    ).then((_) {
+    showSnippetsManager(context).then((_) {
       if (mounted) _registerSnippetCompletions();
     });
   }

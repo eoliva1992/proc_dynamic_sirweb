@@ -277,4 +277,3 @@ class LlamadaResultado {
   bool get tieneError => errorOracle != null && errorOracle!.isNotEmpty;
   bool get esFuncion => (tipoObjeto ?? '').toUpperCase().contains('FUNCTION');
 }
-

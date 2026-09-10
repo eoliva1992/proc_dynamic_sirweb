@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:proc_dynamic_sirweb/models/llamada_plsql.dart';
 
@@ -80,32 +79,35 @@ void main() {
       expect(pFloat.esEntero, isFalse);
     });
 
-    test('LlamadaResultado deserializa firmas de diferentes ambientes con distinta cantidad de parametros', () {
-      final jsonAmbienteA = {
-        'ok': true,
-        'objeto': 'PCK_TEST.CALCULAR',
-        'firma': [
-          {'nombre': 'P_A', 'posicion': 1, 'modo': 'IN', 'tipo': 'NUMBER'},
-          {'nombre': 'P_B', 'posicion': 2, 'modo': 'IN', 'tipo': 'VARCHAR2'},
-          {'nombre': 'P_C', 'posicion': 3, 'modo': 'IN', 'tipo': 'DATE'},
-        ],
-      };
-      final resA = LlamadaResultado.fromJson(jsonAmbienteA);
-      expect(resA.firma.length, 3);
-      expect(resA.firma.map((p) => p.nombre).toList(), ['P_A', 'P_B', 'P_C']);
+    test(
+      'LlamadaResultado deserializa firmas de diferentes ambientes con distinta cantidad de parametros',
+      () {
+        final jsonAmbienteA = {
+          'ok': true,
+          'objeto': 'PCK_TEST.CALCULAR',
+          'firma': [
+            {'nombre': 'P_A', 'posicion': 1, 'modo': 'IN', 'tipo': 'NUMBER'},
+            {'nombre': 'P_B', 'posicion': 2, 'modo': 'IN', 'tipo': 'VARCHAR2'},
+            {'nombre': 'P_C', 'posicion': 3, 'modo': 'IN', 'tipo': 'DATE'},
+          ],
+        };
+        final resA = LlamadaResultado.fromJson(jsonAmbienteA);
+        expect(resA.firma.length, 3);
+        expect(resA.firma.map((p) => p.nombre).toList(), ['P_A', 'P_B', 'P_C']);
 
-      // En ambiente B el mismo procedimiento tiene menos parámetros
-      final jsonAmbienteB = {
-        'ok': true,
-        'objeto': 'PCK_TEST.CALCULAR',
-        'firma': [
-          {'nombre': 'P_A', 'posicion': 1, 'modo': 'IN', 'tipo': 'NUMBER'},
-        ],
-      };
-      final resB = LlamadaResultado.fromJson(jsonAmbienteB);
-      expect(resB.firma.length, 1);
-      expect(resB.firma.first.nombre, 'P_A');
-    });
+        // En ambiente B el mismo procedimiento tiene menos parámetros
+        final jsonAmbienteB = {
+          'ok': true,
+          'objeto': 'PCK_TEST.CALCULAR',
+          'firma': [
+            {'nombre': 'P_A', 'posicion': 1, 'modo': 'IN', 'tipo': 'NUMBER'},
+          ],
+        };
+        final resB = LlamadaResultado.fromJson(jsonAmbienteB);
+        expect(resB.firma.length, 1);
+        expect(resB.firma.first.nombre, 'P_A');
+      },
+    );
 
     test('ParametroFirma de salida OUT no se bloquea aunque sea TABLE', () {
       final pOutTable = ParametroFirma(
@@ -139,4 +141,3 @@ void main() {
     });
   });
 }
-

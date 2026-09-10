@@ -2304,14 +2304,11 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
                         ),
                         if (!isPkg) ...[
                           InkWell(
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => SchemaObjectDiffPage(
-                                  objectName: node.label,
-                                  objectType: _oracleType(node.detail),
-                                  sourceAmbiente: _currentAmbiente,
-                                ),
-                              ),
+                            onTap: () => showSchemaObjectDiff(
+                              context,
+                              objectName: node.label,
+                              objectType: _oracleType(node.detail),
+                              sourceAmbiente: _currentAmbiente,
                             ),
                             borderRadius: BorderRadius.circular(4),
                             child: Padding(

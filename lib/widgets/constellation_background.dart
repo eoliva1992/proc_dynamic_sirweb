@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'dart:ui' show ImageFilter;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
@@ -32,6 +33,10 @@ class ConstellationBackground extends StatefulWidget {
     this.linkDistance = 130,
     this.starColor,
     this.lineColor,
+    this.accents,
+    this.onDark,
+    this.intensity = 1.0,
+    this.glow = true,
     this.backgroundColor,
     this.backgroundGradient,
     this.parallax = true,
@@ -55,11 +60,27 @@ class ConstellationBackground extends StatefulWidget {
   /// Distancia base (px lógicos, antes de [scale]) para dibujar una línea.
   final double linkDistance;
 
-  /// Color de las estrellas. Por defecto deriva del [ColorScheme].
+  /// Color único de las estrellas. Si se omite, cada estrella toma uno de los
+  /// [accents] del tema, lo que integra la constelación con la paleta activa.
   final Color? starColor;
 
   /// Color de las líneas. Por defecto deriva del [ColorScheme.primary].
   final Color? lineColor;
+
+  /// Acentos con los que se tiñen las estrellas. Por defecto
+  /// `[primary, secondary, tertiary]` del [ColorScheme].
+  final List<Color>? accents;
+
+  /// Fuerza el modo claro/oscuro del contenedor. Si se omite se deduce del
+  /// brillo del tema. Útil cuando la superficie (p. ej. una AppBar de color)
+  /// no coincide con el brillo general.
+  final bool? onDark;
+
+  /// Multiplicador de opacidad de estrellas y líneas (1.0 = por defecto).
+  final double intensity;
+
+  /// Dibuja un halo alrededor de cada estrella.
+  final bool glow;
 
   /// Color sólido de fondo. Ignorado si se pasa [backgroundGradient].
   final Color? backgroundColor;
@@ -189,18 +210,39 @@ class _ConstellationBackgroundState extends State<ConstellationBackground>
     }
   }
 
+  // ── Colores derivados del tema ──────────────────────────────────────────
+
+  /// Un color por estrella, tomado de los acentos del tema.
+  List<Color> _resolveStarColors(ColorScheme cs, bool dark) {
+    final single = widget.starColor;
+    if (single != null) {
+      return [
+        single.withValues(alpha: (single.a * widget.intensity).clamp(0.0, 1.0)),
+      ];
+    }
+    return ConstellationColors.stars(
+      accents: (widget.accents == null || widget.accents!.isEmpty)
+          ? <Color>[cs.primary, cs.secondary, cs.tertiary]
+          : widget.accents!,
+      onDark: dark,
+      intensity: widget.intensity,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final dark =
+        widget.onDark ?? Theme.of(context).brightness == Brightness.dark;
 
-    final starColor =
-        widget.starColor ??
-        (isDark
-            ? Colors.white.withValues(alpha: 0.75)
-            : cs.onSurface.withValues(alpha: 0.45));
+    final starColors = _resolveStarColors(cs, dark);
     final lineColor =
-        widget.lineColor ?? cs.primary.withValues(alpha: isDark ? 0.35 : 0.28);
+        widget.lineColor ??
+        ConstellationColors.line(
+          accent: cs.primary,
+          onDark: dark,
+          intensity: widget.intensity,
+        );
 
     Widget painter = LayoutBuilder(
       builder: (context, constraints) {
@@ -218,8 +260,9 @@ class _ConstellationBackgroundState extends State<ConstellationBackground>
               time: _t,
               scale: widget.scale,
               linkDistance: widget.linkDistance * widget.scale,
-              starColor: starColor,
+              starColors: starColors,
               lineColor: lineColor,
+              glow: widget.glow,
               backgroundColor:
                   widget.backgroundColor ??
                   (widget.backgroundGradient == null
@@ -323,16 +366,9 @@ class ConstellationHeader extends StatelessWidget {
                   speed: speed,
                   linkDistance: linkDistance,
                   backgroundColor: Colors.transparent,
-                  starColor:
-                      starColor ??
-                      (dark
-                          ? Colors.white.withValues(alpha: 0.6)
-                          : Colors.black.withValues(alpha: 0.28)),
-                  lineColor:
-                      lineColor ??
-                      (dark
-                          ? Colors.white.withValues(alpha: 0.28)
-                          : const Color(0xFF0078D4).withValues(alpha: 0.3)),
+                  onDark: dark,
+                  starColor: starColor,
+                  lineColor: lineColor,
                   parallax: false,
                 ),
               ),
@@ -364,6 +400,8 @@ class ConstellationAppBarBackground extends StatelessWidget {
     this.linkDistance = 90,
     this.starColor,
     this.lineColor,
+    this.onDark,
+    this.intensity = 0.6,
   });
 
   final double blur;
@@ -374,8 +412,21 @@ class ConstellationAppBarBackground extends StatelessWidget {
   final Color? starColor;
   final Color? lineColor;
 
+  /// Fuerza el brillo de la barra. Si se omite se deduce del color de fondo
+  /// real de la AppBar (hay temas claros con barra de color saturado).
+  final bool? onDark;
+
+  /// Realce de la constelación respecto al fondo.
+  final double intensity;
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // Se adapta al brillo de la propia AppBar, no al del tema: hay temas
+    // claros con barra de color saturado y viceversa.
+    final barBg =
+        theme.appBarTheme.backgroundColor ?? theme.colorScheme.surface;
+    final dark = onDark ?? barBg.computeLuminance() < 0.45;
     return ClipRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
@@ -386,9 +437,10 @@ class ConstellationAppBarBackground extends StatelessWidget {
             speed: speed,
             linkDistance: linkDistance,
             backgroundColor: Colors.transparent,
-            starColor: starColor ?? Colors.white.withValues(alpha: 0.75),
-            lineColor:
-                lineColor ?? const Color(0xFF4FC3F7).withValues(alpha: 0.4),
+            onDark: dark,
+            intensity: intensity,
+            starColor: starColor,
+            lineColor: lineColor,
             parallax: false,
           ),
         ),
@@ -452,8 +504,46 @@ class ConstellationDialogTitle extends StatelessWidget {
   }
 }
 
+/// Cálculo de los colores de la constelación a partir de la paleta del tema.
+///
+/// Se extrae del widget para poder verificarlo en tests: es la pieza que
+/// garantiza que las estrellas "pertenezcan" visualmente al tema activo.
+abstract final class ConstellationColors {
+  /// Ajusta un acento para que destaque sobre el fondo: lo aclara sobre
+  /// superficies oscuras y lo profundiza sobre superficies claras.
+  static Color legible(Color c, {required bool onDark}) => onDark
+      ? Color.lerp(c, Colors.white, 0.16)!
+      : Color.lerp(c, Colors.black, 0.16)!;
+
+  /// Un color de estrella por cada acento del tema.
+  ///
+  /// Las opacidades son deliberadamente bajas: la constelación es un fondo
+  /// ambiental, debe leerse como textura y nunca competir con el contenido.
+  static List<Color> stars({
+    required List<Color> accents,
+    required bool onDark,
+    double intensity = 1.0,
+  }) {
+    final alpha = ((onDark ? 0.5 : 0.42) * intensity).clamp(0.0, 1.0);
+    return [
+      for (final c in accents)
+        legible(c, onDark: onDark).withValues(alpha: alpha),
+    ];
+  }
+
+  /// Color de las líneas que unen las estrellas.
+  static Color line({
+    required Color accent,
+    required bool onDark,
+    double intensity = 1.0,
+  }) => legible(
+    accent,
+    onDark: onDark,
+  ).withValues(alpha: ((onDark ? 0.24 : 0.2) * intensity).clamp(0.0, 1.0));
+}
+
 class _Star {
-  _Star(this.x, this.y, this.vx, this.vy, this.radius, this.phase);
+  _Star(this.x, this.y, this.vx, this.vy, this.radius, this.phase, this.tint);
 
   double x; // 0..1
   double y; // 0..1
@@ -462,13 +552,17 @@ class _Star {
   final double radius; // px lógicos base
   final double phase; // desfase del parpadeo
 
+  /// Índice dentro de la paleta de acentos del tema.
+  final int tint;
+
   factory _Star.random(math.Random r) => _Star(
     r.nextDouble(),
     r.nextDouble(),
     (r.nextDouble() - 0.5) * 0.02,
     (r.nextDouble() - 0.5) * 0.02,
-    0.6 + r.nextDouble() * 1.6,
+    0.7 + r.nextDouble() * 1.4,
     r.nextDouble() * math.pi * 2,
+    r.nextInt(3),
   );
 }
 
@@ -478,22 +572,26 @@ class _ConstellationPainter extends CustomPainter {
     required this.time,
     required this.scale,
     required this.linkDistance,
-    required this.starColor,
+    required this.starColors,
     required this.lineColor,
     required this.backgroundColor,
     required this.gradient,
     required this.parallax,
+    required this.glow,
   });
 
   final List<_Star> stars;
   final double time;
   final double scale;
   final double linkDistance;
-  final Color starColor;
+
+  /// Un color por acento del tema; cada estrella usa el suyo.
+  final List<Color> starColors;
   final Color lineColor;
   final Color? backgroundColor;
   final Gradient? gradient;
   final Offset parallax;
+  final bool glow;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -551,12 +649,27 @@ class _ConstellationPainter extends CustomPainter {
     }
 
     // ── Estrellas ─────────────────────────────────────────────────────────
+    // Dos pasadas: halo tenue (círculo grande, alpha muy bajo) y núcleo.
+    // Se evita MaskFilter.blur a propósito: con cientos de estrellas resulta
+    // mucho más caro y el resultado visual es prácticamente el mismo.
+    final glowPaint = Paint()..style = PaintingStyle.fill;
     final dotPaint = Paint()..style = PaintingStyle.fill;
+
     for (var i = 0; i < pts.length; i++) {
       final s = stars[i];
-      final twinkle = 0.65 + 0.35 * math.sin(time * 1.6 + s.phase);
-      dotPaint.color = starColor.withValues(alpha: starColor.a * twinkle);
-      canvas.drawCircle(pts[i], s.radius * scale, dotPaint);
+      final color = starColors[s.tint % starColors.length];
+      final twinkle = 0.72 + 0.28 * math.sin(time * 1.6 + s.phase);
+      final r = s.radius * scale;
+
+      if (glow) {
+        glowPaint.color = color.withValues(alpha: color.a * twinkle * 0.1);
+        canvas.drawCircle(pts[i], r * 2.2, glowPaint);
+        glowPaint.color = color.withValues(alpha: color.a * twinkle * 0.16);
+        canvas.drawCircle(pts[i], r * 1.5, glowPaint);
+      }
+
+      dotPaint.color = color.withValues(alpha: color.a * twinkle);
+      canvas.drawCircle(pts[i], r, dotPaint);
     }
   }
 
@@ -565,10 +678,11 @@ class _ConstellationPainter extends CustomPainter {
       old.time != time ||
       old.scale != scale ||
       old.linkDistance != linkDistance ||
-      old.starColor != starColor ||
+      !listEquals(old.starColors, starColors) ||
       old.lineColor != lineColor ||
       old.backgroundColor != backgroundColor ||
       old.parallax != parallax ||
+      old.glow != glow ||
       old.stars.length != stars.length;
 
   @override

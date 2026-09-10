@@ -1,9 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show File, Platform;
+import 'dart:developer' as developer;
+import 'dart:math' show Random;
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show compute;
+import 'package:flutter/foundation.dart' show compute, kDebugMode;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart' show SchedulerBinding, SchedulerPhase;
 import 'package:flutter/services.dart';
 import 'package:flutter_monaco/flutter_monaco.dart';
 import 'package:http/http.dart' as http;
@@ -19,11 +23,25 @@ import '../models/procedimiento.dart';
 import '../models/snippet.dart';
 import '../models/uso_procedimiento.dart';
 import '../models/variable_dinamica.dart';
+import '../models/auto_apply.dart';
+import '../models/chat_message.dart';
+import '../models/edit_blocks.dart';
+import '../models/line_diff.dart';
+import '../models/pending_change.dart';
+import '../models/chat_conversation.dart';
+import '../models/chat_plan.dart';
+import '../models/code_highlight.dart';
+import '../models/copilot_event.dart';
+import '../models/editor_selection.dart';
 import '../providers/procedimientos_provider.dart';
+import '../services/backup_service.dart';
+import '../services/app_log.dart';
+import '../services/copilot_cli_service.dart';
 import '../services/schema_service.dart';
 import '../services/sirweb_service.dart';
 import '../services/snippet_service.dart';
 import 'constellation_background.dart';
+import 'slide_up_panel.dart';
 import 'ambiente_selector.dart';
 import '_editor_oracle_theme.dart';
 import '_editor_themes.dart';
@@ -32,6 +50,7 @@ import '_editor_plsql_completions.dart';
 import 'procedure_diff_panel.dart';
 import '../services/editor_draft_service.dart';
 import 'app_toast.dart';
+import 'floating_window.dart';
 import 'source_float_window.dart';
 
 part '_editor_toolbar_widgets.dart';
@@ -50,6 +69,7 @@ part '_editor_options_prefs.dart';
 part '_editor_completions_system.dart';
 part '_editor_save_compile.dart';
 part '_editor_build_methods.dart';
+part '_editor_ai_chat_panel.dart';
 
 // Máximo de caracteres permitidos para validación backend de Oracle DDL.
 const _kBackendSizeLimit = 100 * 1024; // 100 KB
@@ -66,6 +86,103 @@ String _formatearTiempoMsYSeg(int ms, {String prefix = ''}) {
   return '$prefix$ms ms ($segStr s)';
 }
 
+/// Rotulo de seccion de los modales del editor.
+class _SeccionLabel extends StatelessWidget {
+  final String label;
+  final bool isDark;
+  const _SeccionLabel({required this.label, required this.isDark});
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Text(
+      label.toUpperCase(),
+      style: TextStyle(
+        fontSize: 9,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.6,
+        color: isDark
+            ? cs.onSurfaceVariant.withValues(alpha: 0.85)
+            : cs.onSurfaceVariant,
+      ),
+    );
+  }
+}
+/// Campo de texto compacto de los modales del editor.
+class _CampoTexto extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+  final String? hint;
+  /// Restringe la entrada a digitos (overloads, codigos numericos...).
+  final bool numerico;
+  final bool isDark;
+  final int maxLines;
+  final List<TextInputFormatter>? inputFormatters;
+  final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onSubmitted;
+  const _CampoTexto({
+    required this.controller,
+    required this.label,
+    required this.numerico,
+    required this.isDark,
+    this.hint,
+    this.maxLines = 1,
+    this.inputFormatters,
+    this.onChanged,
+    this.onSubmitted,
+  });
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Una etiqueta vacia no debe dejar hueco: hay usos que la omiten.
+        if (label.isNotEmpty) ...[
+          _SeccionLabel(label: label, isDark: isDark),
+          const SizedBox(height: 4),
+        ],
+        TextField(
+          controller: controller,
+          maxLines: maxLines,
+          onChanged: onChanged,
+          onSubmitted: onSubmitted,
+          keyboardType: numerico
+              ? TextInputType.number
+              : (maxLines > 1 ? TextInputType.multiline : TextInputType.text),
+          inputFormatters:
+              inputFormatters ??
+              (numerico ? [FilteringTextInputFormatter.digitsOnly] : null),
+          style: const TextStyle(fontSize: 12),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: TextStyle(
+              fontSize: 11.5,
+              color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+            ),
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 8,
+              vertical: 8,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(4),
+              borderSide: BorderSide(color: cs.outlineVariant, width: 0.6),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(4),
+              borderSide: BorderSide(color: cs.outlineVariant, width: 0.6),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(4),
+              borderSide: BorderSide(color: cs.primary, width: 1),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
 enum _SaveStatus { idle, saving, saved, error }
 
 enum _CompileStatus { idle, compiling, ok, error }
@@ -92,6 +209,49 @@ class CodeEditorPanel extends StatefulWidget {
 
   @override
   State<CodeEditorPanel> createState() => _CodeEditorPanelState();
+
+  /// Panel vivo, para que la extensión de diagnóstico sepa a qué editor
+  /// hablarle. Es `static` porque el VM service no tiene contexto de widgets.
+  static _CodeEditorPanelState? _activeState;
+
+  /// Registra `ext.sirweb.evalJs` en el VM service.
+  ///
+  /// Permite evaluar JavaScript dentro del WebView2 de Monaco desde
+  /// DevTools o `dart:developer`, que es la única forma práctica de depurar
+  /// el puente Flutter↔Monaco sin recompilar. **Solo en debug**: en release
+  /// sería un agujero para ejecutar código arbitrario en el editor.
+  static void registerDebugEvalExtension() {
+    if (!kDebugMode) return;
+    developer.registerExtension('ext.sirweb.evalJs', (method, params) async {
+      final js = params['js'];
+      if (js == null || js.isEmpty) {
+        return developer.ServiceExtensionResponse.error(
+          developer.ServiceExtensionResponse.invalidParams,
+          'Falta el parámetro «js»',
+        );
+      }
+      final state = _activeState;
+      if (state == null) {
+        return developer.ServiceExtensionResponse.error(
+          developer.ServiceExtensionResponse.extensionError,
+          'No hay ningún editor abierto',
+        );
+      }
+      try {
+        final value = await state._withCtrl<Object?>(
+          (ctrl) => ctrl.evaluateJavaScript<Object?>(js),
+        );
+        return developer.ServiceExtensionResponse.result(
+          jsonEncode({'type': 'evalJs', 'result': value?.toString()}),
+        );
+      } catch (e) {
+        return developer.ServiceExtensionResponse.error(
+          developer.ServiceExtensionResponse.extensionError,
+          '$e',
+        );
+      }
+    });
+  }
 }
 
 class _CodeEditorPanelState extends State<CodeEditorPanel> {
@@ -140,6 +300,19 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
   // Decoraciones para resaltar líneas con errores (independientes de markers)
   MonacoDecorationSet? _errorDecos;
+
+  /// Cambio de Copilot aplicado y **pendiente de que el usuario decida**.
+  ///
+  /// Mientras existe, el editor muestra la barra de revisión y las líneas
+  /// afectadas van resaltadas.
+  PendingChange? _pendiente;
+
+  /// Tramo sobre el que está puesta la revisión.
+  int _pendienteActual = 0;
+
+  /// Marcas verdes sobre las líneas que escribió Copilot.
+  MonacoDecorationSet? _aiDecos;
+  Timer? _aiHighlightTimer;
   MonacoCompletionRegistration? _completionReg;
   MonacoCompletionRegistration? _variablesReg;
   MonacoCompletionRegistration? _schemaReg; // tablas, columnas, objetos Oracle
@@ -207,6 +380,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   List<_OutlineItem> _outlineItems = const [];
   bool _varsDocked = false;
 
+  /// Panel lateral de chat con GitHub Copilot.
+  bool _showAiChat = false;
+
   // ── Tab scroll overflow indicators ────────────────────────────────────
   final _tabsScrollCtrl = ScrollController();
   bool _tabsCanScrollLeft = false;
@@ -257,6 +433,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   @override
   void initState() {
     super.initState();
+    CodeEditorPanel._activeState = this;
     _openProcs.add(widget.procedimiento);
     _activeProcId = widget.procedimiento.cdProcedimiento;
     _loadPrefs();
@@ -282,7 +459,15 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       _refreshProcText(widget.procedimiento);
     }
     if (old.ambiente != widget.ambiente) {
-      AppToast.info('Ambiente cambiado a ${widget.ambiente}');
+      // `didUpdateWidget` corre dentro de la fase de build: mostrar el toast
+      // acá dispara `AppLog.notifyListeners()` y rompe a los `ListenableBuilder`
+      // que escuchan el log ("setState() called during build"). Se difiere al
+      // final del frame.
+      final nuevoAmbiente = widget.ambiente;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        AppToast.info('Ambiente cambiado a $nuevoAmbiente');
+      });
     }
   }
 
@@ -305,7 +490,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   @override
   void dispose() {
     _disposed = true;
+    if (identical(CodeEditorPanel._activeState, this)) {
+      CodeEditorPanel._activeState = null;
+    }
     _debounce?.cancel();
+    _aiHighlightTimer?.cancel();
     _backendDebounce?.cancel();
     _declareDebounce?.cancel();
     editorThemeStore.removeListener(_onEditorThemeChanged);
@@ -319,6 +508,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _disposeQuietly(() => _declareVarsReg?.dispose());
     _variablesReaction?.call();
     _disposeQuietly(() => _errorDecos?.dispose());
+    _disposeQuietly(() => _aiDecos?.dispose());
     _disposeQuietly(() => _zoomInAction?.dispose());
     _disposeQuietly(() => _zoomOutAction?.dispose());
     _disposeQuietly(() => _saveAction?.dispose());
@@ -657,6 +847,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     // custom, todas en paralelo.
     await Future.wait([
       ctrl.createDecorationSet().then((d) => _errorDecos = d),
+      ctrl.createDecorationSet().then((d) => _aiDecos = d),
       completionsFuture,
       ctrl
           .addAction(
@@ -968,6 +1159,288 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         if (mounted) setState(() => _outlineItems = items);
       });
     });
+  }
+
+  // ── Chat con GitHub Copilot ─────────────────────────────────────────────
+
+  void _toggleAiChat() {
+    setState(() => _showAiChat = !_showAiChat);
+    _savePrefs();
+  }
+
+  /// Selección activa **con su rango de líneas**, o `null` si no hay ninguna.
+  ///
+  /// El chat la usa para mandar solo el fragmento marcado y para etiquetar el
+  /// chip de contexto como `PROCEDIMIENTO:112-140`, igual que VS Code.
+  Future<EditorSelection?> _selectionInfo() async {
+    final raw = await _withCtrl<String?>(
+      (ctrl) => ctrl.evaluateJavaScript<String>(
+        r'(()=>{ try {'
+        r' const s=window.editor.getSelection(); if(!s||s.isEmpty())return null;'
+        r' const t=window.editor.getModel().getValueInRange(s);'
+        r' if(!t)return null;'
+        r' return JSON.stringify({startLine:s.startLineNumber,'
+        r' endLine:s.endLineNumber, text:t});'
+        r' } catch(e){ return null; } })()',
+      ),
+    );
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return EditorSelection.fromJson(jsonDecode(raw) as Map<String, dynamic>?);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Resumen de los problemas del procedimiento activo para dárselo a Copilot.
+  String _erroresResumen() {
+    final procId = _activeProcId;
+    if (procId == null) return '';
+    final issues = <PlSqlIssue>[
+      ...?_compileErrorsPerProc[procId],
+      ...?_backendIssuesPerProc[procId],
+    ];
+    if (issues.isEmpty) return '';
+    return issues
+        .take(20)
+        .map((i) => 'Línea ${i.line}, col ${i.col}: ${i.message}')
+        .join('\n');
+  }
+
+  /// Inserta el código propuesto por Copilot en la posición del cursor.
+  Future<void> _insertCodeAtCursor(String code) async {
+    await _withCtrl((ctrl) async {
+      final pos = await ctrl.getCursorPosition();
+      if (pos == null) return;
+      await ctrl.document.insert(pos, code);
+    });
+    if (mounted) AppToast.success('Código insertado');
+  }
+
+  /// Aplica el código de Copilot **sobre el documento abierto**.
+  ///
+  /// Si hay selección se reemplaza solo ella; si no, se sustituye el
+  /// documento entero previa confirmación. La edición se hace con
+  /// `executeEdits`, no reescribiendo el modelo: así entra en la pila de
+  /// deshacer de Monaco y **Ctrl+Z revierte el cambio**, que es la red de
+  /// seguridad imprescindible cuando quien escribe es un modelo.
+  /// Aplica las ediciones **ancladas** que propuso Copilot.
+  ///
+  /// Es el camino equivalente a las herramientas de edición de un agente de
+  /// IDE: el modelo dice qué texto exacto sustituir y aquí se comprueba que
+  /// exista y sea único. Si un ancla falla se avisa en vez de escribir a
+  /// ciegas, y las demás ediciones sí se aplican.
+  Future<bool> _applyAnchoredEdits(List<EditBlock> bloques) async {
+    final actual = await _withCtrl((c) => c.document.getText());
+    if (actual == null || !mounted) return false;
+
+    final r = applyEditBlocks(actual, bloques);
+    if (r.aplicadas == 0) {
+      if (mounted) {
+        AppToast.warning(
+          bloques.length == 1
+              ? r.errores.first.mensaje
+              : 'Ninguna edición encajó con el documento actual',
+        );
+      }
+      return false;
+    }
+
+    // El texto resultante entra por el mismo camino que el bloque completo,
+    // así que hereda el diff por líneas, el resaltado y el Ctrl+Z.
+    final ok = await _applyCodeToDocument(r.texto, confirmar: false);
+    if (ok && r.errores.isNotEmpty && mounted) {
+      AppToast.warning(
+        '${r.errores.length} de ${bloques.length} ediciones no encajaron',
+      );
+    }
+    return ok;
+  }
+
+  Future<bool> _applyCodeToDocument(
+    String code, {
+    bool confirmar = true,
+  }) async {
+    final seleccion = await _selectionInfo();
+    if (!mounted) return false;
+
+    // Reemplazar todo el documento es destructivo: se pregunta. Reemplazar
+    // una selección no, porque el usuario ya delimitó el alcance.
+    if (seleccion == null && confirmar) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text(
+            'Aplicar los cambios',
+            style: TextStyle(fontSize: 14),
+          ),
+          content: const Text(
+            'No hay nada seleccionado, así que se actualizará el '
+            'procedimiento abierto.\n\nSolo se tocan las líneas que cambian, '
+            'y podrás deshacerlo con Ctrl+Z.',
+            style: TextStyle(fontSize: 12),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Aplicar'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true) return false;
+    }
+
+    // El diff se calcula contra la selección si la hay, y si no contra el
+    // documento entero. `offset` traslada los índices del tramo al documento.
+    final actual =
+        seleccion?.text ?? await _withCtrl((c) => c.document.getText());
+    if (actual == null || !mounted) return false;
+    final offset = (seleccion?.startLine ?? 1) - 1;
+
+    final hunks = diffLines(aLineas(actual), aLineas(code));
+    if (hunks.isEmpty) {
+      if (mounted) AppToast.info('El código propuesto ya estaba aplicado');
+      return false;
+    }
+
+    // Un único `executeEdits` con todos los tramos: Monaco lo trata como un
+    // solo paso de deshacer, de modo que Ctrl+Z revierte el cambio completo.
+    final payload = jsonEncode([
+      for (final h in hunks)
+        {
+          'inicio': h.startOld + offset,
+          'fin': h.endOld + offset,
+          'texto': h.lines.join('\n'),
+          'lineas': h.lines.length,
+        },
+    ]);
+
+    final ok = await _withCtrl<bool>(
+      (ctrl) async =>
+          await ctrl.evaluateJavaScript<bool>(
+            '(()=>{ try {'
+            ' const ed=window.editor, model=ed.getModel();'
+            ' const total=model.getLineCount();'
+            ' const hunks=$payload;'
+            ' const edits=hunks.map(h=>{'
+            // `inicio`/`fin` vienen en base 0 y con `fin` exclusivo.
+            '   const desde=h.inicio+1, hasta=h.fin;'
+            '   let rango, texto;'
+            '   if (hasta >= total) {'
+            // Hasta el final: sin salto final, para no dejar una línea vacía.
+            '     rango={startLineNumber: Math.min(desde,total), startColumn: 1,'
+            '            endLineNumber: total,'
+            '            endColumn: model.getLineMaxColumn(total)};'
+            '     texto=h.texto;'
+            '   } else {'
+            '     rango={startLineNumber: desde, startColumn: 1,'
+            '            endLineNumber: hasta+1, endColumn: 1};'
+            '     texto=h.lineas>0 ? h.texto+"\\n" : "";'
+            '   }'
+            '   return {range: rango, text: texto, forceMoveMarkers: true};'
+            ' });'
+            ' ed.executeEdits("copilot-chat", edits);'
+            ' return true;'
+            ' } catch(e){ return false; } })()',
+          ) ??
+          false,
+    );
+
+    if (ok != true) {
+      if (mounted) AppToast.warning('No se pudo aplicar el cambio');
+      return false;
+    }
+
+    // Solo se resaltan las líneas escritas: es justo lo que hace visible el
+    // cambio frente a reemplazar el documento entero.
+    final rangos = lineasTocadas(
+      hunks,
+    ).map((r) => (r.$1 + offset, r.$2 + offset)).toList();
+    await _highlightAiChange(rangos);
+    await _revealPrimerCambio(rangos);
+
+    if (mounted) {
+      final n = hunks.fold<int>(0, (s, h) => s + h.added);
+      final b = hunks.fold<int>(0, (s, h) => s + h.removed);
+      AppToast.success('${_resumenCambio(n, b)} · Ctrl+Z para deshacer');
+    }
+    return true;
+  }
+
+  /// Texto del aviso: qué se escribió y qué se quitó.
+  static String _resumenCambio(int anadidas, int borradas) {
+    String plural(int n, String s) => n == 1 ? '1 línea $s' : '$n líneas $s';
+    if (anadidas > 0 && borradas > 0) {
+      return '${plural(anadidas, "escritas")}, ${plural(borradas, "sustituidas")}';
+    }
+    if (anadidas > 0) return plural(anadidas, 'escritas');
+    return plural(borradas, 'eliminadas');
+  }
+
+  /// Lleva la vista al primer tramo tocado.
+  Future<void> _revealPrimerCambio(List<(int, int)> rangos) async {
+    if (rangos.isEmpty) return;
+    await _withCtrl((ctrl) => ctrl.revealLine(rangos.first.$1, center: true));
+  }
+
+  /// Resalta en el editor las líneas que acaba de escribir Copilot.
+  ///
+  /// Sin esto, un reemplazo largo es indistinguible del código que ya estaba:
+  /// hay que poder ver de un vistazo qué tocó el modelo. Se marca también en
+  /// la regla lateral y en el minimapa para localizarlo sin hacer scroll.
+  Future<void> _highlightAiChange(List<(int, int)> rangos) async {
+    _aiHighlightTimer?.cancel();
+    _aiHighlightTimer = null;
+    if (rangos.isEmpty) return;
+
+    await _withAiDecos(
+      (decos) => decos.set([
+        for (final (desde, hasta) in rangos)
+          DecorationOptions.line(
+            range: Range.lines(desde, hasta),
+            className: 'copilot-change-line',
+            additionalOptions: {
+              'overviewRuler': {'color': '#3FB950', 'position': 4},
+              'minimap': {'color': '#3FB950', 'position': 1},
+            },
+          ),
+      ]),
+    );
+
+    // El resaltado es un aviso, no un estado: se retira solo para no dejar el
+    // editor pintado de verde durante el resto de la sesión.
+    _aiHighlightTimer = Timer(
+      const Duration(seconds: 20),
+      () => unawaited(_clearAiHighlight()),
+    );
+  }
+
+  Future<void> _clearAiHighlight() async {
+    _aiHighlightTimer?.cancel();
+    _aiHighlightTimer = null;
+    await _withAiDecos((decos) => decos.set(const []));
+  }
+
+  /// Igual que [_withErrorDecos] pero para las marcas de Copilot.
+  Future<void> _withAiDecos(
+    Future<void> Function(MonacoDecorationSet decos) action,
+  ) async {
+    final decos = _aiDecos;
+    if (decos == null || _ctrl == null || _disposed || !mounted) return;
+    try {
+      await action(decos);
+    } catch (e) {
+      if (_isDisposedError(e)) {
+        _aiDecos = null;
+        return;
+      }
+      rethrow;
+    }
   }
 
   void _onTabsScroll() {
@@ -1551,16 +2024,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   }
 
   void _openSnippetsManager() {
-    showGeneralDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'snippets-dismiss',
-      barrierColor: Colors.black45,
-      transitionDuration: const Duration(milliseconds: 160),
-      transitionBuilder: (_, anim, _, child) =>
-          FadeTransition(opacity: anim, child: child),
-      pageBuilder: (_, _, _) => const _SnippetsManagerDialog(),
-    ).then((_) {
+    // El gestor se monta como ventana flotante (movible y minimizable), no
+    // como diálogo con barrera: así el editor sigue usable por detrás.
+    showSnippetsManager(context).then((_) {
       if (mounted) _registerSnippetCompletions();
     });
   }
@@ -2047,7 +2513,14 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                         showStatusBar: true,
                         page: const MonacoPageConfig(
                           customCss:
-                              '.plsql-error-line { background: rgba(255,68,68,0.1) !important; }',
+                              '.plsql-error-line { background: rgba(255,68,68,0.1) !important; }'
+                              // Verde de «línea añadida» de VS Code, con una
+                              // barra a la izquierda para que se distinga del
+                              // resaltado de la línea activa.
+                              '.copilot-change-line {'
+                              ' background: rgba(63,185,80,0.12) !important;'
+                              ' border-left: 2px solid rgba(63,185,80,0.85) !important;'
+                              ' }',
                         ),
                         contentDebounce: const Duration(milliseconds: 600),
                         onReady: _onReady,
@@ -2107,6 +2580,24 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                         },
                         onClose: () {
                           setState(() => _showOutline = false);
+                          _savePrefs();
+                        },
+                      ),
+                    // Chat con GitHub Copilot
+                    if (_showAiChat)
+                      _AiChatDockedPanel(
+                        procedimiento: widget.procedimiento.cdProcedimiento,
+                        ambiente: widget.ambiente,
+                        getSelection: _selectionInfo,
+                        getFullText: () => _editorFullText.isNotEmpty
+                            ? _editorFullText
+                            : widget.procedimiento.deTexto,
+                        getErrors: _erroresResumen,
+                        onInsertCode: _insertCodeAtCursor,
+                        onApplyCode: _applyCodeToDocument,
+                        onApplyEdits: _applyAnchoredEdits,
+                        onClose: () {
+                          setState(() => _showAiChat = false);
                           _savePrefs();
                         },
                       ),

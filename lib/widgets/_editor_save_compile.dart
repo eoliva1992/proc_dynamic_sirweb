@@ -170,6 +170,7 @@ extension _EditorSaveCompileMethods on _CodeEditorPanelState {
       final procId = _activeProcId ?? '';
       if (rawCompileErrors.isNotEmpty) {
         final compileIssues = parseOracleCompileErrors(rawCompileErrors);
+        _logCompileIssues(procId, compileIssues, rawCompileErrors);
         setState(() {
           _compileErrorsPerProc[procId] = compileIssues;
           _errorCounts[procId] = ([
@@ -215,6 +216,10 @@ extension _EditorSaveCompileMethods on _CodeEditorPanelState {
         if (_compileErrorsPerProc.containsKey(procId)) {
           setState(() => _compileErrorsPerProc.remove(procId));
         }
+        AppLog.instance.success(
+          'Compilado OK — ${procId.isEmpty ? 'procedimiento' : procId}',
+          source: 'Compilación',
+        );
         setState(() => _compileStatus = _CompileStatus.ok);
       }
     } catch (e) {
@@ -234,6 +239,7 @@ extension _EditorSaveCompileMethods on _CodeEditorPanelState {
                 source: 'Oracle',
               ),
             ];
+      _logCompileIssues(procId, errors, msg);
       setState(() {
         _compileStatus = _CompileStatus.error;
         _compileErrorsPerProc[procId] = errors;
@@ -246,5 +252,20 @@ extension _EditorSaveCompileMethods on _CodeEditorPanelState {
     Timer(const Duration(seconds: 4), () {
       if (mounted) setState(() => _compileStatus = _CompileStatus.idle);
     });
+  }
+
+  /// Deja los errores de compilación en la consola de la app (AppLog) para que
+  /// queden registrados aunque se cierre el panel de problemas del editor.
+  void _logCompileIssues(String procId, List<PlSqlIssue> issues, Object? raw) {
+    if (issues.isEmpty) return;
+    final detail = issues
+        .map((e) => '${e.source} línea ${e.line}, col ${e.col}: ${e.message}')
+        .join('\n');
+    AppLog.instance.error(
+      'Compilación con ${issues.length} problema(s) — '
+      '${procId.isEmpty ? 'procedimiento' : procId}',
+      source: 'Compilación',
+      detail: detail.isEmpty ? raw?.toString() : detail,
+    );
   }
 }

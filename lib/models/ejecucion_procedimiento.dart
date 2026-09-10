@@ -30,6 +30,10 @@
 ///   },
 ///   "salidas": { "VA_RESULTADO": "OK" },
 ///   "variablesDinamicasUsadas": { "#FECHA#": "06/09/2026" },
+///   "variablesDeclaradas": [
+///     { "nombre": "v_total", "tipo": "NUMBER", "valorInicial": null,
+///       "valor": "125" }
+///   ],
 ///   "traza": ["…"], "errorOracle": null, "duracionMs": 42,
 ///   "rollback": true, "commitDetectado": false
 /// }
@@ -204,6 +208,97 @@ class ContextoEjecucion {
       camposSinResolver.isEmpty;
 }
 
+/// Variable PL/SQL que el orquestador declaró alrededor del texto de la regla.
+///
+/// Llegan en `variablesDeclaradas` como
+/// `{ "nombre": "v_total", "tipo": "NUMBER", "valorInicial": null }`: es el
+/// bloque `DECLARE` real con el que se ejecutó el procedimiento.
+class VariableDeclarada {
+  final String nombre;
+  final String? tipo;
+
+  /// Valor con el que se inicializó la variable en el `DECLARE`.
+  final dynamic valorInicial;
+
+  /// Valor que tenía la variable al terminar la ejecución.
+  final dynamic valor;
+
+  const VariableDeclarada({
+    required this.nombre,
+    this.tipo,
+    this.valorInicial,
+    this.valor,
+  });
+
+  factory VariableDeclarada.fromJson(Map<String, dynamic> json) {
+    return VariableDeclarada(
+      nombre: json['nombre']?.toString() ?? '',
+      tipo: json['tipo']?.toString(),
+      valorInicial: json['valorInicial'],
+      valor: json['valor'],
+    );
+  }
+
+  /// `true` cuando la ejecución dejó en la variable un valor distinto del
+  /// inicial: es lo que interesa mirar al depurar la regla.
+  bool get cambio =>
+      (valor?.toString() ?? '') != (valorInicial?.toString() ?? '');
+
+  /// Declaración tal como se vería dentro del bloque `DECLARE`.
+  String get declaracion {
+    final t = (tipo ?? '').trim();
+    final head = t.isEmpty ? nombre : '$nombre $t';
+    final v = valorInicial;
+    final s = v?.toString() ?? '';
+    if (s.isEmpty) return '$head;';
+    return '$head := $s;';
+  }
+
+  /// Normaliza `variablesDeclaradas` aceptando los formatos conocidos: lista de
+  /// objetos (formato actual), lista de nombres, o mapa `nombre → tipo` /
+  /// `nombre → {tipo, valorInicial}` de respuestas anteriores.
+  static List<VariableDeclarada> listFrom(dynamic raw) {
+    final out = <VariableDeclarada>[];
+    if (raw is List) {
+      for (final e in raw) {
+        if (e is Map) {
+          final v = VariableDeclarada.fromJson(
+            e.map((k, val) => MapEntry(k.toString(), val)),
+          );
+          if (v.nombre.isNotEmpty) out.add(v);
+        } else {
+          final s = e?.toString() ?? '';
+          if (s.isNotEmpty) out.add(VariableDeclarada(nombre: s));
+        }
+      }
+    } else if (raw is Map) {
+      raw.forEach((k, v) {
+        final nombre = k?.toString() ?? '';
+        if (nombre.isEmpty) return;
+        if (v is Map) {
+          final m = v.map((kk, vv) => MapEntry(kk.toString(), vv));
+          out.add(
+            VariableDeclarada(
+              nombre: nombre,
+              tipo: m['tipo']?.toString(),
+              valorInicial: m['valorInicial'],
+              valor: m['valor'],
+            ),
+          );
+        } else {
+          out.add(VariableDeclarada(nombre: nombre, tipo: v?.toString()));
+        }
+      });
+    } else if (raw is String && raw.isNotEmpty) {
+      for (final s in raw.split(',')) {
+        final t = s.trim();
+        if (t.isNotEmpty) out.add(VariableDeclarada(nombre: t));
+      }
+    }
+    return out;
+  }
+}
+
 /// Resultado devuelto por la ejecución del procedimiento dinámico.
 class EjecucionResultado {
   final String? ambiente;
@@ -224,6 +319,9 @@ class EjecucionResultado {
   /// reemplazó). Las respuestas viejas mandaban sólo la lista de nombres: en
   /// ese caso el valor queda en `null`.
   final Map<String, dynamic> variablesDinamicasUsadas;
+
+  /// Bloque `DECLARE` que armó el orquestador (nombre, tipo y valor inicial).
+  final List<VariableDeclarada> variablesDeclaradas;
   final List<String> traza;
   final String? errorOracle;
   final int? duracionMs;
@@ -243,6 +341,7 @@ class EjecucionResultado {
     this.contexto = const ContextoEjecucion(),
     this.salidas = const {},
     this.variablesDinamicasUsadas = const {},
+    this.variablesDeclaradas = const [],
     this.traza = const [],
     this.errorOracle,
     this.duracionMs,
@@ -279,6 +378,9 @@ class EjecucionResultado {
       // viejo. `_campoValorMap` acepta ambos.
       variablesDinamicasUsadas: ContextoEjecucion._campoValorMap(
         json['variablesDinamicasUsadas'],
+      ),
+      variablesDeclaradas: VariableDeclarada.listFrom(
+        json['variablesDeclaradas'],
       ),
       traza: ContextoEjecucion._strList(json['traza']),
       errorOracle: json['errorOracle']?.toString(),

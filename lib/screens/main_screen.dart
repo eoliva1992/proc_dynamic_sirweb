@@ -27,6 +27,7 @@ import '../widgets/object_source_page.dart';
 import '../widgets/schema_command_palette.dart';
 import '../widgets/schema_sidebar.dart';
 import '../widgets/schema_status_overlay.dart';
+import '../widgets/app_console.dart';
 import '../widgets/app_toast.dart';
 import '../widgets/search_tab_view.dart';
 import '../widgets/source_tab_controller.dart';
@@ -647,14 +648,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     final ambiente = _tabs[_activeTab].ambiente;
     // Sync provider to the active tab's database before opening the dialog
     procedimientosProvider.setAmbiente(ambiente);
-    final result =
-        await showDialog<
-          ({String cdProcedimiento, String inConfiguracion, String ambiente})?
-        >(
-          context: context,
-          barrierDismissible: false,
-          builder: (_) => NewProcedureDialog(ambiente: ambiente),
-        );
+    final result = await showNewProcedureDialog(context, ambiente: ambiente);
     if (result != null && context.mounted) {
       AppToast.success(
         procedimientosProvider.mensaje ?? 'Creado correctamente',
@@ -1080,14 +1074,26 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             shift: true,
           ): () =>
               _showEjecutarLlamada(context),
+          // Consola de la aplicación (log de compilaciones y errores).
+          const SingleActivator(
+            LogicalKeyboardKey.keyL,
+            control: true,
+            shift: true,
+          ): () =>
+              showAppConsole(context),
         },
         child: Focus(
           autofocus: true,
           child: Stack(
             children: [
               // Fondo de constelación: escala con el tamaño de la ventana.
+              // Las estrellas se tiñen con los acentos del tema activo.
               const Positioned.fill(
-                child: ConstellationBackground(density: 0.9, scale: 1.0),
+                child: ConstellationBackground(
+                  density: 1.1,
+                  scale: 1.0,
+                  intensity: 1.2,
+                ),
               ),
               Scaffold(
                 backgroundColor: Colors.transparent,
@@ -1899,31 +1905,50 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   }
 
   AppBar _buildAppBar(BuildContext context) {
-    final appBarBg =
-        Theme.of(context).appBarTheme.backgroundColor ??
-        Theme.of(context).colorScheme.surface;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final appBarBg = theme.appBarTheme.backgroundColor ?? cs.surface;
+    // Color de primer plano de la barra: lo calcula la paleta del tema
+    // (blanco sobre barras oscuras, negro sobre barras claras).
+    final barFg = theme.appBarTheme.iconTheme?.color ?? cs.onSurface;
+    final barFgSoft = barFg.withValues(alpha: 0.7);
+    final barIsDark = appBarBg.computeLuminance() < 0.45;
+
     return AppBar(
       titleSpacing: 16,
       // Translúcido + blur suave y constelación propia dentro de la barra.
       backgroundColor: appBarBg.withValues(alpha: 0.55),
-      flexibleSpace: const ConstellationAppBarBackground(),
-      title: const Text(
+      foregroundColor: barFg,
+      flexibleSpace: ConstellationAppBarBackground(
+        onDark: barIsDark,
+        density: 2.8,
+        linkDistance: 100,
+      ),
+      title: Text(
         'Procedimientos Dinámicos',
-        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+          color: barFg,
+        ),
       ),
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(1),
         child: Container(
           height: 1,
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF003B6F), Color(0xFF0078D4), Color(0xFF003B6F)],
+              colors: [
+                cs.primary.withValues(alpha: 0.15),
+                cs.primary,
+                cs.primary.withValues(alpha: 0.15),
+              ],
             ),
           ),
         ),
       ),
       actions: [
-        const ConnectionIndicator(onlineLabelColor: Colors.white70),
+        ConnectionIndicator(onlineLabelColor: barFgSoft),
         const SizedBox(width: 4),
         Tooltip(
           message: _schemaSidebarOpen
@@ -1937,7 +1962,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                   ? Icons.menu_open_rounded
                   : Icons.schema_outlined,
             ),
-            color: _schemaSidebarOpen ? Colors.white : Colors.white70,
+            color: _schemaSidebarOpen ? barFg : barFgSoft,
           ),
         ),
         Tooltip(
@@ -1945,21 +1970,23 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           child: IconButton(
             onPressed: () => _showSchemaCommandPalette(context),
             icon: const Icon(Icons.search_rounded),
-            color: Colors.white70,
+            color: barFgSoft,
           ),
         ),
         Tooltip(
           message: 'Ejecutar objeto PL/SQL (Ctrl+Shift+E)',
           child: IconButton(
             onPressed: () => _showEjecutarLlamada(context),
-            icon: const Icon(Icons.terminal_rounded),
-            color: Colors.white70,
+            icon: const Icon(Icons.play_circle_outline_rounded),
+            color: barFgSoft,
           ),
         ),
+        AppConsoleButton(color: barFgSoft),
         Observer(
           builder: (_) => _UsuarioButton(
             cdUsuario: procedimientosProvider.cdUsuario,
             onTap: () => _showUsuarioDialog(context),
+            foreground: barFg,
           ),
         ),
         const SizedBox(width: 8),
@@ -1995,15 +2022,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                   height: 36,
                   child: Row(
                     children: [
-                      Container(
-                        width: 14,
-                        height: 14,
-                        decoration: BoxDecoration(
-                          color: t.swatch,
-                          borderRadius: BorderRadius.circular(3),
-                          border: Border.all(color: Colors.grey, width: 0.6),
-                        ),
-                      ),
+                      ThemeSwatch(bg: t.swatch, accent: t.accent, size: 14),
                       const SizedBox(width: 8),
                       Text(t.name, style: const TextStyle(fontSize: 13)),
                       if (active) ...[
@@ -2020,15 +2039,16 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
               child: PopupMenuButton<String>(
                 tooltip: '',
                 offset: const Offset(0, 40),
+                constraints: const BoxConstraints(
+                  minWidth: 220,
+                  maxWidth: 280,
+                  maxHeight: 520,
+                ),
                 onSelected: editorThemeStore.setTheme,
                 itemBuilder: (_) => items,
                 icon: Stack(
                   children: [
-                    const Icon(
-                      Icons.palette_outlined,
-                      color: Colors.white70,
-                      size: 22,
-                    ),
+                    Icon(Icons.palette_outlined, color: barFgSoft, size: 22),
                     Positioned(
                       right: 0,
                       bottom: 0,
@@ -2038,7 +2058,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                         decoration: BoxDecoration(
                           color: meta.swatch,
                           shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white70, width: 1),
+                          border: Border.all(color: barFgSoft, width: 1),
                         ),
                       ),
                     ),
@@ -2053,7 +2073,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           child: IconButton(
             onPressed: () => _showShortcutsHelp(context),
             icon: const Icon(Icons.help_outline_rounded),
-            color: Colors.white70,
+            color: barFgSoft,
           ),
         ),
         const SizedBox(width: 8),

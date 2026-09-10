@@ -426,7 +426,7 @@ class _VarsDockedPanelState extends State<_VarsDockedPanel> {
 
 // ── Theme picker dialog ───────────────────────────────────────────────────────
 
-class _ThemePickerDialog extends StatelessWidget {
+class _ThemePickerDialog extends StatefulWidget {
   final String currentThemeId;
   final Future<void> Function(String id) onSelected;
 
@@ -436,14 +436,22 @@ class _ThemePickerDialog extends StatelessWidget {
   });
 
   @override
+  State<_ThemePickerDialog> createState() => _ThemePickerDialogState();
+}
+
+class _ThemePickerDialogState extends State<_ThemePickerDialog> {
+  /// `null` = todos, `true` = solo oscuros, `false` = solo claros.
+  bool? _onlyDark;
+
+  String get currentThemeId => widget.currentThemeId;
+  Future<void> Function(String id) get onSelected => widget.onSelected;
+
+  @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final grouped = <String, List<EditorThemeMeta>>{};
-    for (final t in kEditorThemes) {
-      grouped.putIfAbsent(t.category, () => []).add(t);
-    }
+    final grouped = groupedEditorThemes(onlyDark: _onlyDark);
 
     return Center(
       child: Material(
@@ -505,6 +513,33 @@ class _ThemePickerDialog extends StatelessWidget {
                   ],
                 ),
               ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 2),
+                child: Row(
+                  children: [
+                    for (final f in const [
+                      (label: 'Todos', value: null),
+                      (label: 'Oscuros', value: true),
+                      (label: 'Claros', value: false),
+                    ])
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: ChoiceChip(
+                          label: Text(
+                            f.label,
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                          selected: _onlyDark == f.value,
+                          visualDensity: VisualDensity.compact,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                          onSelected: (_) =>
+                              setState(() => _onlyDark = f.value),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
               Flexible(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.symmetric(vertical: 8),
@@ -541,17 +576,9 @@ class _ThemePickerDialog extends StatelessWidget {
                               child: Row(
                                 children: [
                                   // Color swatch
-                                  Container(
-                                    width: 16,
-                                    height: 16,
-                                    decoration: BoxDecoration(
-                                      color: theme.swatch,
-                                      borderRadius: BorderRadius.circular(3),
-                                      border: Border.all(
-                                        color: cs.outlineVariant,
-                                        width: 0.5,
-                                      ),
-                                    ),
+                                  ThemeSwatch(
+                                    bg: theme.swatch,
+                                    accent: theme.accent,
                                   ),
                                   const SizedBox(width: 10),
                                   Text(

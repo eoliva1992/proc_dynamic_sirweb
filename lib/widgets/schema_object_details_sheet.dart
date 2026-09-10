@@ -238,6 +238,14 @@ class _ObjectDetailsModal extends StatefulWidget {
 class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
   bool _isFavorite = false;
 
+  /// Desplazamiento del modal respecto del centro (arrastre por la cabecera).
+  Offset _position = Offset.zero;
+
+  /// Estado del objeto en Oracle (`ALL_OBJECTS.STATUS`): VALID / INVALID.
+  /// `null` mientras se está consultando o si no se pudo determinar.
+  String? _objectStatus;
+  bool _statusLoading = true;
+
   String get name => widget.name;
   String get type => widget.type;
   String get ambiente => widget.ambiente;
@@ -246,6 +254,32 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
   void initState() {
     super.initState();
     _loadFavoriteState();
+    _loadObjectStatus();
+  }
+
+  Future<void> _loadObjectStatus() async {
+    try {
+      final props = await SchemaService.instance.getObjectInfo(
+        name,
+        type,
+        ambiente: ambiente,
+      );
+      String? status;
+      for (final p in props) {
+        if (p.name.toUpperCase() == 'STATUS') {
+          status = p.value.trim().toUpperCase();
+          break;
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _objectStatus = status;
+          _statusLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _statusLoading = false);
+    }
   }
 
   Future<void> _loadFavoriteState() async {
@@ -290,14 +324,15 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
   }
 
   void _openDiff() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SchemaObjectDiffPage(
-          objectName: name,
-          objectType: type,
-          sourceAmbiente: ambiente,
-        ),
-      ),
+    // El comparador es una ventana flotante sin barrera: cerramos el modal de
+    // detalles para que quede la app utilizable por detrás.
+    final ctx = rootDialogContext ?? context;
+    Navigator.of(context).pop();
+    showSchemaObjectDiff(
+      ctx,
+      objectName: name,
+      objectType: type,
+      sourceAmbiente: ambiente,
     );
   }
 
@@ -331,60 +366,92 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
     final h = (size.height * 0.80).clamp(480.0, 700.0);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final color = _tc(type);
-    return Center(
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
+    // Posición base centrada + desplazamiento acumulado del arrastre, siempre
+    // dentro de los límites de la pantalla.
+    final left = ((size.width - w) / 2 + _position.dx).clamp(
+      0.0,
+      (size.width - w).clamp(0.0, double.infinity),
+    );
+    final top = ((size.height - h) / 2 + _position.dy).clamp(
+      0.0,
+      (size.height - h).clamp(0.0, double.infinity),
+    );
+    return Stack(
+      children: [
+        Positioned(
+          left: left,
+          top: top,
           width: w,
           height: h,
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: color.withValues(alpha: isDark ? 0.22 : 0.16),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? 0.55 : 0.20),
-                blurRadius: 48,
-                spreadRadius: -4,
-                offset: const Offset(0, 20),
-              ),
-              BoxShadow(
-                color: color.withValues(alpha: isDark ? 0.10 : 0.06),
-                blurRadius: 24,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: DefaultTabController(
-              length: 4,
-              child: Column(
-                children: [
-                  _buildHeader(context, isDark, color),
-                  _buildTabBar(isDark, color),
-                  Expanded(
-                    child: TabBarView(
-                      children: [
-                        _DetallesTab(
-                          name: name,
-                          type: type,
-                          ambiente: ambiente,
-                        ),
-                        _InfoTab(name: name, type: type, ambiente: ambiente),
-                        _PermisosTab(name: name, ambiente: ambiente),
-                        _ReferenciasTab(name: name, ambiente: ambiente),
-                      ],
-                    ),
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: color.withValues(alpha: isDark ? 0.22 : 0.16),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: isDark ? 0.55 : 0.20),
+                    blurRadius: 48,
+                    spreadRadius: -4,
+                    offset: const Offset(0, 20),
+                  ),
+                  BoxShadow(
+                    color: color.withValues(alpha: isDark ? 0.10 : 0.06),
+                    blurRadius: 24,
+                    offset: const Offset(0, 4),
                   ),
                 ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: DefaultTabController(
+                  length: 4,
+                  child: Column(
+                    children: [
+                      // La cabecera actúa como barra de título: arrastrando
+                      // sobre ella se mueve el modal.
+                      MouseRegion(
+                        cursor: SystemMouseCursors.move,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onPanUpdate: (d) =>
+                              setState(() => _position += d.delta),
+                          onDoubleTap: () =>
+                              setState(() => _position = Offset.zero),
+                          child: _buildHeader(context, isDark, color),
+                        ),
+                      ),
+                      _buildTabBar(isDark, color),
+                      Expanded(
+                        child: TabBarView(
+                          children: [
+                            _DetallesTab(
+                              name: name,
+                              type: type,
+                              ambiente: ambiente,
+                            ),
+                            _InfoTab(
+                              name: name,
+                              type: type,
+                              ambiente: ambiente,
+                            ),
+                            _PermisosTab(name: name, ambiente: ambiente),
+                            _ReferenciasTab(name: name, ambiente: ambiente),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
         ),
-      ),
+      ],
     );
   }
 
@@ -461,6 +528,12 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
                     _badge(type, color),
                     const SizedBox(width: 6),
                     _badge(ambiente, ambColor),
+                    const SizedBox(width: 6),
+                    _StatusBadge(
+                      status: _objectStatus,
+                      loading: _statusLoading,
+                      isDark: isDark,
+                    ),
                   ],
                 ),
               ],
@@ -632,6 +705,105 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
 }
 
 // -- Shared helpers ------------------------------------------------------------
+
+/// Indicador de compilación del objeto (`ALL_OBJECTS.STATUS`).
+///
+/// Verde = VALID, rojo = INVALID, gris = desconocido / no aplica.
+class _StatusBadge extends StatelessWidget {
+  final String? status;
+  final bool loading;
+  final bool isDark;
+  const _StatusBadge({
+    required this.status,
+    required this.loading,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: SizedBox(
+          width: 42,
+          height: 11,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: SizedBox(
+              width: 9,
+              height: 9,
+              child: CircularProgressIndicator(
+                strokeWidth: 1.6,
+                color: isDark ? Colors.white24 : Colors.black26,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final s = status;
+    final (Color c, IconData icon, String label, String tooltip) = switch (s) {
+      'VALID' => (
+        const Color(0xFF107C10),
+        Icons.check_circle_rounded,
+        'VÁLIDO',
+        'El objeto está compilado correctamente (STATUS = VALID)',
+      ),
+      'INVALID' => (
+        const Color(0xFFD13438),
+        Icons.error_rounded,
+        'INVÁLIDO',
+        'El objeto está inválido en Oracle: requiere recompilación '
+            '(STATUS = INVALID)',
+      ),
+      null => (
+        Colors.grey,
+        Icons.help_outline_rounded,
+        'SIN ESTADO',
+        'No se pudo determinar el estado del objeto',
+      ),
+      _ => (
+        Colors.grey,
+        Icons.help_outline_rounded,
+        s,
+        'ALL_OBJECTS.STATUS = $s',
+      ),
+    };
+
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        decoration: BoxDecoration(
+          color: c.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: c.withValues(alpha: 0.45), width: 0.8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 11, color: c),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                color: c,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 // -- Backup dialog invocable from the details modal ---------------------------
 
@@ -1409,15 +1581,163 @@ class _TH extends StatelessWidget {
   }
 }
 
+// -- Exportaci�n por pesta�a ---------------------------------------------------
+
+/// Tabla gen�rica lista para serializar (t�tulo + encabezados + filas).
+typedef _ExportTable = ({
+  String title,
+  List<String> headers,
+  List<List<String>> rows,
+});
+
+String _csvCell(String v) {
+  final needsQuotes =
+      v.contains(';') ||
+      v.contains('"') ||
+      v.contains('\n') ||
+      v.contains('\r');
+  final escaped = v.replaceAll('"', '""');
+  return needsQuotes ? '"$escaped"' : escaped;
+}
+
+String _serializeExport(
+  _ExportTable t,
+  String format, {
+  required String subtitle,
+}) {
+  final buf = StringBuffer();
+  switch (format) {
+    case 'md':
+      buf.writeln('# ${t.title}');
+      buf.writeln();
+      buf.writeln('_${subtitle}_');
+      buf.writeln();
+      buf.writeln('| ${t.headers.join(' | ')} |');
+      buf.writeln('| ${t.headers.map((h) => '---').join(' | ')} |');
+      for (final r in t.rows) {
+        buf.writeln(
+          '| ${r.map((c) => c.replaceAll('|', r'\|')).join(' | ')} |',
+        );
+      }
+      buf.writeln();
+      buf.writeln('_${t.rows.length} registros_');
+    case 'txt':
+      buf.writeln(t.title);
+      buf.writeln(subtitle);
+      buf.writeln();
+      buf.writeln(t.headers.join('\t'));
+      for (final r in t.rows) {
+        buf.writeln(r.join('\t'));
+      }
+    default: // csv
+      buf.writeln(_csvCell(t.title));
+      buf.writeln(_csvCell(subtitle));
+      buf.writeln();
+      buf.writeln(t.headers.map(_csvCell).join(';'));
+      for (final r in t.rows) {
+        buf.writeln(r.map(_csvCell).join(';'));
+      }
+  }
+  return buf.toString();
+}
+
+/// Bot�n de exportaci�n que se muestra en la barra de estado de cada pesta�a.
+///
+/// Los datos ya est�n cargados en la pesta�a, por lo que `buildTable` es
+/// s�ncrono y no hace ninguna llamada adicional al backend.
+class _ExportButton extends StatelessWidget {
+  final _ExportTable Function() buildTable;
+
+  /// Nombre de archivo sugerido, sin extensi�n.
+  final String baseName;
+
+  /// L�nea de contexto (objeto, ambiente, fecha) incluida en el archivo.
+  final String subtitle;
+  const _ExportButton({
+    required this.buildTable,
+    required this.baseName,
+    required this.subtitle,
+  });
+
+  Future<void> _export(String format) async {
+    try {
+      final table = buildTable();
+      final content = _serializeExport(table, format, subtitle: subtitle);
+      final path = await FilePicker.saveFile(
+        dialogTitle: 'Exportar ${table.title}',
+        fileName: '$baseName.$format',
+        type: FileType.custom,
+        allowedExtensions: [format],
+      );
+      if (path == null) return;
+      await File(path).writeAsString(content, flush: true);
+      AppToast.success('Exportado: ${path.split(Platform.pathSeparator).last}');
+    } catch (e) {
+      AppToast.error('Error exportando: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final fg = isDark ? Colors.white54 : Colors.black45;
+    return PopupMenuButton<String>(
+      tooltip: 'Exportar esta pesta�a',
+      position: PopupMenuPosition.over,
+      padding: EdgeInsets.zero,
+      onSelected: _export,
+      itemBuilder: (_) => const [
+        PopupMenuItem(
+          value: 'csv',
+          height: 34,
+          child: Text('Exportar a CSV', style: TextStyle(fontSize: 12)),
+        ),
+        PopupMenuItem(
+          value: 'md',
+          height: 34,
+          child: Text('Exportar a Markdown', style: TextStyle(fontSize: 12)),
+        ),
+        PopupMenuItem(
+          value: 'txt',
+          height: 34,
+          child: Text('Exportar a Texto', style: TextStyle(fontSize: 12)),
+        ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.ios_share_rounded, size: 13, color: fg),
+            const SizedBox(width: 4),
+            Text('Exportar', style: TextStyle(fontSize: 11, color: fg)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _StatusBar extends StatelessWidget {
   final int count;
   final String label;
-  const _StatusBar({required this.count, required this.label});
+
+  /// Si se informa, se muestra un bot�n "Exportar" a la derecha del contador.
+  final _ExportTable Function()? buildExport;
+  final String? exportBaseName;
+  final String? exportSubtitle;
+  const _StatusBar({
+    required this.count,
+    required this.label,
+    this.buildExport,
+    this.exportBaseName,
+    this.exportSubtitle,
+  });
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 5, 16, 5),
+      padding: const EdgeInsets.fromLTRB(16, 5, 10, 5),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF252526) : const Color(0xFFF0F2F5),
         border: Border(
@@ -1426,16 +1746,36 @@ class _StatusBar extends StatelessWidget {
           ),
         ),
       ),
-      child: Text(
-        '$count $label',
-        style: TextStyle(
-          fontSize: 11,
-          color: isDark ? Colors.white38 : Colors.black38,
-        ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              '$count $label',
+              style: TextStyle(
+                fontSize: 11,
+                color: isDark ? Colors.white38 : Colors.black38,
+              ),
+            ),
+          ),
+          if (buildExport != null)
+            _ExportButton(
+              buildTable: buildExport!,
+              baseName: exportBaseName ?? 'export',
+              subtitle: exportSubtitle ?? '',
+            ),
+        ],
       ),
     );
   }
 }
+
+/// Nombre de archivo sugerido: `objeto_ambiente_seccion`.
+String _exportBaseName(String name, String ambiente, String section) =>
+    '${name.toLowerCase()}_${ambiente.toLowerCase()}_$section';
+
+/// L�nea de contexto incluida como segunda fila del archivo exportado.
+String _exportSubtitle(String name, String ambiente) =>
+    '$name � ambiente $ambiente � ${DateTime.now().toIso8601String()}';
 
 Color _rowBg(bool isDark, int i) => i.isEven
     ? (isDark ? const Color(0xFF1E1E1E) : Colors.white)
@@ -1613,7 +1953,24 @@ class _ColumnsViewState extends State<_ColumnsView>
                 },
               ),
             ),
-            _StatusBar(count: cols.length, label: 'columnas'),
+            _StatusBar(
+              count: cols.length,
+              label: 'columnas',
+              exportBaseName: _exportBaseName(
+                widget.name,
+                widget.ambiente,
+                'columnas',
+              ),
+              exportSubtitle: _exportSubtitle(widget.name, widget.ambiente),
+              buildExport: () => (
+                title: 'Detalle � columnas de ${widget.name}',
+                headers: ['#', 'NOMBRE', 'TIPO DE DATO'],
+                rows: [
+                  for (var i = 0; i < cols.length; i++)
+                    ['${i + 1}', cols[i].name, cols[i].dataType],
+                ],
+              ),
+            ),
           ],
         );
       },
@@ -1817,7 +2174,24 @@ class _ParamsViewState extends State<_ParamsView>
             },
           ),
         ),
-        _StatusBar(count: args.length, label: 'parámetros'),
+        _StatusBar(
+          count: args.length,
+          label: 'parámetros',
+          exportBaseName: _exportBaseName(
+            widget.name,
+            widget.ambiente,
+            'parametros',
+          ),
+          exportSubtitle: _exportSubtitle(widget.name, widget.ambiente),
+          buildExport: () => (
+            title: 'Detalle — parámetros de ${widget.name}',
+            headers: ['#', 'NOMBRE', 'IN/OUT', 'TIPO DE DATO'],
+            rows: [
+              for (var i = 0; i < args.length; i++)
+                ['${i + 1}', args[i].name, args[i].inOut, args[i].dataType],
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -1875,13 +2249,14 @@ class _AttrsViewState extends State<_AttrsView>
             ),
           );
         final attrs = snap.data!;
-        if (attrs.isEmpty)
+        if (attrs.isEmpty) {
           return Center(
             child: Text(
               'Sin atributos',
               style: TextStyle(fontSize: 13, color: sc),
             ),
           );
+        }
         return Column(
           children: [
             const _TH([
@@ -1894,6 +2269,10 @@ class _AttrsViewState extends State<_AttrsView>
                 itemCount: attrs.length,
                 itemBuilder: (_, i) {
                   final a = attrs[i];
+                  // Para los TYPE de colección (`TABLE OF` / `VARRAY OF`) y para
+                  // los atributos cuyo tipo es otro objeto del schema, ofrecemos
+                  // un acceso directo que lo abre en otro modal de detalles.
+                  final ref = _resolveSchemaRef(a.dataType, widget.ambiente);
                   return Container(
                     color: _rowBg(isDark, i),
                     padding: const EdgeInsets.fromLTRB(16, 7, 16, 7),
@@ -1914,25 +2293,57 @@ class _AttrsViewState extends State<_AttrsView>
                         const SizedBox(width: 16),
                         Expanded(
                           flex: 5,
-                          child: Text(
-                            a.name,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontFamily: 'Consolas',
-                              color: tc,
-                              fontWeight: FontWeight.w500,
-                            ),
+                          child: Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  a.name,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontFamily: 'Consolas',
+                                    color: tc,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              _CopyValueButton(
+                                value: a.name,
+                                tooltip: 'Copiar nombre',
+                              ),
+                            ],
                           ),
                         ),
                         Expanded(
                           flex: 4,
-                          child: Text(
-                            a.dataType,
-                            style: const TextStyle(
-                              fontSize: 11.5,
-                              fontFamily: 'Consolas',
-                              color: Color(0xFF0078D4),
-                            ),
+                          child: Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  a.dataType,
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    fontFamily: 'Consolas',
+                                    color: Color(0xFF0078D4),
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              _CopyValueButton(
+                                value: a.dataType,
+                                tooltip: 'Copiar tipo de dato',
+                              ),
+                              if (ref != null) ...[
+                                const SizedBox(width: 2),
+                                _OpenRefButton(
+                                  name: ref.name,
+                                  type: ref.type,
+                                  ambiente: widget.ambiente,
+                                ),
+                              ],
+                            ],
                           ),
                         ),
                       ],
@@ -1941,10 +2352,156 @@ class _AttrsViewState extends State<_AttrsView>
                 },
               ),
             ),
-            _StatusBar(count: attrs.length, label: 'atributos'),
+            _StatusBar(
+              count: attrs.length,
+              label: 'atributos',
+              exportBaseName: _exportBaseName(
+                widget.name,
+                widget.ambiente,
+                'atributos',
+              ),
+              exportSubtitle: _exportSubtitle(widget.name, widget.ambiente),
+              buildExport: () => (
+                title: 'Detalle — atributos de ${widget.name}',
+                headers: ['#', 'NOMBRE', 'TIPO DE DATO'],
+                rows: [
+                  for (var i = 0; i < attrs.length; i++)
+                    ['${i + 1}', attrs[i].name, attrs[i].dataType],
+                ],
+              ),
+            ),
           ],
         );
       },
+    );
+  }
+}
+
+/// Resuelve si un tipo de dato Oracle corresponde a un objeto del schema
+/// (TYPE / TABLE / VIEW) para ofrecer un acceso directo que lo abra en otro
+/// modal de detalles. Normaliza comillas, owner calificado y `%ROWTYPE`.
+///
+/// Retorna `null` para tipos escalares (VARCHAR2, NUMBER, DATE, ...).
+({String name, String type})? _resolveSchemaRef(
+  String rawType,
+  String ambiente,
+) {
+  var element = rawType
+      .replaceAll('"', '')
+      .replaceAll(RegExp(r'%ROWTYPE$', caseSensitive: false), '')
+      .trim()
+      .toUpperCase();
+  // Quitamos el owner si viene calificado (OWNER.TIPO) y cualquier precisión.
+  if (element.contains('.')) element = element.split('.').last;
+  if (element.contains('(')) element = element.split('(').first.trim();
+  if (element.isEmpty) return null;
+  if (_kScalarTypes.hasMatch(element)) return null;
+
+  final cached = SchemaService.instance.getCached(ambiente: ambiente);
+  if (cached != null) {
+    for (final o in cached.objects) {
+      if (o.name.toUpperCase() == element) {
+        return (name: element, type: o.type.toUpperCase());
+      }
+    }
+    if (cached.tables.any((t) => t.toUpperCase() == element)) {
+      return (name: element, type: 'TABLE');
+    }
+    if (cached.views.any((v) => v.toUpperCase() == element)) {
+      return (name: element, type: 'VIEW');
+    }
+    // El schema está cacheado y el nombre no aparece: no es un objeto.
+    return null;
+  }
+  // Sin cache disponible asumimos TYPE (el modal mostrará el error si no).
+  return (name: element, type: 'TYPE');
+}
+
+final _kScalarTypes = RegExp(
+  r'^(VARCHAR2?|NVARCHAR2|CHAR|NCHAR|NUMBER|INTEGER|INT|SMALLINT|DECIMAL|'
+  r'NUMERIC|FLOAT|REAL|DOUBLE|BINARY_FLOAT|BINARY_DOUBLE|DATE|TIMESTAMP.*|'
+  r'INTERVAL.*|CLOB|NCLOB|BLOB|BFILE|RAW|LONG|ROWID|UROWID|BOOLEAN|XMLTYPE|'
+  r'PLS_INTEGER|BINARY_INTEGER)$',
+);
+
+/// Ícono compacto que copia un valor al portapapeles mostrando un check
+/// temporal como confirmación. Se usa en las filas del detalle de un TYPE.
+class _CopyValueButton extends StatefulWidget {
+  final String value;
+  final String tooltip;
+  const _CopyValueButton({required this.value, required this.tooltip});
+
+  @override
+  State<_CopyValueButton> createState() => _CopyValueButtonState();
+}
+
+class _CopyValueButtonState extends State<_CopyValueButton> {
+  bool _copied = false;
+
+  Future<void> _copy() async {
+    await Clipboard.setData(ClipboardData(text: widget.value));
+    AppToast.info('Copiado: ${widget.value}');
+    if (!mounted) return;
+    setState(() => _copied = true);
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    if (mounted) setState(() => _copied = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final color = _copied
+        ? const Color(0xFF107C10)
+        : (isDark ? Colors.white38 : Colors.black38);
+    return Tooltip(
+      message: widget.tooltip,
+      waitDuration: const Duration(milliseconds: 400),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(4),
+        onTap: _copy,
+        child: Padding(
+          padding: const EdgeInsets.all(2),
+          child: Icon(
+            _copied ? Icons.check_rounded : Icons.copy_rounded,
+            size: 12,
+            color: color,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Botón compacto que abre el objeto referenciado en otro modal de detalles.
+class _OpenRefButton extends StatelessWidget {
+  final String name;
+  final String type;
+  final String ambiente;
+  const _OpenRefButton({
+    required this.name,
+    required this.type,
+    required this.ambiente,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _tc(type);
+    return Tooltip(
+      message: 'Abrir $type $name',
+      waitDuration: const Duration(milliseconds: 400),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(4),
+        onTap: () => showObjectDetails(
+          context,
+          name: name,
+          type: type,
+          ambiente: ambiente,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(2),
+          child: Icon(Icons.open_in_new_rounded, size: 13, color: color),
+        ),
+      ),
     );
   }
 }
@@ -2220,7 +2777,34 @@ class _PackageViewState extends State<_PackageView>
             },
           ),
         ),
-        _StatusBar(count: subs.length, label: 'subprogramas'),
+        _StatusBar(
+          count: subs.length,
+          label: 'subprogramas',
+          exportBaseName: _exportBaseName(
+            widget.name,
+            widget.ambiente,
+            'subprogramas',
+          ),
+          exportSubtitle: _exportSubtitle(widget.name, widget.ambiente),
+          buildExport: () => (
+            title: 'Detalle — subprogramas de ${widget.name}',
+            headers: [
+              'SUBPROGRAMA',
+              'TIPO',
+              'PARÁMETRO',
+              'IN/OUT',
+              'TIPO DE DATO',
+            ],
+            rows: [
+              for (final s in subs)
+                if (s.arguments.isEmpty)
+                  [s.name, s.kind, '', '', '']
+                else
+                  for (final a in s.arguments)
+                    [s.name, s.kind, a.name, a.inOut, a.dataType],
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -2388,7 +2972,24 @@ class _PermisosTabState extends State<_PermisosTab>
             },
           ),
         ),
-        _StatusBar(count: rows.length, label: 'permisos'),
+        _StatusBar(
+          count: rows.length,
+          label: 'permisos',
+          exportBaseName: _exportBaseName(
+            widget.name,
+            widget.ambiente,
+            'permisos',
+          ),
+          exportSubtitle: _exportSubtitle(widget.name, widget.ambiente),
+          buildExport: () => (
+            title: 'Permisos de ${widget.name}',
+            headers: ['GRANTEE', 'PRIVILEGIO', 'GRANTOR', 'GRANTABLE'],
+            rows: [
+              for (final r in rows)
+                [r.grantee, r.privilege, r.grantor, r.grantable ? 'YES' : 'NO'],
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -2560,7 +3161,23 @@ class _ReferenciasTabState extends State<_ReferenciasTab>
             },
           ),
         ),
-        _StatusBar(count: rows.length, label: 'referencias'),
+        _StatusBar(
+          count: rows.length,
+          label: 'referencias',
+          exportBaseName: _exportBaseName(
+            widget.name,
+            widget.ambiente,
+            'referencias',
+          ),
+          exportSubtitle: _exportSubtitle(widget.name, widget.ambiente),
+          buildExport: () => (
+            title: 'Referencias de ${widget.name}',
+            headers: ['NOMBRE', 'TIPO', 'OWNER'],
+            rows: [
+              for (final r in rows) [r.name, r.type, r.owner],
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -2686,54 +3303,77 @@ class _InfoTabState extends State<_InfoTab> with AutomaticKeepAliveClientMixin {
         ),
       );
     }
-    return ListView.separated(
-      padding: EdgeInsets.zero,
-      itemCount: props.length,
-      separatorBuilder: (context2, i2) => Divider(
-        height: 1,
-        color: isDark ? const Color(0xFF2D2D2D) : const Color(0xFFEEEEEE),
-      ),
-      itemBuilder: (_, i) {
-        final p = props[i];
-        final isEmpty = p.value.isEmpty || p.value == '(null)';
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 200,
-              padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
-              color: labelBg,
-              child: Text(
-                p.name,
-                style: TextStyle(
-                  fontSize: 11.5,
-                  fontFamily: 'Consolas',
-                  fontWeight: FontWeight.w600,
-                  color: sc,
-                ),
-              ),
+    return Column(
+      children: [
+        Expanded(
+          child: ListView.separated(
+            padding: EdgeInsets.zero,
+            itemCount: props.length,
+            separatorBuilder: (context2, i2) => Divider(
+              height: 1,
+              color: isDark ? const Color(0xFF2D2D2D) : const Color(0xFFEEEEEE),
             ),
-            Container(
-              width: 1,
-              color: isDark ? const Color(0xFF3A3A3A) : const Color(0xFFDDE2EA),
-            ),
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                child: Text(
-                  isEmpty ? '(null)' : p.value,
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    fontFamily: 'Consolas',
-                    color: isEmpty ? sc.withValues(alpha: 0.5) : tc,
-                    fontStyle: isEmpty ? FontStyle.italic : FontStyle.normal,
+            itemBuilder: (_, i) {
+              final p = props[i];
+              final isEmpty = p.value.isEmpty || p.value == '(null)';
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 200,
+                    padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
+                    color: labelBg,
+                    child: Text(
+                      p.name,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontFamily: 'Consolas',
+                        fontWeight: FontWeight.w600,
+                        color: sc,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
+                  Container(
+                    width: 1,
+                    color: isDark
+                        ? const Color(0xFF3A3A3A)
+                        : const Color(0xFFDDE2EA),
+                  ),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                      child: Text(
+                        isEmpty ? '(null)' : p.value,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontFamily: 'Consolas',
+                          color: isEmpty ? sc.withValues(alpha: 0.5) : tc,
+                          fontStyle: isEmpty
+                              ? FontStyle.italic
+                              : FontStyle.normal,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+        _StatusBar(
+          count: props.length,
+          label: 'propiedades',
+          exportBaseName: _exportBaseName(widget.name, widget.ambiente, 'info'),
+          exportSubtitle: _exportSubtitle(widget.name, widget.ambiente),
+          buildExport: () => (
+            title: 'Info de ${widget.name}',
+            headers: ['PROPIEDAD', 'VALOR'],
+            rows: [
+              for (final p in props) [p.name, p.value],
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

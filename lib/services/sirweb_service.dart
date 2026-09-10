@@ -11,6 +11,7 @@ import '../models/llamada_plsql.dart';
 import '../models/procedimiento.dart';
 import '../models/uso_procedimiento.dart';
 import '../models/variable_dinamica.dart';
+import 'app_log.dart';
 import 'connection_status_service.dart';
 import 'mcp_sse.dart';
 
@@ -55,29 +56,52 @@ class SirwebService {
     } on TimeoutException {
       if (cancelado?.call() ?? false) throw const SirwebCancelledException();
       ConnectionStatusService.instance.reportFailure();
-      throw SirwebConnectionException(
+      throw _conexion(
+        contexto,
         'Tiempo de espera agotado al comunicarse con $contexto. '
-        'VerificÃ¡ que el servicio estÃ© en ejecuciÃ³n.',
+            'Verifica que el servicio este en ejecucion.',
+        'TimeoutException (${(timeout ?? defaultTimeout).inSeconds}s)',
       );
     } on SocketException catch (e) {
       if (cancelado?.call() ?? false) throw const SirwebCancelledException();
       ConnectionStatusService.instance.reportFailure();
-      throw SirwebConnectionException(
+      throw _conexion(
+        contexto,
         'No se pudo conectar con $contexto (${e.osError?.message ?? e.message}).',
+        'SocketException: ${e.osError ?? e.message}',
       );
-    } on HandshakeException {
+    } on HandshakeException catch (e) {
       if (cancelado?.call() ?? false) throw const SirwebCancelledException();
       ConnectionStatusService.instance.reportFailure();
-      throw SirwebConnectionException(
-        'Error de conexiÃ³n segura con $contexto.',
+      throw _conexion(
+        contexto,
+        'Error de conexion segura con $contexto.',
+        'HandshakeException: ${e.message}',
       );
     } on http.ClientException catch (e) {
       if (cancelado?.call() ?? false) throw const SirwebCancelledException();
       ConnectionStatusService.instance.reportFailure();
-      throw SirwebConnectionException(
-        'Se perdiÃ³ la conexiÃ³n con $contexto (${e.message}).',
+      throw _conexion(
+        contexto,
+        'Se perdio la conexion con $contexto (${e.message}).',
+        'ClientException: ${e.message} (${e.uri})',
       );
     }
+  }
+
+  /// Arma la excepcion de conexion dejando constancia en el log de la app.
+  static SirwebConnectionException _conexion(
+    String contexto,
+    String mensaje,
+    String tecnico,
+  ) {
+    AppLog.instance.server(
+      contexto,
+      message: mensaje,
+      respuesta: tecnico,
+      source: 'Conexion',
+    );
+    return SirwebConnectionException(mensaje);
   }
 
   Future<Map<String, dynamic>> _call(
@@ -86,6 +110,7 @@ class SirwebService {
     Duration? timeout,
   }) async {
     final effectiveTimeout = timeout ?? defaultTimeout;
+    final reloj = Stopwatch()..start();
 
     // Se usa `send` (y no `post`) porque el servidor responde vía SSE y deja el
     // stream abierto: `post` esperaría el EOF del cuerpo y el Future quedaría
@@ -119,7 +144,14 @@ class SirwebService {
 
     if (envelope.containsKey('error')) {
       final err = envelope['error'] as Map<String, dynamic>;
-      throw Exception(err['message']?.toString() ?? 'Error desconocido');
+      final msg = err['message']?.toString() ?? 'Error desconocido';
+      AppLog.instance.server(
+        toolName,
+        message: msg,
+        argumentos: arguments,
+        respuesta: dataStr,
+      );
+      throw Exception(msg);
     }
 
     final contentList = envelope['result']['content'] as List<dynamic>;
@@ -140,9 +172,26 @@ class SirwebService {
           result['message']?.toString() ??
           result['error']?.toString() ??
           'Error en la operaciÃ³n';
+      AppLog.instance.server(
+        toolName,
+        message: baseMsg,
+        argumentos: arguments,
+        respuesta: text,
+      );
       throw Exception(baseMsg);
     }
 
+    AppLog.instance.transaction(
+      toolName,
+      source: 'MCP',
+      duracion: reloj.elapsed,
+      datos: {
+        'Ambiente': arguments['ambiente']?.toString(),
+        'Filas': result['data'] is List
+            ? (result['data'] as List).length.toString()
+            : null,
+      },
+    );
     return result;
   }
 
@@ -613,9 +662,16 @@ class SirwebService {
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final detalle = _mensajeDeEnvelope(response.bodyBytes);
-      throw Exception(
-        detalle ?? 'Error ${response.statusCode} al ejecutar la llamada',
+      final msg =
+          detalle ?? 'Error ${response.statusCode} al ejecutar la llamada';
+      AppLog.instance.server(
+        uri.path,
+        message: msg,
+        statusCode: response.statusCode,
+        argumentos: request.toJson(),
+        respuesta: _cuerpo(response.bodyBytes),
       );
+      throw Exception(msg);
     }
 
     final envelope =
@@ -627,15 +683,31 @@ class SirwebService {
         : null;
 
     if (envelope['success'] == false) {
+      final msg =
+          envelope['error']?.toString() ??
+          envelope['message']?.toString() ??
+          'Error al ejecutar la llamada';
+      AppLog.instance.server(
+        uri.path,
+        message: msg,
+        statusCode: response.statusCode,
+        argumentos: request.toJson(),
+        respuesta: _cuerpo(response.bodyBytes),
+      );
       // Si el backend igual devolvió data (p. ej. error Oracle con traza), se
       // muestra: es justo lo que el usuario necesita ver.
       if (dataMap != null) return LlamadaResultado.fromJson(dataMap);
-      throw Exception(
-        envelope['error']?.toString() ??
-            envelope['message']?.toString() ??
-            'Error al ejecutar la llamada',
-      );
+      throw Exception(msg);
     }
+
+    AppLog.instance.transaction(
+      'Ejecutar llamada PL/SQL',
+      source: 'Ejecución',
+      datos: {
+        'Objeto': request.toJson()['nombre']?.toString(),
+        'Ambiente': request.toJson()['ambiente']?.toString(),
+      },
+    );
 
     if (dataMap != null) return LlamadaResultado.fromJson(dataMap);
     return const LlamadaResultado();
@@ -653,6 +725,7 @@ class SirwebService {
     // para el viaje de red y el armado del contexto.
     final segundos = timeoutSegundos ?? 30;
     final httpClient = client ?? _client;
+    final reloj = Stopwatch()..start();
 
     final response = await guardRequest(
       () => httpClient.post(
@@ -672,9 +745,17 @@ class SirwebService {
       // El backend suele devolver el detalle del fallo en el envelope aun con
       // status de error: se intenta leerlo antes de tirar el mensaje genérico.
       final detalle = _mensajeDeEnvelope(response.bodyBytes);
-      throw Exception(
-        detalle ?? 'Error ${response.statusCode} al ejecutar el procedimiento',
+      final msg =
+          detalle ??
+          'Error ${response.statusCode} al ejecutar el procedimiento';
+      AppLog.instance.server(
+        uri.path,
+        message: msg,
+        statusCode: response.statusCode,
+        argumentos: body,
+        respuesta: _cuerpo(response.bodyBytes),
       );
+      throw Exception(msg);
     }
 
     final envelope =
@@ -686,18 +767,45 @@ class SirwebService {
         : null;
 
     if (envelope['success'] == false) {
+      final msg =
+          envelope['message']?.toString() ??
+          envelope['error']?.toString() ??
+          'Error al ejecutar el procedimiento';
+      AppLog.instance.server(
+        uri.path,
+        message: msg,
+        statusCode: response.statusCode,
+        argumentos: body,
+        respuesta: _cuerpo(response.bodyBytes),
+      );
       // Si vino data, se devuelve igual: contiene errorOracle y traza, que es
       // justo lo que el usuario necesita ver cuando la ejecución falla.
       if (dataMap != null) return EjecucionResultado.fromJson(dataMap);
-      throw Exception(
-        envelope['message']?.toString() ??
-            envelope['error']?.toString() ??
-            'Error al ejecutar el procedimiento',
-      );
+      throw Exception(msg);
     }
+
+    AppLog.instance.transaction(
+      'Ejecutar procedimiento',
+      source: 'Ejecución',
+      duracion: reloj.elapsed,
+      datos: {
+        'Endpoint': uri.path,
+        'Código': body['cdProcedimiento']?.toString(),
+        'Ambiente': body['ambiente']?.toString(),
+      },
+    );
 
     if (dataMap != null) return EjecucionResultado.fromJson(dataMap);
     return const EjecucionResultado();
+  }
+
+  /// Cuerpo de la respuesta como texto, para dejarlo en el log.
+  static String _cuerpo(List<int> bodyBytes) {
+    try {
+      return utf8.decode(bodyBytes);
+    } catch (_) {
+      return '(cuerpo no textual, ${bodyBytes.length} bytes)';
+    }
   }
 
   /// Extrae `message`/`error` de una respuesta de error, si es JSON válido.
@@ -742,4 +850,3 @@ class SirwebCancelledException implements Exception {
   @override
   String toString() => message;
 }
-

@@ -73,24 +73,26 @@ void main() {
     expect(find.text('Unificada'), findsOneWidget);
   });
 
-  testWidgets('permite alternar vista dividida/unificada y solo diffs/completo',
-      (tester) async {
-    await _openDiff(
-      tester,
-      original: base,
-      modified: 'BEGIN\n  DBMS_OUTPUT.PUT_LINE(1);\nEND;',
-    );
+  testWidgets(
+    'permite alternar vista dividida/unificada y solo diffs/completo',
+    (tester) async {
+      await _openDiff(
+        tester,
+        original: base,
+        modified: 'BEGIN\n  DBMS_OUTPUT.PUT_LINE(1);\nEND;',
+      );
 
-    expect(find.text('Unificada'), findsOneWidget);
-    await tester.tap(find.text('Unificada'));
-    await tester.pumpAndSettle();
-    expect(find.text('Dividida'), findsOneWidget);
+      expect(find.text('Unificada'), findsOneWidget);
+      await tester.tap(find.text('Unificada'));
+      await tester.pumpAndSettle();
+      expect(find.text('Dividida'), findsOneWidget);
 
-    expect(find.text('Completo'), findsOneWidget);
-    await tester.tap(find.text('Completo'));
-    await tester.pumpAndSettle();
-    expect(find.text('Solo diffs'), findsOneWidget);
-  });
+      expect(find.text('Completo'), findsOneWidget);
+      await tester.tap(find.text('Completo'));
+      await tester.pumpAndSettle();
+      expect(find.text('Solo diffs'), findsOneWidget);
+    },
+  );
 
   testWidgets('indica cuando no hay diferencias', (tester) async {
     await _openDiff(tester, original: base, modified: base);
@@ -131,8 +133,9 @@ void main() {
     expect(find.text('Solo diffs'), findsOneWidget);
   });
 
-  testWidgets('se muestra como modal contenido, no a pantalla completa',
-      (tester) async {
+  testWidgets('se muestra como modal contenido, no a pantalla completa', (
+    tester,
+  ) async {
     await _openDiff(
       tester,
       original: base,
@@ -153,8 +156,9 @@ void main() {
     expect(find.byTooltip('Restaurar tamaño'), findsOneWidget);
   });
 
-  testWidgets('colapsa las etiquetas de la toolbar en ventanas angostas',
-      (tester) async {
+  testWidgets('colapsa las etiquetas de la toolbar en ventanas angostas', (
+    tester,
+  ) async {
     await _openDiff(
       tester,
       original: base,

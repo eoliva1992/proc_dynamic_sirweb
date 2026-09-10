@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import '../models/procedimiento.dart';
+import 'app_log.dart';
 
 typedef BackupData = ({
   String cdProcedimiento,
@@ -32,6 +33,11 @@ abstract final class BackupService {
     if (path == null) return null;
 
     await File(path).writeAsString(script, flush: true);
+    AppLog.instance.transaction(
+      'Backup ${proc.cdProcedimiento}',
+      source: 'Backup',
+      datos: {'Ambiente': ambiente, 'Usuario': cdUsuario, 'Archivo': path},
+    );
     return path;
   }
 
@@ -76,6 +82,11 @@ $source
     if (path == null) return null;
 
     await File(path).writeAsString(script, flush: true);
+    AppLog.instance.transaction(
+      'Backup $objectName ($objectType)',
+      source: 'Backup',
+      datos: {'Ambiente': ambiente, 'Parte': part, 'Archivo': path},
+    );
     return path;
   }
 
@@ -126,7 +137,16 @@ $source
     if (path == null) return null;
 
     final content = await File(path).readAsString();
-    return _parseScript(content);
+    final data = _parseScript(content);
+    AppLog.instance.transaction(
+      data == null
+          ? 'Restaurar backup: archivo no reconocido'
+          : 'Restaurar backup ${data.cdProcedimiento}',
+      source: 'Backup',
+      level: data == null ? LogLevel.warning : LogLevel.info,
+      datos: {'Archivo': path, 'Ambiente': data?.ambiente},
+    );
+    return data;
   }
 
   // ── Script generation — Oracle MERGE against SIR.PROCEDIMIENTODINAMICO ───

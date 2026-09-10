@@ -2,21 +2,14 @@ part of 'code_editor_panel.dart';
 
 // ── Métodos _build* del editor — toolbar, tabs, botones, panel de problemas ──
 
-// dark/light pair map for the quick toggle button
-const _kThemePairs = <String, String>{
-  'oracle-dark': 'oracle-light',
-  'oracle-light': 'oracle-dark',
-  'vs-dark': 'vs',
-  'vs': 'vs-dark',
-  'hc-black': 'hc-light',
-  'hc-light': 'hc-black',
-  'github-dark': 'github-light',
-  'github-light': 'github-dark',
-  'solarized-dark': 'solarized-light',
-  'solarized-light': 'solarized-dark',
-};
-
 extension _EditorBuildMethods on _CodeEditorPanelState {
+  /// Panel de problemas (sintaxis + compilación Oracle).
+  ///
+  /// Se monta como capa flotante DENTRO del `Stack` del editor, no como
+  /// hermano en el `Column`. Si fuera hermano, al abrirlo el `Expanded` del
+  /// editor se encogería y Monaco —que es una textura de WebView2— haría un
+  /// relayout visible: el código "salta". Como overlay, el editor conserva
+  /// exactamente su tamaño y solo aparece el panel encima.
   Widget _buildProblemsPanel(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -32,227 +25,216 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
         .where((e) => e.severity == MarkerSeverity.warning)
         .length;
 
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeInOut,
-      alignment: Alignment.bottomCenter,
-      child: _showProblemsPanel
-          ? Container(
-              height: _problemsPanelHeight,
-              decoration: BoxDecoration(
-                color: isDark
-                    ? const Color(0xFF1E1E1E)
-                    : cs.surfaceContainerLow,
-                border: Border(top: BorderSide(color: cs.outlineVariant)),
-              ),
-              child: Column(
-                children: [
-                  // Resize handle + header combined
-                  GestureDetector(
-                    onVerticalDragUpdate: (d) {
-                      setState(() {
-                        _problemsPanelHeight =
-                            (_problemsPanelHeight - d.delta.dy).clamp(
-                              80.0,
-                              400.0,
-                            );
-                      });
-                    },
-                    onVerticalDragEnd: (_) => _savePrefs(),
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.resizeRow,
-                      child: Container(
-                        height: 28,
-                        color: isDark
-                            ? cs.surfaceContainerHigh
-                            : cs.surfaceContainerHighest,
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.list_alt_rounded,
-                              size: 13,
-                              color: cs.onSurfaceVariant,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Problemas',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: cs.onSurface,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            if (errorCount > 0)
-                              _ProblemCount(count: errorCount, isError: true),
-                            if (warnCount > 0) ...[
-                              const SizedBox(width: 4),
-                              _ProblemCount(count: warnCount, isError: false),
-                            ],
-                            if (_backendChecking) ...[
-                              const SizedBox(width: 6),
-                              SizedBox(
-                                width: 10,
-                                height: 10,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 1.5,
-                                  color: cs.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                            const Spacer(),
-                            InkWell(
-                              onTap: () =>
-                                  setState(() => _showProblemsPanel = false),
-                              borderRadius: BorderRadius.circular(3),
-                              child: Padding(
-                                padding: const EdgeInsets.all(4),
-                                child: Icon(
-                                  Icons.close,
-                                  size: 13,
-                                  color: cs.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                          ],
+    // El panel entra deslizándose desde abajo y se funde al salir.
+    return SlideUpPanel(
+      visible: _showProblemsPanel,
+      height: _problemsPanelHeight,
+      child: Container(
+        height: _problemsPanelHeight,
+        decoration: BoxDecoration(
+          // Opaco a propósito: el panel flota sobre el editor y el
+          // código no debe transparentarse por detrás.
+          color: isDark ? const Color(0xFF1E1E1E) : cs.surfaceContainerLow,
+          border: Border(top: BorderSide(color: cs.outlineVariant)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.18),
+              blurRadius: 12,
+              offset: const Offset(0, -3),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            // Resize handle + header combined
+            GestureDetector(
+              onVerticalDragUpdate: (d) {
+                setState(() {
+                  _problemsPanelHeight = (_problemsPanelHeight - d.delta.dy)
+                      .clamp(80.0, 400.0);
+                });
+              },
+              onVerticalDragEnd: (_) => _savePrefs(),
+              child: MouseRegion(
+                cursor: SystemMouseCursors.resizeRow,
+                child: Container(
+                  height: 28,
+                  color: isDark
+                      ? cs.surfaceContainerHigh
+                      : cs.surfaceContainerHighest,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.list_alt_rounded,
+                        size: 13,
+                        color: cs.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Problemas',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: cs.onSurface,
                         ),
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      if (errorCount > 0)
+                        _ProblemCount(count: errorCount, isError: true),
+                      if (warnCount > 0) ...[
+                        const SizedBox(width: 4),
+                        _ProblemCount(count: warnCount, isError: false),
+                      ],
+                      if (_backendChecking) ...[
+                        const SizedBox(width: 6),
+                        SizedBox(
+                          width: 10,
+                          height: 10,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 1.5,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                      const Spacer(),
+                      InkWell(
+                        onTap: () => setState(() => _showProblemsPanel = false),
+                        borderRadius: BorderRadius.circular(3),
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: Icon(
+                            Icons.close,
+                            size: 13,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  Expanded(
-                    child: allIssues.isEmpty
-                        ? Center(
-                            child: Text(
-                              'Sin problemas detectados',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: cs.onSurfaceVariant,
-                              ),
+                ),
+              ),
+            ),
+            Expanded(
+              child: allIssues.isEmpty
+                  ? Center(
+                      child: Text(
+                        'Sin problemas detectados',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: allIssues.length,
+                      itemBuilder: (_, i) {
+                        final issue = allIssues[i];
+                        final isError = issue.severity == MarkerSeverity.error;
+                        return InkWell(
+                          onTap: () async {
+                            await _withCtrl((ctrl) async {
+                              await ctrl.revealLine(issue.line, center: true);
+                              await ctrl.setCursorPosition(
+                                Position(line: issue.line, column: issue.col),
+                              );
+                            });
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
                             ),
-                          )
-                        : ListView.builder(
-                            itemCount: allIssues.length,
-                            itemBuilder: (_, i) {
-                              final issue = allIssues[i];
-                              final isError =
-                                  issue.severity == MarkerSeverity.error;
-                              return InkWell(
-                                onTap: () async {
-                                  await _withCtrl((ctrl) async {
-                                    await ctrl.revealLine(
-                                      issue.line,
-                                      center: true,
-                                    );
-                                    await ctrl.setCursorPosition(
-                                      Position(
-                                        line: issue.line,
-                                        column: issue.col,
-                                      ),
-                                    );
-                                  });
-                                },
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 5,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        isError
-                                            ? Icons.error_outline
-                                            : Icons.warning_amber_rounded,
-                                        size: 14,
-                                        color: isError
-                                            ? Colors.red[400]
-                                            : Colors.orange[400],
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          issue.message,
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            fontFamily: 'Consolas',
-                                          ),
-                                          softWrap: true,
-                                          maxLines: 4,
-                                          overflow: TextOverflow.fade,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      if (issue.line > 1 || issue.col > 1)
-                                        Text(
-                                          'L${issue.line}:${issue.col}',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: cs.onSurfaceVariant,
-                                            fontFamily: 'Consolas',
-                                          ),
-                                        ),
-                                      const SizedBox(width: 6),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 5,
-                                          vertical: 1,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: cs.surfaceContainerHighest,
-                                          borderRadius: BorderRadius.circular(
-                                            3,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          issue.source,
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            color: issue.source == 'Oracle'
-                                                ? Colors.orange[400]
-                                                : cs.onSurfaceVariant,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Tooltip(
-                                        message: 'Copiar mensaje',
-                                        child: InkWell(
-                                          onTap: () {
-                                            Clipboard.setData(
-                                              ClipboardData(
-                                                text:
-                                                    '${issue.source} L${issue.line}:${issue.col} — ${issue.message}',
-                                              ),
-                                            );
-                                            AppToast.info(
-                                              'Copiado al portapapeles',
-                                            );
-                                          },
-                                          borderRadius: BorderRadius.circular(
-                                            3,
-                                          ),
-                                          child: Padding(
-                                            padding: const EdgeInsets.all(3),
-                                            child: Icon(
-                                              Icons.copy_rounded,
-                                              size: 13,
-                                              color: cs.onSurfaceVariant
-                                                  .withValues(alpha: 0.5),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                            child: Row(
+                              children: [
+                                Icon(
+                                  isError
+                                      ? Icons.error_outline
+                                      : Icons.warning_amber_rounded,
+                                  size: 14,
+                                  color: isError
+                                      ? Colors.red[400]
+                                      : Colors.orange[400],
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    issue.message,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontFamily: 'Consolas',
+                                    ),
+                                    softWrap: true,
+                                    maxLines: 4,
+                                    overflow: TextOverflow.fade,
                                   ),
                                 ),
-                              );
-                            },
+                                const SizedBox(width: 8),
+                                if (issue.line > 1 || issue.col > 1)
+                                  Text(
+                                    'L${issue.line}:${issue.col}',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: cs.onSurfaceVariant,
+                                      fontFamily: 'Consolas',
+                                    ),
+                                  ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 5,
+                                    vertical: 1,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: cs.surfaceContainerHighest,
+                                    borderRadius: BorderRadius.circular(3),
+                                  ),
+                                  child: Text(
+                                    issue.source,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: issue.source == 'Oracle'
+                                          ? Colors.orange[400]
+                                          : cs.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Tooltip(
+                                  message: 'Copiar mensaje',
+                                  child: InkWell(
+                                    onTap: () {
+                                      Clipboard.setData(
+                                        ClipboardData(
+                                          text:
+                                              '${issue.source} L${issue.line}:${issue.col} — ${issue.message}',
+                                        ),
+                                      );
+                                      AppToast.info('Copiado al portapapeles');
+                                    },
+                                    borderRadius: BorderRadius.circular(3),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(3),
+                                      child: Icon(
+                                        Icons.copy_rounded,
+                                        size: 13,
+                                        color: cs.onSurfaceVariant.withValues(
+                                          alpha: 0.5,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                  ),
-                ],
-              ),
-            )
-          : const SizedBox.shrink(),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -455,6 +437,12 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
             tooltip: 'Outline — estructura del procedimiento',
             active: _showOutline,
             onPressed: _toggleOutline,
+          ),
+          _ToggleBtn(
+            icon: Icons.auto_awesome,
+            tooltip: 'Chat con GitHub Copilot',
+            active: _showAiChat,
+            onPressed: _toggleAiChat,
           ),
           _ToolBtn(
             icon: Icons.code_rounded,
@@ -900,10 +888,7 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
       textStyle: _kTooltipTextStyle,
       child: InkWell(
         onTap: () async {
-          final target =
-              _kThemePairs[editorThemeStore.themeId] ??
-              (isDarkTheme ? 'oracle-light' : 'oracle-dark');
-          await editorThemeStore.setTheme(target);
+          await editorThemeStore.setTheme(editorThemeStore.pairedThemeId);
           await _withCtrl(
             (ctrl) => ctrl.setTheme(editorThemeStore.monacoTheme),
           );

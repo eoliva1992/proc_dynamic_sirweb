@@ -1,3 +1,4 @@
+import '../services/app_log.dart';
 import '../services/sirweb_service.dart';
 
 typedef TransferResult = ({bool success, String message});
@@ -11,6 +12,15 @@ abstract final class TransferService {
     required String targetAmbiente,
   }) async {
     final svc = SirwebService();
+    AppLog.instance.transaction(
+      'Transferir $cdProcedimiento → $targetAmbiente',
+      source: 'Transferencia',
+      datos: {
+        'Usuario': cdUsuario,
+        'Categoria': inConfiguracion,
+        'Tamano': '${sourceCode.length} chars',
+      },
+    );
     try {
       // Check whether the procedure already exists in the target environment
       bool exists = true;
@@ -40,13 +50,21 @@ abstract final class TransferService {
           ambiente: targetAmbiente,
         );
       }
-      return (
-        success: true,
-        message: exists
-            ? 'Actualizado en $targetAmbiente correctamente'
-            : 'Creado en $targetAmbiente correctamente',
+      final mensaje = exists
+          ? 'Actualizado en $targetAmbiente correctamente'
+          : 'Creado en $targetAmbiente correctamente';
+      AppLog.instance.success(
+        '$cdProcedimiento - $mensaje',
+        source: 'Transferencia',
       );
+      return (success: true, message: mensaje);
     } catch (e) {
+      AppLog.instance.exception(
+        'Transferir $cdProcedimiento a $targetAmbiente',
+        e,
+        source: 'Transferencia',
+        datos: {'Usuario': cdUsuario},
+      );
       return (
         success: false,
         message: e.toString().replaceFirst('Exception: ', ''),

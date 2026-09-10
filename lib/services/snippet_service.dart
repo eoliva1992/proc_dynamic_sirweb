@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/snippet.dart';
+import 'app_log.dart';
 
 /// Result of a paginated snippets query.
 typedef SnippetPage = ({
@@ -171,23 +172,50 @@ class SnippetService {
 
   dynamic _decode(http.Response res) {
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw Exception(_errorMessage(res));
+      final msg = _errorMessage(res);
+      AppLog.instance.server(
+        res.request?.url.path ?? 'snippets',
+        message: msg,
+        statusCode: res.statusCode,
+        respuesta: res.body,
+        source: 'Servidor (snippets)',
+      );
+      throw Exception(msg);
     }
     if (res.body.trim().isEmpty) return null;
     final dynamic body;
     try {
       body = jsonDecode(utf8.decode(res.bodyBytes));
     } catch (_) {
+      AppLog.instance.server(
+        res.request?.url.path ?? 'snippets',
+        message: 'Respuesta inválida (no es JSON)',
+        statusCode: res.statusCode,
+        respuesta: res.body,
+        source: 'Servidor (snippets)',
+      );
       throw Exception('Respuesta inválida del servidor de snippets');
     }
     // Envelope: { success, message, data }
     if (body is Map && (body['success'] == false || body['ok'] == false)) {
-      throw Exception(
-        body['message']?.toString() ??
-            body['error']?.toString() ??
-            'Error en la operación de snippets',
+      final msg =
+          body['message']?.toString() ??
+          body['error']?.toString() ??
+          'Error en la operación de snippets';
+      AppLog.instance.server(
+        res.request?.url.path ?? 'snippets',
+        message: msg,
+        statusCode: res.statusCode,
+        respuesta: res.body,
+        source: 'Servidor (snippets)',
       );
+      throw Exception(msg);
     }
+    AppLog.instance.transaction(
+      '${res.request?.method ?? 'HTTP'} ${res.request?.url.path ?? 'snippets'}',
+      source: 'Snippets',
+      datos: {'HTTP': res.statusCode.toString()},
+    );
     return body;
   }
 

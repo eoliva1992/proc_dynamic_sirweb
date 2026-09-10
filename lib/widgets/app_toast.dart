@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:toastification/toastification.dart';
 
+import '../services/app_log.dart';
+
 /// Centralized toast notifications — uses ToastificationWrapper at app root.
+///
+/// Todo lo que se muestra por toast queda además registrado en [AppLog], que
+/// alimenta la consola integrada de la app: el toast es efímero, el log no.
 abstract final class AppToast {
   static const _alignment = Alignment.bottomRight;
   static const _animDuration = Duration(milliseconds: 420);
@@ -34,7 +39,8 @@ abstract final class AppToast {
     );
   }
 
-  static void success(String message, {Duration? duration}) {
+  static void success(String message, {Duration? duration, String? source}) {
+    AppLog.instance.success(message, source: source ?? 'App');
     toastification.show(
       alignment: _alignment,
       animationDuration: _animDuration,
@@ -52,7 +58,8 @@ abstract final class AppToast {
     );
   }
 
-  static void error(String message, {Duration? duration}) {
+  static void error(String message, {Duration? duration, String? source}) {
+    AppLog.instance.error(message, source: source ?? 'App');
     toastification.show(
       alignment: _alignment,
       animationDuration: _animDuration,
@@ -70,7 +77,8 @@ abstract final class AppToast {
     );
   }
 
-  static void warning(String message, {Duration? duration}) {
+  static void warning(String message, {Duration? duration, String? source}) {
+    AppLog.instance.warning(message, source: source ?? 'App');
     toastification.show(
       alignment: _alignment,
       animationDuration: _animDuration,
@@ -88,7 +96,8 @@ abstract final class AppToast {
     );
   }
 
-  static void info(String message, {Duration? duration}) {
+  static void info(String message, {Duration? duration, String? source}) {
+    AppLog.instance.info(message, source: source ?? 'App');
     toastification.show(
       alignment: _alignment,
       animationDuration: _animDuration,
@@ -115,6 +124,7 @@ abstract final class AppToast {
     String? detail,
     Duration? duration,
   }) {
+    AppLog.instance.success(message, detail: detail);
     ToastificationItem? item;
     item = toastification.show(
       alignment: _alignment,
@@ -172,6 +182,7 @@ abstract final class AppToast {
     required VoidCallback onAction,
     Duration? duration,
   }) {
+    AppLog.instance.warning(message);
     ToastificationItem? item;
     item = toastification.show(
       alignment: _alignment,
@@ -222,7 +233,9 @@ abstract final class AppToast {
     String title,
     String detail, {
     Duration? duration,
+    String? source,
   }) {
+    AppLog.instance.error(title, source: source ?? 'App', detail: detail);
     toastification.show(
       alignment: _alignment,
       animationDuration: _animDuration,
@@ -257,6 +270,7 @@ abstract final class AppToast {
     String? actionLabel,
     VoidCallback? onAction,
   }) {
+    AppLog.instance.error(title, detail: detail);
     return toastification.show(
       alignment: _alignment,
       animationDuration: _animDuration,

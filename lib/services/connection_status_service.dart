@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:signalr_netcore/signalr_client.dart';
+import 'app_log.dart';
 
 /// Estado de la conexión con el backend, de mejor a peor.
 enum ServerConnectionState {
@@ -169,8 +170,20 @@ class ConnectionStatusService {
   void _set(ServerConnectionState value) {
     if (state.value == value) return;
     final wasOnline = state.value.isOnline;
+    final anterior = state.value;
     state.value = value;
     if (value.isOnline) lastOnline.value = DateTime.now();
+    // Todo cambio de salud del backend queda en el log de la app.
+    AppLog.instance.transaction(
+      'Conexión: ${anterior.name} → ${value.name}',
+      source: 'Conexion',
+      level: value.isOnline ? LogLevel.info : LogLevel.warning,
+      datos: {
+        'Servidor': host,
+        'SignalR': _signalrAvailable ? 'activo' : 'inactivo',
+        'Ultimo OK': lastOnline.value?.toIso8601String(),
+      },
+    );
     // Cambió la salud de la conexión → ajustar la frecuencia del sondeo.
     if (wasOnline != value.isOnline) _scheduleHeartbeat();
   }
