@@ -31,6 +31,7 @@ import '../widgets/app_console.dart';
 import '../widgets/app_toast.dart';
 import '../widgets/search_tab_view.dart';
 import '../widgets/source_tab_controller.dart';
+import '../widgets/server_config_dialog.dart';
 import 'env_diff_page.dart';
 import 'transfer_dialog.dart';
 
@@ -1990,6 +1991,22 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           ),
         ),
         const SizedBox(width: 8),
+        Tooltip(
+          message: 'Configurar dirección del servidor',
+          child: IconButton(
+            onPressed: () => showDialog(
+              context: context,
+              builder: (context) => ServerConfigDialog(
+                onServerConfigChanged: () {
+                  AppToast.info('Dirección del servidor actualizada');
+                },
+              ),
+            ),
+            icon: const Icon(Icons.language),
+            color: barFgSoft,
+          ),
+        ),
+        const SizedBox(width: 4),
         ListenableBuilder(
           listenable: editorThemeStore,
           builder: (context, _) {

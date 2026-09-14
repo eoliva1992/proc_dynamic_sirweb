@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/snippet.dart';
 import 'app_log.dart';
+import 'server_config_service.dart';
 
 /// Result of a paginated snippets query.
 typedef SnippetPage = ({
@@ -30,13 +31,18 @@ class SnippetService {
 
   static final instance = SnippetService._();
 
-  static const String baseUrl = 'http://localhost:5179/tools/snippets';
   static const _cacheKey = 'user_snippets_cache';
   static final http.Client _client = http.Client();
 
   /// Default owner used when creating snippets (Windows user).
   static String currentUser = (Platform.environment['USERNAME'] ?? '')
       .toUpperCase();
+
+  /// Obtiene la URL base con el endpoint de snippets
+  static Future<String> getBaseUrl() async {
+    final baseUrl = await ServerConfigService().getBaseUrl();
+    return '$baseUrl/tools/snippets';
+  }
 
   // ---------------------------------------------------------------- queries
 
@@ -73,6 +79,7 @@ class SnippetService {
     int top = 50,
     int pagina = 1,
   }) async {
+    final baseUrl = await getBaseUrl();
     final uri = Uri.parse(baseUrl).replace(
       queryParameters: {
         if (ownerUser != null && ownerUser.isNotEmpty) 'ownerUser': ownerUser,
@@ -114,6 +121,7 @@ class SnippetService {
   }
 
   Future<Snippet> _create(Snippet snippet) async {
+    final baseUrl = await getBaseUrl();
     final res = await _client.post(
       Uri.parse(baseUrl),
       headers: const {'Content-Type': 'application/json', 'Accept': '*/*'},
@@ -123,6 +131,7 @@ class SnippetService {
   }
 
   Future<Snippet> _update(Snippet snippet) async {
+    final baseUrl = await getBaseUrl();
     final res = await _client.put(
       Uri.parse('$baseUrl/${Uri.encodeComponent(snippet.id)}'),
       headers: const {'Content-Type': 'application/json', 'Accept': '*/*'},
@@ -229,7 +238,7 @@ class SnippetService {
     } catch (_) {
       // ignore
     }
-    return 'HTTP ${res.statusCode} al llamar a $baseUrl';
+    return 'HTTP ${res.statusCode} al llamar a snippets';
   }
 
   Snippet _snippetFromResponse(http.Response res, {required Snippet fallback}) {

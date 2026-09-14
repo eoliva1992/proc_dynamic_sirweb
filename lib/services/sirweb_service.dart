@@ -14,14 +14,23 @@ import '../models/variable_dinamica.dart';
 import 'app_log.dart';
 import 'connection_status_service.dart';
 import 'mcp_sse.dart';
+import 'server_config_service.dart';
 
 class SirwebService {
   static final SirwebService _instance = SirwebService._();
   factory SirwebService() => _instance;
   SirwebService._();
 
-  static const String _host = 'http://localhost:5179';
-  static const String _baseUrl = '$_host/mcp';
+  /// Obtiene la URL base del MCP dinámicamente del ServerConfigService
+  static Future<String> getBaseUrl() async {
+    final baseHost = await ServerConfigService().getBaseUrl();
+    return '$baseHost/mcp';
+  }
+
+  /// Obtiene el host del backend dinámicamente del ServerConfigService
+  static Future<String> getHost() async {
+    return await ServerConfigService().getBaseUrl();
+  }
 
   /// Nombre de la tool MCP que resuelve las autorizaciones de proceso.
   /// Centralizado acÃ¡ para poder ajustarlo si el servidor lo renombra.
@@ -111,11 +120,12 @@ class SirwebService {
   }) async {
     final effectiveTimeout = timeout ?? defaultTimeout;
     final reloj = Stopwatch()..start();
+    final baseUrl = await getBaseUrl();
 
     // Se usa `send` (y no `post`) porque el servidor responde vía SSE y deja el
     // stream abierto: `post` esperaría el EOF del cuerpo y el Future quedaría
     // colgado aunque el resultado ya haya llegado.
-    final request = http.Request('POST', Uri.parse(_baseUrl))
+    final request = http.Request('POST', Uri.parse(baseUrl))
       ..headers.addAll({
         'Content-Type': 'application/json',
         'Accept': 'application/json, text/event-stream',
@@ -526,9 +536,10 @@ class SirwebService {
     String? ambiente,
     int timeoutPorTablaSegundos = 20,
   }) async {
+    final currentHost = await getHost();
     final uri =
         Uri.parse(
-          '$_host/tools/procedimiento-dinamico/'
+          '$currentHost/tools/procedimiento-dinamico/'
           '${Uri.encodeComponent(cdProcedimiento)}/usos',
         ).replace(
           queryParameters: {
@@ -580,8 +591,9 @@ class SirwebService {
     http.Client? client,
     bool Function()? cancelado,
   }) async {
+    final currentHost = await getHost();
     final uri = Uri.parse(
-      '$_host/tools/procedimiento-dinamico/'
+      '$currentHost/tools/procedimiento-dinamico/'
       '${Uri.encodeComponent(cdProcedimiento)}/ejecutar',
     );
 
@@ -600,7 +612,7 @@ class SirwebService {
   /// `POST /tools/procedimiento-dinamico/ejecutar-borrador`
   ///
   /// A diferencia de [ejecutarProcedimiento], el backend no lee el texto de
-  /// `PROCEDIMIENTODINAMICO`: usa el [deTexto] enviado con su
+   /// `PROCEDIMIENTODINAMICO`: usa el [deTexto] enviado con su
   /// [inConfiguracion] para armar el wrapper y ejecutarlo en modo prueba.
   Future<EjecucionResultado> ejecutarBorrador({
     required String deTexto,
@@ -609,8 +621,9 @@ class SirwebService {
     http.Client? client,
     bool Function()? cancelado,
   }) async {
+    final currentHost = await getHost();
     final uri = Uri.parse(
-      '$_host/tools/procedimiento-dinamico/ejecutar-borrador',
+      '$currentHost/tools/procedimiento-dinamico/ejecutar-borrador',
     );
 
     return _postEjecucion(
@@ -642,7 +655,8 @@ class SirwebService {
     http.Client? client,
     bool Function()? cancelado,
   }) async {
-    final uri = Uri.parse('$_host/tools/plsql/llamada');
+    final currentHost = await getHost();
+    final uri = Uri.parse('$currentHost/tools/plsql/llamada');
     final segundos = request.timeoutSegundos ?? 30;
     final httpClient = client ?? _client;
 

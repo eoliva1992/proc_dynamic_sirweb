@@ -1,0 +1,58 @@
+﻿Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 99.0.0 (107.0.0 available)
+  analyzer 12.1.0 (14.3.0 available)
+  build 4.0.7 (4.0.11 available)
+  build_config 1.3.2 (1.3.3 available)
+  build_daemon 4.1.3 (retracted, 4.1.6 available)
+  build_runner 2.15.1 (2.16.1 available)
+  built_value 8.12.6 (8.13.0 available)
+  clock 1.1.2 (1.1.3 available)
+  code_assets 1.2.1 (2.0.0 available)
+  cross_file 0.3.5+4 (0.3.5+5 available)
+  dart_style 3.1.8 (3.1.13 available)
+  dbus 0.7.14 (0.7.15 available)
+  file_picker 11.0.3 (12.2.0 available)
+  glob 2.1.3 (2.2.0 available)
+  hooks 2.0.2 (2.2.0 available)
+  io 1.0.5 (1.1.0 available)
+  jni_flutter 1.0.2 (1.0.3 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  mime 2.0.0 (2.1.0 available)
+  mobx 2.6.0 (2.6.1 available)
+  mobx_codegen 2.7.7 (2.7.8 available)
+  objective_c 9.5.0 (9.6.0 available)
+  package_config 2.2.0 (3.0.0 available)
+  platform 3.1.6 (3.2.0 available)
+  pool 1.5.2 (1.5.3 available)
+  pub_semver 2.2.0 (2.2.1 available)
+  pubspec_parse 1.5.0 (1.6.0 available)
+  record_use 0.6.0 (1.1.1 available)
+  shared_preferences_android 2.4.27 (2.4.28 available)
+  shared_preferences_foundation 2.5.6 (2.5.7 available)
+  source_gen 4.2.4 (4.3.0 available)
+  sse_channel 0.1.1 (0.2.2 available)
+  stack_trace 1.12.1 (1.12.2 available)
+  stream_transform 2.1.1 (2.1.2 available)
+  test_api 0.7.12 (0.7.14 available)
+  vm_service 15.2.0 (15.3.0 available)
+  webview_flutter_android 4.13.0 (4.14.1 available)
+  webview_flutter_windows 1.1.1 (1.2.0 available)
+  webview_flutter_wkwebview 3.26.0 (3.26.1 available)
+  win32 5.15.0 (6.4.0 available)
+  xml 6.6.1 (7.0.1 available)
+  yaml 3.1.3 (3.1.4 available)
+Got dependencies!
+42 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading C:/Users/eoliva/Documents/Projects/proc_dynamic_sirweb/test/copilot_chat_test.dart
+00:00 +0: parseChatBlocks devuelve un ├║nico bloque de texto si no hay fences
+00:00 +1: parseChatBlocks separa texto y c├│digo con lenguaje
+00:00 +2: parseChatBlocks cierra el bloque aunque el fence final falte (streaming)
+00:00 +3: parseChatBlocks bloque sin lenguaje deja language en null
+00:00 +4: ChatMessage appendChunk acumula el streaming
+00:00 +5: ChatMessage serializa y deserializa
+00:00 +6: buildPrompt incluye contexto del editor y la pregunta
+00:00 +7: buildPrompt arrastra el historial y omite los mensajes de error
+00:00 +8: buildPrompt omite las secciones vac├¡as
+00:00 +9: All tests passed!

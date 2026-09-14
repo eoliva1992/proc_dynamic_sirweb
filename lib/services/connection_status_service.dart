@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:signalr_netcore/signalr_client.dart';
 import 'app_log.dart';
+import 'server_config_service.dart';
 
 /// Estado de la conexión con el backend, de mejor a peor.
 enum ServerConnectionState {
@@ -52,8 +53,10 @@ class ConnectionStatusService {
 
   static final ConnectionStatusService instance = ConnectionStatusService._();
 
-  /// Host del backend. Debe coincidir con el usado por los demás servicios.
-  static const String host = 'http://localhost:5179';
+  /// Obtiene el host del backend dinámicamente del ServerConfigService
+  static Future<String> getHost() async {
+    return await ServerConfigService().getBaseUrl();
+  }
 
   /// Ruta del hub SignalR. Ajustar si el servidor la expone con otro nombre.
   static const String hubPath = '/hubs/sirweb';
@@ -94,8 +97,9 @@ class ConnectionStatusService {
 
   Future<void> _connectHub() async {
     try {
+      final currentHost = await getHost();
       final hub = HubConnectionBuilder()
-          .withUrl('$host$hubPath')
+          .withUrl('$currentHost$hubPath')
           .withAutomaticReconnect()
           .build();
 
@@ -158,7 +162,8 @@ class ConnectionStatusService {
       // Cualquier respuesta HTTP —incluso 404— prueba que el servidor está
       // levantado y aceptando conexiones. Solo interesa distinguir "responde"
       // de "no responde".
-      await _client.get(Uri.parse(host)).timeout(const Duration(seconds: 5));
+      final currentHost = await getHost();
+      await _client.get(Uri.parse(currentHost)).timeout(const Duration(seconds: 5));
       reportSuccess();
     } catch (_) {
       _set(ServerConnectionState.offline);
@@ -171,6 +176,7 @@ class ConnectionStatusService {
     if (state.value == value) return;
     final wasOnline = state.value.isOnline;
     final anterior = state.value;
+    final currentHost = ServerConfigService().getBaseUrlSync();
     state.value = value;
     if (value.isOnline) lastOnline.value = DateTime.now();
     // Todo cambio de salud del backend queda en el log de la app.
@@ -179,7 +185,7 @@ class ConnectionStatusService {
       source: 'Conexion',
       level: value.isOnline ? LogLevel.info : LogLevel.warning,
       datos: {
-        'Servidor': host,
+        'Servidor': currentHost,
         'SignalR': _signalrAvailable ? 'activo' : 'inactivo',
         'Ultimo OK': lastOnline.value?.toIso8601String(),
       },

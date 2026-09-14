@@ -308,10 +308,11 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
   Widget _buildToolbar(bool isDark) {
     final cs = Theme.of(context).colorScheme;
     return Container(
-      height: 36,
+      height: 40,
       color: isDark ? cs.surfaceContainerLow : cs.surface,
       padding: const EdgeInsets.symmetric(horizontal: 6),
       child: Row(
+        spacing: 5,
         children: [
           _ToggleBtn(
             icon: Icons.map_outlined,
@@ -438,12 +439,12 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
             active: _showOutline,
             onPressed: _toggleOutline,
           ),
-          _ToggleBtn(
-            icon: Icons.auto_awesome,
-            tooltip: 'Chat con GitHub Copilot',
-            active: _showAiChat,
-            onPressed: _toggleAiChat,
-          ),
+          // _ToggleBtn(
+          //   icon: Icons.auto_awesome,
+          //   tooltip: 'Chat con GitHub Copilot',
+          //   active: _showAiChat,
+          //   onPressed: _toggleAiChat,
+          // ),
           _ToolBtn(
             icon: Icons.code_rounded,
             tooltip: 'Snippets de usuario',

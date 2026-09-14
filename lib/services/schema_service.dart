@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'mcp_sse.dart';
+import 'server_config_service.dart';
 
 // ── Claves en SharedPreferences (se prefijan con el ambiente) ────────────────
 const _kTables = 'schema_tables';
@@ -78,7 +79,17 @@ class SchemaService {
   SchemaService._();
   static final SchemaService instance = SchemaService._();
 
-  static const String _mcpUrl = 'http://localhost:5179/mcp';
+  /// Obtiene la URL del MCP dinámicamente del ServerConfigService
+  static Future<String> getMcpUrl() async {
+    final baseHost = await ServerConfigService().getBaseUrl();
+    return '$baseHost/mcp';
+  }
+
+  /// Obtiene la URL del MCP cacheada síncronamente
+  static String getMcpUrlSync() {
+    final baseHost = ServerConfigService().getBaseUrlSync();
+    return '$baseHost/mcp';
+  }
 
   // Per-ambiente in-memory caches and loading flags
   final _caches = <String, SchemaMetadata>{};
@@ -1077,7 +1088,8 @@ class SchemaService {
     Duration timeout,
   ) async {
     final reloj = Stopwatch()..start();
-    final request = http.Request('POST', Uri.parse(_mcpUrl))
+    final mcpUrl = await getMcpUrl();
+    final request = http.Request('POST', Uri.parse(mcpUrl))
       ..headers.addAll({
         'Content-Type': 'application/json',
         'Accept': 'application/json, text/event-stream',
