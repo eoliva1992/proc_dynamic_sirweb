@@ -152,6 +152,14 @@ extension _EditorNavigationMethods on _CodeEditorPanelState {
     _showAutorizacionesModal(context, widget.ambiente);
   }
 
+  /// Abre la ventana de InfoDato desde la toolbar o shortcut.
+  Future<void> _openInfoDatoWindow() async {
+    if (!mounted) return;
+    final word = _wordAtCachedPosition()?.trim() ?? '';
+    final esCodigo = word.isNotEmpty && RegExp(r'^\d{3,}$').hasMatch(word);
+    _showInfoDatoModal(context, esCodigo ? word : '', widget.ambiente);
+  }
+
   Future<void> _showInfoDatoAtCursor() async {
     if (!mounted) return;
     final word = await _wordAtContextMenu();

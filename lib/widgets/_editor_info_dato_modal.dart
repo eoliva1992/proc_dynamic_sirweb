@@ -4,7 +4,7 @@ part of 'code_editor_panel.dart';
 ///
 /// Se inserta en el overlay raíz (sin barrera modal) para poder minimizarla
 /// y seguir trabajando en el editor.
-void _showInfoDatoModal(
+void showInfoDatoWindow(
   BuildContext context,
   String cdDatoStr,
   String ambiente,
@@ -18,6 +18,12 @@ void _showInfoDatoModal(
     ),
   );
 }
+
+void _showInfoDatoModal(
+  BuildContext context,
+  String cdDatoStr,
+  String ambiente,
+) => showInfoDatoWindow(context, cdDatoStr, ambiente);
 
 class _InfoDatoModal extends StatefulWidget {
   final String cdDatoStr;
@@ -39,6 +45,18 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
   Future<TablaDefinicion>? _defFuture;
   Future<List<ValorTabla>>? _infoFuture;
   int? _cdTabla;
+  int _productosCount = 0;
+
+  /// Código de dato actualmente consultado.
+  late String _cdDato;
+
+  /// Historial de datos consultados en esta sesión.
+  final List<String> _historial = [];
+
+  /// Permite cambiar el dato a consultar directamente desde el encabezado.
+  bool _editandoDato = false;
+  final _datoCtrl = TextEditingController();
+  final _datoFocus = FocusNode();
 
   // Drag & resize
   Offset _position = Offset.zero;
@@ -108,7 +126,16 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
   @override
   void initState() {
     super.initState();
-    _loadDato();
+    _cdDato = widget.cdDatoStr.trim();
+    if (_cdDato.isEmpty) {
+      _editandoDato = true;
+      _datoFuture = Future.value(<DatoInfo>[]);
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _datoFocus.requestFocus(),
+      );
+    } else {
+      _loadDato();
+    }
   }
 
   @override
@@ -119,17 +146,58 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
     _indexCtrl.dispose();
     _fechaDesdeCtrl.dispose();
     _fechaHastaCtrl.dispose();
+    _datoCtrl.dispose();
+    _datoFocus.dispose();
     super.dispose();
   }
 
   void _loadDato() {
+    final parsed = int.tryParse(_cdDato);
     _datoFuture = SirwebService().buscarDato(
-      cdDato: int.tryParse(widget.cdDatoStr),
+      cdDato: parsed,
+      deDato: parsed == null && _cdDato.isNotEmpty ? _cdDato : null,
       ambiente: widget.ambiente,
     );
     _datoFuture.then((datos) {
       if (!mounted) return;
-      setState(() => _cdTabla = datos.isNotEmpty ? datos.first.cdTabla : null);
+      setState(() {
+        _cdTabla = datos.isNotEmpty ? datos.first.cdTabla : null;
+        _productosCount = datos.isNotEmpty ? datos.first.productos.length : 0;
+      });
+    });
+  }
+
+  void _toggleCambiarDato() {
+    setState(() {
+      _editandoDato = !_editandoDato;
+      if (_editandoDato) {
+        _datoCtrl.text = _cdDato;
+        _datoCtrl.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: _datoCtrl.text.length,
+        );
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _datoFocus.requestFocus(),
+        );
+      }
+    });
+  }
+
+  void _cargarDato(String cdDato) {
+    final nuevo = cdDato.trim();
+    if (nuevo.isEmpty) return;
+    setState(() {
+      if (nuevo != _cdDato && _cdDato.isNotEmpty) {
+        _historial.remove(_cdDato);
+        _historial.add(_cdDato);
+        if (_historial.length > 10) _historial.removeAt(0);
+      }
+      _cdDato = nuevo;
+      _editandoDato = false;
+      _tab = 0;
+      _defFuture = null;
+      _infoFuture = null;
+      _loadDato();
     });
   }
 
@@ -267,7 +335,11 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                         children: [
                           _buildHeader(isDark, accent),
                           if (!_minimized) ...[
-                            _buildTabBar(isDark, accent),
+                            _buildTabBar(
+                              isDark,
+                              accent,
+                              productosCount: _productosCount,
+                            ),
                             Expanded(child: _buildTabContent(isDark, accent)),
                           ],
                         ],
@@ -395,7 +467,7 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
               if (_minimized)
                 Expanded(
                   child: Text(
-                    'Dato ${widget.cdDatoStr}',
+                    _cdDato.isEmpty ? 'InfoDato' : 'Dato $_cdDato',
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 12.5,
@@ -419,15 +491,96 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                         ),
                       ),
                       const SizedBox(height: 2),
-                      Text(
-                        widget.cdDatoStr,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          fontFamily: 'Consolas',
+                      if (_editandoDato)
+                        SizedBox(
+                          height: 30,
+                          child: TextField(
+                            controller: _datoCtrl,
+                            focusNode: _datoFocus,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              fontFamily: 'Consolas',
+                            ),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              hintText: 'Código o nombre de dato',
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 6,
+                              ),
+                              filled: true,
+                              fillColor: isDark
+                                  ? const Color(0xFF1E1E1E)
+                                  : Colors.white,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              suffixIcon: IconButton(
+                                tooltip: 'Consultar',
+                                icon: const Icon(Icons.arrow_forward, size: 16),
+                                onPressed: () => _cargarDato(_datoCtrl.text),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 28,
+                                  minHeight: 28,
+                                ),
+                              ),
+                            ),
+                            onSubmitted: _cargarDato,
+                          ),
+                        )
+                      else
+                        Text(
+                          _cdDato.isEmpty ? '—' : _cdDato,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            fontFamily: 'Consolas',
+                            color: _cdDato.isEmpty
+                                ? (isDark ? Colors.white38 : Colors.black38)
+                                : null,
+                          ),
                         ),
-                      ),
                     ],
+                  ),
+                ),
+              if (_historial.isNotEmpty && !_editandoDato && !_minimized)
+                PopupMenuButton<String>(
+                  tooltip: 'Datos consultados',
+                  icon: const Icon(Icons.history, size: 18),
+                  padding: EdgeInsets.zero,
+                  onSelected: _cargarDato,
+                  itemBuilder: (_) => _historial.reversed
+                      .map(
+                        (e) => PopupMenuItem<String>(
+                          value: e,
+                          child: Text(
+                            e,
+                            style: const TextStyle(
+                              fontFamily: 'Consolas',
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+              if (!_minimized)
+                IconButton(
+                  tooltip: _editandoDato
+                      ? 'Cancelar'
+                      : 'Consultar otro dato en esta ventana',
+                  icon: Icon(
+                    _editandoDato ? Icons.close_rounded : Icons.manage_search,
+                    size: 18,
+                    color: _editandoDato ? null : accent,
+                  ),
+                  onPressed: _toggleCambiarDato,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
                   ),
                 ),
               if (_cdTabla != null && !_minimized) ...[
@@ -504,10 +657,10 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
     );
   }
 
-  // ── Tab bar (visible only when dato has a table) ─────────────────────────
+  // ── Tab bar ─────────────────────────────────────────────────────────────
 
-  Widget _buildTabBar(bool isDark, Color accent) {
-    if (_cdTabla == null) return const SizedBox.shrink();
+  Widget _buildTabBar(bool isDark, Color accent, {int productosCount = 0}) {
+    if (_cdTabla == null && productosCount == 0) return const SizedBox.shrink();
     final borderColor = isDark
         ? const Color(0xFF3A3A3A)
         : const Color(0xFFDDE2EA);
@@ -519,8 +672,11 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
       child: Row(
         children: [
           _tab0(isDark, accent),
-          _tab1(isDark, accent),
-          _tab2(isDark, accent),
+          if (productosCount > 0) _tab3(isDark, accent, productosCount),
+          if (_cdTabla != null) ...[
+            _tab1(isDark, accent),
+            _tab2(isDark, accent),
+          ],
         ],
       ),
     );
@@ -531,8 +687,9 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
     String label,
     IconData icon,
     bool isDark,
-    Color accent,
-  ) {
+    Color accent, {
+    String? badge,
+  }) {
     final isSelected = _tab == idx;
     final color = isSelected
         ? accent
@@ -562,6 +719,27 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                 color: color,
               ),
             ),
+            if (badge != null) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? accent.withValues(alpha: 0.16)
+                      : (isDark ? Colors.white12 : Colors.black12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  badge,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: isSelected ? accent : color,
+                    fontFamily: 'Consolas',
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -579,20 +757,18 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
     isDark,
     accent,
   );
+  Widget _tab3(bool isDark, Color accent, int count) => _tabItem(
+    3,
+    'Productos',
+    Icons.inventory_2_outlined,
+    isDark,
+    accent,
+    badge: count.toString(),
+  );
 
   // ── Tab content router ────────────────────────────────────────────────────
 
   Widget _buildTabContent(bool isDark, Color accent) {
-    return switch (_tab) {
-      1 => _buildDefTab(isDark, accent),
-      2 => _buildInfoTab(isDark, accent),
-      _ => _buildDatoTab(isDark, accent),
-    };
-  }
-
-  // ── Tab 0: Dato ───────────────────────────────────────────────────────────
-
-  Widget _buildDatoTab(bool isDark, Color accent) {
     return FutureBuilder<List<DatoInfo>>(
       future: _datoFuture,
       builder: (ctx, snap) {
@@ -604,16 +780,27 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
         }
         final datos = snap.data ?? [];
         if (datos.isEmpty) return _buildEmpty('No se encontró el dato', isDark);
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final d in datos) _buildDatoCard(d, isDark, accent),
-            ],
-          ),
-        );
+
+        final d = datos.first;
+        return switch (_tab) {
+          1 => _buildDefTab(isDark, accent),
+          2 => _buildInfoTab(isDark, accent),
+          3 => _buildProductosTab(d.productos, isDark, accent),
+          _ => _buildDatoTabContent(datos, isDark, accent),
+        };
       },
+    );
+  }
+
+  // ── Tab 0: Dato ───────────────────────────────────────────────────────────
+
+  Widget _buildDatoTabContent(List<DatoInfo> datos, bool isDark, Color accent) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [for (final d in datos) _buildDatoCard(d, isDark, accent)],
+      ),
     );
   }
 
@@ -658,6 +845,8 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
       'inConsultaSiniestro',
       'inValidaPersona',
       'inAsignacionAutomatica',
+      'productos',
+      'dato',
     };
     final extras = d.raw.entries
         .where((e) => !knownKeys.contains(e.key) && e.value != null)
@@ -739,6 +928,45 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
               ],
             ),
           ],
+          if (d.productos.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            InkWell(
+              onTap: () => _selectTab(3),
+              borderRadius: BorderRadius.circular(6),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: accent.withValues(alpha: 0.25)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.inventory_2_outlined, size: 14, color: accent),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${d.productos.length} producto(s) asociado(s)',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: accent,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      size: 10,
+                      color: accent,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
           if (extras.isNotEmpty) ...[
             Divider(color: borderColor, height: 16),
             for (final e in extras)
@@ -768,6 +996,689 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                 ),
               ),
           ],
+        ],
+      ),
+    );
+  }
+
+  // ── Tab 3: Productos ──────────────────────────────────────────────────────
+
+  Widget _buildProductosTab(
+    List<DatoProducto> productos,
+    bool isDark,
+    Color accent,
+  ) {
+    if (productos.isEmpty) {
+      return _buildEmpty(
+        'No hay productos configurados para este dato',
+        isDark,
+      );
+    }
+
+    final borderColor = isDark
+        ? const Color(0xFF3A3A3A)
+        : const Color(0xFFDDE2EA);
+    final labelColor = isDark ? Colors.white54 : Colors.black45;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Header count
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA),
+            border: Border(bottom: BorderSide(color: borderColor)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.inventory_2_outlined, size: 15, color: accent),
+              const SizedBox(width: 8),
+              Text(
+                '${productos.length} producto${productos.length != 1 ? 's' : ''} encontrado${productos.length != 1 ? 's' : ''}',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white70 : Colors.black87,
+                ),
+              ),
+            ],
+          ),
+        ),
+        // List of products
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(14),
+            itemCount: productos.length,
+            itemBuilder: (ctx, i) => _buildProductoCard(
+              productos[i],
+              isDark,
+              accent,
+              borderColor,
+              labelColor,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildProductoCard(
+    DatoProducto p,
+    bool isDark,
+    Color accent,
+    Color borderColor,
+    Color labelColor,
+  ) {
+    final textColor = isDark
+        ? Colors.white.withValues(alpha: 0.87)
+        : Colors.black87;
+    final cardBg = isDark ? const Color(0xFF222223) : const Color(0xFFFDFDFE);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header of product
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: isDark ? 0.12 : 0.08),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(8),
+              ),
+              border: Border(
+                bottom: BorderSide(color: borderColor.withValues(alpha: 0.6)),
+              ),
+            ),
+            child: Row(
+              children: [
+                if (p.cdProducto != null)
+                  Container(
+                    margin: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      p.cdProducto.toString(),
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: accent,
+                        fontFamily: 'Consolas',
+                      ),
+                    ),
+                  ),
+                Expanded(
+                  child: Text(
+                    p.deProducto ?? 'Producto ${p.cdProducto ?? ''}',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (p.version != null)
+                  Container(
+                    margin: const EdgeInsets.only(right: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? Colors.white10
+                          : Colors.black.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      'v${p.version}',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w600,
+                        color: labelColor,
+                        fontFamily: 'Consolas',
+                      ),
+                    ),
+                  ),
+                if (p.inActivo != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: (p.inActivo == 1 ? Colors.green : Colors.red)
+                          .withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                        color: (p.inActivo == 1 ? Colors.green : Colors.red)
+                            .withValues(alpha: 0.4),
+                      ),
+                    ),
+                    child: Text(
+                      p.inActivo == 1 ? 'ACTIVO' : 'INACTIVO',
+                      style: TextStyle(
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w700,
+                        color: p.inActivo == 1
+                            ? (isDark
+                                  ? Colors.green.shade300
+                                  : Colors.green.shade700)
+                            : Colors.redAccent,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          // Body details
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 1. Configuración Básica
+                _buildSectionHeader(
+                  'Configuración Principal',
+                  Icons.tune,
+                  isDark,
+                  accent,
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 6,
+                  children: [
+                    if (p.nuBienAsegurado != null)
+                      _buildProdProp(
+                        'Bien Asegurado',
+                        p.nuBienAsegurado.toString(),
+                        labelColor,
+                        textColor,
+                      ),
+                    if (p.cdGrupo != null)
+                      _buildProdProp(
+                        'Grupo',
+                        p.cdGrupo.toString(),
+                        labelColor,
+                        textColor,
+                      ),
+                    if (p.nuConsecutivo != null)
+                      _buildProdProp(
+                        'Consecutivo',
+                        p.nuConsecutivo.toString(),
+                        labelColor,
+                        textColor,
+                      ),
+                    if (p.inLugarUsoDato != null)
+                      _buildProdProp(
+                        'Lugar Uso',
+                        p.inLugarUsoDato.toString(),
+                        labelColor,
+                        textColor,
+                      ),
+                    if (p.cdDatoPadre != null)
+                      _buildProdProp(
+                        'Dato Padre',
+                        p.cdDatoPadre.toString(),
+                        labelColor,
+                        textColor,
+                      ),
+                  ],
+                ),
+
+                // 2. Valores por Defecto
+                if ((p.vaDefectoDato != null && p.vaDefectoDato!.isNotEmpty) ||
+                    (p.vaDefectoDatoWebExterna != null &&
+                        p.vaDefectoDatoWebExterna!.isNotEmpty) ||
+                    (p.vaDefectoDatoWebMediador != null &&
+                        p.vaDefectoDatoWebMediador!.isNotEmpty) ||
+                    (p.vaDefectoDatoWebDelegado != null &&
+                        p.vaDefectoDatoWebDelegado!.isNotEmpty)) ...[
+                  const SizedBox(height: 10),
+                  _buildSectionHeader(
+                    'Valores por Defecto',
+                    Icons.edit_note,
+                    isDark,
+                    accent,
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 16,
+                    runSpacing: 6,
+                    children: [
+                      if (p.vaDefectoDato != null &&
+                          p.vaDefectoDato!.isNotEmpty)
+                        _buildProdProp(
+                          'General',
+                          p.vaDefectoDato!,
+                          labelColor,
+                          textColor,
+                        ),
+                      if (p.vaDefectoDatoWebExterna != null &&
+                          p.vaDefectoDatoWebExterna!.isNotEmpty)
+                        _buildProdProp(
+                          'Web Ext.',
+                          p.vaDefectoDatoWebExterna!,
+                          labelColor,
+                          textColor,
+                        ),
+                      if (p.vaDefectoDatoWebMediador != null &&
+                          p.vaDefectoDatoWebMediador!.isNotEmpty)
+                        _buildProdProp(
+                          'Web Med.',
+                          p.vaDefectoDatoWebMediador!,
+                          labelColor,
+                          textColor,
+                        ),
+                      if (p.vaDefectoDatoWebDelegado != null &&
+                          p.vaDefectoDatoWebDelegado!.isNotEmpty)
+                        _buildProdProp(
+                          'Web Del.',
+                          p.vaDefectoDatoWebDelegado!,
+                          labelColor,
+                          textColor,
+                        ),
+                    ],
+                  ),
+                ],
+
+                // 3. Procedures / Scripts
+                if (p.cdProcedimientoAntes != null ||
+                    p.cdProcedimientoDespues != null ||
+                    p.cdJavascriptDespues != null ||
+                    p.nmPackageAjax != null) ...[
+                  const SizedBox(height: 10),
+                  _buildSectionHeader(
+                    'Procedimientos & Scripts',
+                    Icons.code,
+                    isDark,
+                    accent,
+                  ),
+                  const SizedBox(height: 6),
+                  if (p.cdProcedimientoAntes != null)
+                    _buildCodeProp(
+                      'Proc. Antes',
+                      p.cdProcedimientoAntes!,
+                      const Color(0xFF0078D4),
+                      isDark,
+                    ),
+                  if (p.cdProcedimientoDespues != null)
+                    _buildCodeProp(
+                      'Proc. Después',
+                      p.cdProcedimientoDespues!,
+                      const Color(0xFF0078D4),
+                      isDark,
+                    ),
+                  if (p.cdJavascriptDespues != null)
+                    _buildCodeProp(
+                      'JS Después',
+                      p.cdJavascriptDespues!,
+                      const Color(0xFFD7BA7D),
+                      isDark,
+                    ),
+                  if (p.nmPackageAjax != null)
+                    _buildCodeProp(
+                      'Package Ajax',
+                      p.nmPackageAjax!,
+                      const Color(0xFF4EC9B0),
+                      isDark,
+                    ),
+                ],
+
+                // 4. Indicadores y Banderas
+                const SizedBox(height: 10),
+                _buildSectionHeader(
+                  'Indicadores & Comportamiento',
+                  Icons.flag_outlined,
+                  isDark,
+                  accent,
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    if (p.inDatoRequerido != null)
+                      _buildFlagBadge(
+                        'Requerido',
+                        p.inDatoRequerido == 1,
+                        isDark,
+                        labelColor,
+                      ),
+                    if (p.inIndexar != null)
+                      _buildFlagBadge(
+                        'Indexar',
+                        p.inIndexar == 1,
+                        isDark,
+                        labelColor,
+                      ),
+                    if (p.inEndoso != null)
+                      _buildFlagBadge(
+                        'Endoso',
+                        p.inEndoso == 1,
+                        isDark,
+                        labelColor,
+                      ),
+                    if (p.inEndosoMultiple != null)
+                      _buildFlagBadge(
+                        'Endoso múltiple',
+                        p.inEndosoMultiple == 1,
+                        isDark,
+                        labelColor,
+                      ),
+                    if (p.inArrastreValor != null)
+                      _buildFlagBadge(
+                        'Arrastre valor',
+                        p.inArrastreValor == 1,
+                        isDark,
+                        labelColor,
+                      ),
+                    if (p.inMatrizCertificado != null)
+                      _buildFlagBadge(
+                        'Matriz cert.',
+                        p.inMatrizCertificado == 1,
+                        isDark,
+                        labelColor,
+                      ),
+                    if (p.inMostrarCertificado != null)
+                      _buildFlagBadge(
+                        'Mostrar cert.',
+                        p.inMostrarCertificado == 1,
+                        isDark,
+                        labelColor,
+                      ),
+                    if (p.inMostrarSiniestro != null)
+                      _buildFlagBadge(
+                        'Mostrar siniestro',
+                        p.inMostrarSiniestro == 1,
+                        isDark,
+                        labelColor,
+                      ),
+                    if (p.inBusquedaSiniestro != null)
+                      _buildFlagBadge(
+                        'Búsqueda siniestro',
+                        p.inBusquedaSiniestro == 1,
+                        isDark,
+                        labelColor,
+                      ),
+                    if (p.inMostrarMercancia != null)
+                      _buildFlagBadge(
+                        'Mostrar mercancía',
+                        p.inMostrarMercancia == 1,
+                        isDark,
+                        labelColor,
+                      ),
+                    if (p.inDataWarehouse != null)
+                      _buildFlagBadge(
+                        'Data warehouse',
+                        p.inDataWarehouse == 1,
+                        isDark,
+                        labelColor,
+                      ),
+                    if (p.inConsultaTotalizada != null)
+                      _buildFlagBadge(
+                        'Consulta totalizada',
+                        p.inConsultaTotalizada == 1,
+                        isDark,
+                        labelColor,
+                      ),
+                    if (p.inInvisibleDefecto != null)
+                      _buildFlagBadge(
+                        'Invisible defecto',
+                        p.inInvisibleDefecto == 1,
+                        isDark,
+                        labelColor,
+                      ),
+                    if (p.inRecargarDatos != null)
+                      _buildFlagBadge(
+                        'Recargar datos',
+                        p.inRecargarDatos == 1,
+                        isDark,
+                        labelColor,
+                      ),
+                    if (p.inAplicarPoCoaseguro != null)
+                      _buildFlagBadge(
+                        'Po coaseguro',
+                        p.inAplicarPoCoaseguro == 1,
+                        isDark,
+                        labelColor,
+                      ),
+                    if (p.inEjecRenovacionProcAnt != null)
+                      _buildFlagBadge(
+                        'Ejec. Renov. Ant.',
+                        p.inEjecRenovacionProcAnt == 1,
+                        isDark,
+                        labelColor,
+                      ),
+                    if (p.inEjecRenovacionProcDesp != null)
+                      _buildFlagBadge(
+                        'Ejec. Renov. Desp.',
+                        p.inEjecRenovacionProcDesp == 1,
+                        isDark,
+                        labelColor,
+                      ),
+                    if (p.inNoMostrarConsultaOtros != null)
+                      _buildFlagBadge(
+                        'No mostrar consulta otros',
+                        p.inNoMostrarConsultaOtros == 1,
+                        isDark,
+                        labelColor,
+                        isNegative: true,
+                      ),
+                    if (p.inNoMostrarWebExterna != null)
+                      _buildFlagBadge(
+                        'No mostrar Web Ext.',
+                        p.inNoMostrarWebExterna == 1,
+                        isDark,
+                        labelColor,
+                        isNegative: true,
+                      ),
+                    if (p.inNoMostrarWebMediador != null)
+                      _buildFlagBadge(
+                        'No mostrar Web Med.',
+                        p.inNoMostrarWebMediador == 1,
+                        isDark,
+                        labelColor,
+                        isNegative: true,
+                      ),
+                    if (p.inNoMostrarWebDelegado != null)
+                      _buildFlagBadge(
+                        'No mostrar Web Del.',
+                        p.inNoMostrarWebDelegado == 1,
+                        isDark,
+                        labelColor,
+                        isNegative: true,
+                      ),
+                    if (p.inNoMostrarEndosoWebMedi != null)
+                      _buildFlagBadge(
+                        'No endoso Web Med.',
+                        p.inNoMostrarEndosoWebMedi == 1,
+                        isDark,
+                        labelColor,
+                        isNegative: true,
+                      ),
+                    if (p.inNoMostrarEndosoWebExte != null)
+                      _buildFlagBadge(
+                        'No endoso Web Ext.',
+                        p.inNoMostrarEndosoWebExte == 1,
+                        isDark,
+                        labelColor,
+                        isNegative: true,
+                      ),
+                    if (p.inNoMostrarEndosoWebDele != null)
+                      _buildFlagBadge(
+                        'No endoso Web Del.',
+                        p.inNoMostrarEndosoWebDele == 1,
+                        isDark,
+                        labelColor,
+                        isNegative: true,
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(
+    String title,
+    IconData icon,
+    bool isDark,
+    Color accent,
+  ) {
+    return Row(
+      children: [
+        Icon(icon, size: 12, color: accent),
+        const SizedBox(width: 5),
+        Text(
+          title.toUpperCase(),
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.5,
+            color: accent,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Divider(
+            color: (isDark ? Colors.white : Colors.black).withValues(
+              alpha: 0.1,
+            ),
+            height: 1,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFlagBadge(
+    String label,
+    bool active,
+    bool isDark,
+    Color labelColor, {
+    bool isNegative = false,
+  }) {
+    final effectiveColor = isNegative
+        ? (active ? Colors.orange : Colors.grey)
+        : (active ? Colors.green : Colors.grey);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+      decoration: BoxDecoration(
+        color: effectiveColor.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: effectiveColor.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 9.5,
+          fontWeight: FontWeight.w600,
+          color: active
+              ? (isDark
+                    ? (isNegative
+                          ? Colors.orange.shade300
+                          : Colors.green.shade300)
+                    : (isNegative
+                          ? Colors.orange.shade800
+                          : Colors.green.shade700))
+              : labelColor,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProdProp(
+    String label,
+    String value,
+    Color labelColor,
+    Color textColor,
+  ) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '$label: ',
+          style: TextStyle(
+            fontSize: 11,
+            color: labelColor,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 11.5,
+            color: textColor,
+            fontWeight: FontWeight.w600,
+            fontFamily: 'Consolas',
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCodeProp(String label, String code, Color color, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.white60 : Colors.black54,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: color.withValues(alpha: 0.3)),
+              ),
+              child: Text(
+                code,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontFamily: 'Consolas',
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? color.withValues(alpha: 0.9) : color,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1186,7 +2097,9 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
   List<String> _detectInfoCols(List<ValorTabla> valores) {
     if (valores.isEmpty) return [];
     final keys = <String>{};
-    for (final v in valores.take(5)) keys.addAll(v.raw.keys);
+    for (final v in valores.take(5)) {
+      keys.addAll(v.raw.keys);
+    }
     const preferred = [
       'deIndiceDato',
       'deDato',

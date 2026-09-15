@@ -156,7 +156,11 @@ void main() {
       expect(json['nuCotizacion'], 500);
       expect(json.containsKey('nuPoliza'), isTrue);
       expect(json['nuPoliza'], isNull);
-      expect(json.length, 18);
+      expect(json.containsKey('nuBienAsegurado'), isTrue);
+      expect(json['nuBienAsegurado'], isNull);
+      expect(json.containsKey('capturarVariables'), isTrue);
+      expect(json['capturarVariables'], isNull);
+      expect(json.length, 20);
     });
   });
 
@@ -170,7 +174,9 @@ void main() {
       expect(json['inConfiguracion'], 'D');
       expect(json['cdEntidad'], 1);
       expect(json.containsKey('nuPoliza'), isTrue);
-      expect(json.length, 20);
+      expect(json.containsKey('nuBienAsegurado'), isTrue);
+      expect(json.containsKey('capturarVariables'), isTrue);
+      expect(json.length, 22);
     });
 
     test('manda inConfiguracion vacío cuando no se conoce', () {

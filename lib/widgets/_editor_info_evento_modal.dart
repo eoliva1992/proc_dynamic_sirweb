@@ -7,7 +7,7 @@ part of 'code_editor_panel.dart';
 ///
 /// Si [cdEvento] viene vacío, la ventana se abre directamente en modo búsqueda
 /// para que el usuario escriba el código del evento a consultar.
-void _showInfoEventoModal(
+void showInfoEventoWindow(
   BuildContext context,
   String cdEvento,
   String ambiente,
@@ -21,6 +21,12 @@ void _showInfoEventoModal(
     ),
   );
 }
+
+void _showInfoEventoModal(
+  BuildContext context,
+  String cdEvento,
+  String ambiente,
+) => showInfoEventoWindow(context, cdEvento, ambiente);
 
 class _InfoEventoModal extends StatefulWidget {
   final String cdEvento;

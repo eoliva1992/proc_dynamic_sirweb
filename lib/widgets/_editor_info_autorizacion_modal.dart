@@ -7,7 +7,7 @@ part of 'code_editor_panel.dart';
 /// Se inserta en el overlay raíz (sin barrera modal) para que pueda
 /// minimizarse y seguir trabajando en el editor.
 /// [filtroInicial] permite precargar una búsqueda.
-void _showAutorizacionesModal(
+void showAutorizacionesWindow(
   BuildContext context,
   String ambiente, {
   String filtroInicial = '',
@@ -21,6 +21,12 @@ void _showAutorizacionesModal(
     ),
   );
 }
+
+void _showAutorizacionesModal(
+  BuildContext context,
+  String ambiente, {
+  String filtroInicial = '',
+}) => showAutorizacionesWindow(context, ambiente, filtroInicial: filtroInicial);
 
 class _AutorizacionesModal extends StatefulWidget {
   final String ambiente;

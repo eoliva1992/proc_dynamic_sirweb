@@ -11,9 +11,10 @@
 ///   "cdEntidad": 1, "nuCotizacion": null, "nuItem": null, "cdArea": null,
 ///   "nuPoliza": null, "nuCertificado": null, "nuEndoso": null,
 ///   "nuSiniestro": null, "nuMovimiento": null, "nuInspeccion": null,
-///   "inAccion": null, "vaDato": null, "stringDatos": null,
-///   "stringMatriz": null, "camposAdicionales": null, "tipoContexto": null,
-///   "ambiente": null, "timeoutSegundos": null
+///   "nuBienAsegurado": null, "inAccion": null, "vaDato": null,
+///   "stringDatos": null, "stringMatriz": null, "camposAdicionales": null,
+///   "tipoContexto": null, "ambiente": null, "timeoutSegundos": null,
+///   "capturarVariables": null
 /// }
 /// ```
 ///
@@ -52,6 +53,7 @@ class EjecucionRequest {
   final int? nuSiniestro;
   final int? nuMovimiento;
   final int? nuInspeccion;
+  final int? nuBienAsegurado;
   final String? inAccion;
   final String? vaDato;
   final String? stringDatos;
@@ -62,6 +64,7 @@ class EjecucionRequest {
   final String? tipoContexto;
   final String? ambiente;
   final int? timeoutSegundos;
+  final bool? capturarVariables;
 
   const EjecucionRequest({
     this.cdEntidad = 1,
@@ -74,6 +77,7 @@ class EjecucionRequest {
     this.nuSiniestro,
     this.nuMovimiento,
     this.nuInspeccion,
+    this.nuBienAsegurado,
     this.inAccion,
     this.vaDato,
     this.stringDatos,
@@ -82,6 +86,7 @@ class EjecucionRequest {
     this.tipoContexto,
     this.ambiente,
     this.timeoutSegundos,
+    this.capturarVariables,
   });
 
   /// El backend espera el contrato completo: los `null` se envían explícitos.
@@ -96,6 +101,7 @@ class EjecucionRequest {
     'nuSiniestro': nuSiniestro,
     'nuMovimiento': nuMovimiento,
     'nuInspeccion': nuInspeccion,
+    'nuBienAsegurado': nuBienAsegurado,
     'inAccion': inAccion,
     'vaDato': vaDato,
     'stringDatos': stringDatos,
@@ -104,6 +110,7 @@ class EjecucionRequest {
     'tipoContexto': tipoContexto,
     'ambiente': ambiente,
     'timeoutSegundos': timeoutSegundos,
+    'capturarVariables': capturarVariables,
   };
 
   /// Contrato del endpoint `POST /tools/procedimiento-dinamico/ejecutar-borrador`.

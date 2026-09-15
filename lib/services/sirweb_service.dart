@@ -396,7 +396,7 @@ class SirwebService {
     });
   }
 
-  /// Busca registros en DATO con filtros opcionales.
+  /// Busca registros en DATO con filtros opcionales o consulta un dato específico con sus productos.
   Future<List<DatoInfo>> buscarDato({
     int? cdDato,
     String? deDato,
@@ -405,6 +405,27 @@ class SirwebService {
     int? inUso,
     String? ambiente,
   }) async {
+    // Si se consulta por código específico, intentamos info_dato que devuelve el dato con sus productos
+    if (cdDato != null) {
+      try {
+        final result = await _call('info_dato', {
+          'cdDato': cdDato,
+          if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+        });
+        final data = result['data'];
+        if (data is Map<String, dynamic>) {
+          if (data.containsKey('dato')) {
+            return [DatoInfo.fromJson(data)];
+          }
+          if (data.containsKey('cdDato')) {
+            return [DatoInfo.fromJson(data)];
+          }
+        }
+      } catch (e) {
+        // Fallback a buscar_dato si info_dato no estuviera disponible
+      }
+    }
+
     final result = await _call('buscar_dato', {
       if (cdDato != null) 'cdDato': cdDato,
       if (deDato != null) 'deDato': deDato,
@@ -414,11 +435,23 @@ class SirwebService {
       if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
     });
     final data = result['data'];
-    final rawList = data is List
-        ? data
-        : (data is Map<String, dynamic>
-              ? (data['items'] as List<dynamic>? ?? <dynamic>[])
-              : <dynamic>[]);
+    if (data is Map<String, dynamic>) {
+      if (data.containsKey('dato')) {
+        return [DatoInfo.fromJson(data)];
+      }
+      final items = data['items'] as List<dynamic>?;
+      if (items != null) {
+        return items
+            .whereType<Map<String, dynamic>>()
+            .map(DatoInfo.fromJson)
+            .toList();
+      }
+      // Podría ser el objeto Dato directamente si vino como map sin envoltorio 'dato'
+      if (data.containsKey('cdDato')) {
+        return [DatoInfo.fromJson(data)];
+      }
+    }
+    final rawList = data is List ? data : <dynamic>[];
     return rawList
         .whereType<Map<String, dynamic>>()
         .map(DatoInfo.fromJson)
@@ -612,7 +645,7 @@ class SirwebService {
   /// `POST /tools/procedimiento-dinamico/ejecutar-borrador`
   ///
   /// A diferencia de [ejecutarProcedimiento], el backend no lee el texto de
-   /// `PROCEDIMIENTODINAMICO`: usa el [deTexto] enviado con su
+  /// `PROCEDIMIENTODINAMICO`: usa el [deTexto] enviado con su
   /// [inConfiguracion] para armar el wrapper y ejecutarlo en modo prueba.
   Future<EjecucionResultado> ejecutarBorrador({
     required String deTexto,

@@ -50,3 +50,5 @@ graphify-out/
 # Herramientas locales
 nuget.exe
 
+# Widget Preview related
+.widget_preview/

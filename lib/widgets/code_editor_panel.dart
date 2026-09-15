@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show File, Platform;
 import 'dart:developer' as developer;
@@ -107,11 +107,13 @@ class _SeccionLabel extends StatelessWidget {
     );
   }
 }
+
 /// Campo de texto compacto de los modales del editor.
 class _CampoTexto extends StatelessWidget {
   final TextEditingController controller;
   final String label;
   final String? hint;
+
   /// Restringe la entrada a digitos (overloads, codigos numericos...).
   final bool numerico;
   final bool isDark;
@@ -183,11 +185,20 @@ class _CampoTexto extends StatelessWidget {
     );
   }
 }
+
 enum _SaveStatus { idle, saving, saved, error }
 
 enum _CompileStatus { idle, compiling, ok, error }
 
-enum _CtxMenuAction { gotoDef, infoEvento, infoDato, copy, cut, paste }
+enum _CtxMenuAction {
+  gotoDef,
+  infoEvento,
+  infoDato,
+  ejecutar,
+  copy,
+  cut,
+  paste,
+}
 
 class CodeEditorPanel extends StatefulWidget {
   final Procedimiento procedimiento;
@@ -396,9 +407,6 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   // Used as secondary fallback in _wordAtContextMenu().
   String _lastContextMenuWord = '';
   StreamSubscription<MonacoEvent>? _contextMenuEventSub;
-  StreamSubscription<bool>? _focusChangedSub;
-  Timer? _ctxMenuSuppressTimer;
-  bool _suppressFocusRecovery = false;
   bool _tabsCanScrollRight = false;
 
   // ── Menú contextual: Monaco/WebView2 no entrega los clics del mouse al
@@ -525,8 +533,6 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _disposeQuietly(() => _pasteAction?.dispose());
     _selectionSub?.cancel();
     _contextMenuEventSub?.cancel();
-    _focusChangedSub?.cancel();
-    _ctxMenuSuppressTimer?.cancel();
     _tabsScrollCtrl
       ..removeListener(_onTabsScroll)
       ..dispose();
@@ -699,36 +705,36 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     );
 
     // forceFocus (editor-api.js) calls window.focus → document.body.focus →
-    // ed.focus → ta.focus in that order. document.body.focus() runs FIRST and
-    // is enough to blur the find-widget input (or an open context menu, see
-    // below) before our other patches fire. Block all four paths whenever
-    // .find-widget.visible OR a Monaco context/action menu is present, then
-    // use a focusout fallback to return focus to the find input as a safety
-    // net.
-    //
-    // Context menu note: flutter_monaco's own forceFocus() has an idempotency
-    // guard that no-ops when the editor's textarea already owns
-    // document.activeElement (avoiding a caret flicker), but its own source
-    // comment admits that guard does NOT cover the case where a right-click
-    // context menu currently owns focus — calling document.body.focus() then
-    // "tears down an open context menu" (their words) before the click on a
-    // menu item is processed by the browser. flutter_monaco's pointerDown
-    // handler calls forceFocus() on every click while Monaco reports blurred
-    // (which is exactly the state while its own context menu is open), so
-    // clicking ANY context menu item — built-in or custom — re-triggers this
-    // and closes the menu out from under the click. Guarding here, at the
-    // JS focus() calls forceFocus() actually uses, fixes it regardless of
-    // Dart-side widget rebuild timing.
+    // ed.focus → ta.focus in that order. Block all focus redirection whenever
+    // .find-widget.visible OR an auxiliary input is active.
     await ctrl.runJavaScript(
       '(function(){'
+      '  window.__fmFindWanted = false;'
       '  function isFindOpen(){'
+      '    if(window.__fmFindWanted) return true;'
       '    var fw=document.querySelector(".find-widget");'
       '    if(fw&&fw.classList.contains("visible")) return true;'
-      // Monaco appends its right-click context menu (and action/dropdown
-      // menus) as a `.context-view.monaco-menu-container` element and
-      // removes it from the DOM on close, so mere presence means it is open.
-      '    if(document.querySelector(".monaco-menu-container")) return true;'
+      '    var act = document.activeElement;'
+      '    if(act && (act.tagName==="INPUT" || act.tagName==="TEXTAREA")) {'
+      '      if(!act.classList.contains("inputarea") && !act.classList.contains("native-edit-context")) return true;'
+      '    }'
       '    return false;'
+      '  }'
+      '  window.__fmAuxInput = function(){'
+      '    var act = document.activeElement;'
+      '    if(act && (act.tagName==="INPUT" || act.tagName==="TEXTAREA")) {'
+      '      if(!act.classList.contains("inputarea") && !act.classList.contains("native-edit-context")) return act;'
+      '    }'
+      '    return null;'
+      '  };'
+      '  function patchFn(obj, name){'
+      '    if(!obj || !obj[name] || obj[name]._fp) return;'
+      '    var orig = obj[name].bind(obj);'
+      '    var patched = function(){'
+      '      if(!isFindOpen()) return orig.apply(this, arguments);'
+      '    };'
+      '    patched._fp = true;'
+      '    obj[name] = patched;'
       '  }'
       '  function patchEl(el){'
       '    if(!el||el._fp) return;'
@@ -736,12 +742,17 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       '    var o=el.focus.bind(el);'
       '    el.focus=function(opts){ if(!isFindOpen()) o(opts); };'
       '  }'
-      // Block document.body.focus() — this is the first call in forceFocus
       '  if(!document.body._fp){'
       '    document.body._fp=true;'
       '    var ob=document.body.focus.bind(document.body);'
       '    document.body.focus=function(){ if(!isFindOpen()) ob(); };'
       '  }'
+      '  if(window.flutterMonaco){'
+      '    patchFn(window.flutterMonaco, "forceFocus");'
+      '    patchFn(window.flutterMonaco, "focus");'
+      '    window.flutterMonaco.__fp = true;'
+      '  }'
+      '  patchFn(window, "focus");'
       '  function tryPatch(){'
       '    patchEl(document.querySelector(".monaco-editor .inputarea"));'
       '    patchEl(document.querySelector(".monaco-editor .native-edit-context"));'
@@ -750,26 +761,41 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       '      var oe=window.editor.focus.bind(window.editor);'
       '      window.editor.focus=function(){ if(!isFindOpen()) oe(); };'
       '    }'
+      '    if(window.flutterMonaco && !window.flutterMonaco.__fp){'
+      '      patchFn(window.flutterMonaco, "forceFocus");'
+      '      patchFn(window.flutterMonaco, "focus");'
+      '      window.flutterMonaco.__fp = true;'
+      '    }'
       '  }'
       '  tryPatch();'
       '  var obs=new MutationObserver(tryPatch);'
       '  obs.observe(document.body,{childList:true,subtree:true});'
-      // Fallback: if find input loses focus while widget is open, return it
+      '  window.__fmOpenFind = function(){'
+      '    window.__fmFindWanted = true;'
+      '    setTimeout(function(){ window.__fmFindWanted = false; }, 1500);'
+      '    try { window.editor.trigger("keyboard", "actions.find"); } catch(e){}'
+      '    var count = 0;'
+      '    var chase = setInterval(function(){'
+      '      count++;'
+      '      var inp = document.querySelector(".find-widget .find-part input");'
+      '      if(inp) {'
+      '        inp.focus();'
+      '        if(document.activeElement === inp || count > 20) clearInterval(chase);'
+      '      } else if(count > 20) {'
+      '        clearInterval(chase);'
+      '      }'
+      '    }, 30);'
+      '  };'
       '  document.addEventListener("focusout",function(e){'
       '    if(!isFindOpen()) return;'
       '    var inp=document.querySelector(".find-widget .find-part input");'
       '    if(!inp||e.target!==inp) return;'
       '    setTimeout(function(){ if(isFindOpen()) inp.focus(); },0);'
       '  },true);'
-      // Ctrl+F: wait for .visible class to be added, then focus the input
       '  document.addEventListener("keydown",function(e){'
       '    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="f"){'
-      '      requestAnimationFrame(function(){'
-      '        requestAnimationFrame(function(){'
-      '          var inp=document.querySelector(".find-widget .find-part input");'
-      '          if(inp) inp.focus();'
-      '        });'
-      '      });'
+      '      e.preventDefault();'
+      '      window.__fmOpenFind();'
       '    }'
       '  },true);'
       '})()',
@@ -1062,48 +1088,16 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         final word = (data['word'] as String?) ?? '';
         final line = (data['line'] as num?)?.toInt() ?? 0;
         final col = (data['col'] as num?)?.toInt() ?? 0;
+        final x = (data['x'] as num?)?.toDouble() ?? 0.0;
+        final y = (data['y'] as num?)?.toDouble() ?? 0.0;
         _lastContextMenuWord = word;
         if (line > 0) {
           _lastCursorLine = line;
           _lastCursorCol = col;
         }
-        // Mientras el menú contextual está abierto, evitamos que pointerDown
-        // interno de flutter_monaco robe foco nativo y cierre el menú.
-        if (mounted && !_suppressFocusRecovery) {
-          AppToast.warning('interactionEnabled = false (menú abierto)');
-          setState(() => _suppressFocusRecovery = true);
+        if (mounted) {
+          _showFlutterContextMenu(Offset(x, y), word);
         }
-        _ctxMenuSuppressTimer?.cancel();
-        _ctxMenuSuppressTimer = Timer(const Duration(seconds: 4), () {
-          if (mounted && _suppressFocusRecovery) {
-            AppToast.warning('interactionEnabled = true (timeout)');
-            setState(() => _suppressFocusRecovery = false);
-          }
-        });
-      } else if (event is MonacoUnknownEvent &&
-          event.name == 'fmMenuClickDebug') {
-        // DIAGNÓSTICO TEMPORAL — ver el bloque JS en _onReady que lo emite.
-        // Solo mostramos 'click' (clic izquierdo real) para aislar la señal
-        // sin ruido del mousedown/mouseup/contextmenu del clic derecho.
-        final d = event.data;
-        if (d['phase'] == 'click') {
-          AppToast.info(
-            '[${d['phase']}] tag=${d['tag']} cls=${d['cls']} '
-            'menus=${d['menus']} (${d['x']},${d['y']})',
-            duration: const Duration(seconds: 8),
-          );
-        }
-      }
-    });
-
-    // Cuando Monaco recupera el foco DOM del editor (el menú se cerró, sea
-    // por ejecutar una acción o por cancelarse), se reactiva
-    // interactionEnabled inmediatamente.
-    _focusChangedSub = ctrl.onFocusChanged.listen((focused) {
-      if (focused && mounted && _suppressFocusRecovery) {
-        _ctxMenuSuppressTimer?.cancel();
-        AppToast.warning('interactionEnabled = true (focus regained)');
-        setState(() => _suppressFocusRecovery = false);
       }
     });
 
@@ -1861,7 +1855,21 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   Future<void> _copySelectionToClipboard() async {
     final selected = await _withCtrl(
       (ctrl) => ctrl.evaluateJavaScript<String>(
-        r'(()=>{ try { const s=window.editor.getSelection(); if(!s||s.isEmpty())return null; return window.editor.getModel().getValueInRange(s)||null; } catch(e){ return null; } })()',
+        r'(()=>{'
+        r'  try {'
+        r'    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+        r'    if (aux) {'
+        r'      var start = aux.selectionStart, end = aux.selectionEnd;'
+        r'      if (start != null && end != null && start !== end) {'
+        r'        return aux.value.substring(start, end);'
+        r'      }'
+        r'      return null;'
+        r'    }'
+        r'    const s = window.editor.getSelection();'
+        r'    if (!s || s.isEmpty()) return null;'
+        r'    return window.editor.getModel().getValueInRange(s) || null;'
+        r'  } catch(e) { return null; }'
+        r'})()',
       ),
     );
     if (selected == null || selected.isEmpty) return;
@@ -1872,7 +1880,31 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   Future<void> _cutSelectionToClipboard() async {
     final selected = await _withCtrl(
       (ctrl) => ctrl.evaluateJavaScript<String>(
-        r'(()=>{ try { const s=window.editor.getSelection(); if(!s||s.isEmpty())return null; const m=window.editor.getModel(); const t=m.getValueInRange(s)||null; if(!t)return null; window.editor.executeEdits("flutter-cut",[{ range:s, text:"", forceMoveMarkers:true }]); window.editor.pushUndoStop(); return t; } catch(e){ return null; } })()',
+        r'(()=>{'
+        r'  try {'
+        r'    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+        r'    if (aux) {'
+        r'      var start = aux.selectionStart, end = aux.selectionEnd;'
+        r'      if (start != null && end != null && start !== end) {'
+        r'        var val = aux.value;'
+        r'        var text = val.substring(start, end);'
+        r'        aux.value = val.substring(0, start) + val.substring(end);'
+        r'        aux.selectionStart = aux.selectionEnd = start;'
+        r'        aux.dispatchEvent(new Event("input", { bubbles: true }));'
+        r'        return text;'
+        r'      }'
+        r'      return null;'
+        r'    }'
+        r'    const s = window.editor.getSelection();'
+        r'    if (!s || s.isEmpty()) return null;'
+        r'    const m = window.editor.getModel();'
+        r'    const t = m.getValueInRange(s) || null;'
+        r'    if (!t) return null;'
+        r'    window.editor.executeEdits("flutter-cut", [{ range: s, text: "", forceMoveMarkers: true }]);'
+        r'    window.editor.pushUndoStop();'
+        r'    return t;'
+        r'  } catch(e) { return null; }'
+        r'})()',
       ),
     );
     if (selected == null || selected.isEmpty) return;
@@ -1889,14 +1921,24 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     // línea y unicode sin romper el JS.
     final literal = jsonEncode(text);
 
-    // executeEdits sobre la(s) selección(es) actual(es): reemplaza el rango
-    // seleccionado en vez de insertar en el cursor (document.insert dejaba
-    // el texto seleccionado intacto y pegaba al lado). Soporta multi-cursor.
+    // Si el foco está en un input auxiliar (ej. barra de búsqueda), inserta
+    // en dicho input y dispara el evento 'input' para actualizar la búsqueda.
+    // De lo contrario, ejecuta executeEdits sobre el editor.
     final result = await _withCtrl(
       (ctrl) => ctrl.evaluateJavaScript<String>(
         '(()=>{'
         '  try {'
         '    const t = $literal;'
+        '    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+        '    if (aux) {'
+        '      var start = aux.selectionStart != null ? aux.selectionStart : aux.value.length;'
+        '      var end = aux.selectionEnd != null ? aux.selectionEnd : aux.value.length;'
+        '      var val = aux.value || "";'
+        '      aux.value = val.substring(0, start) + t + val.substring(end);'
+        '      aux.selectionStart = aux.selectionEnd = start + t.length;'
+        '      aux.dispatchEvent(new Event("input", { bubbles: true }));'
+        '      return "ok";'
+        '    }'
         '    const ed = window.editor;'
         '    if (!ed) return "err";'
         '    let sels = ed.getSelections();'
@@ -1923,6 +1965,182 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       final pos = await ctrl.getCursorPosition();
       if (pos == null) return;
       await ctrl.document.insert(pos, text);
+    });
+  }
+
+  void _showFlutterContextMenu(Offset localPos, String word) {
+    final RenderBox? box =
+        _editorAreaKey.currentContext?.findRenderObject() as RenderBox?;
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (box == null || overlay == null) return;
+
+    final globalPos = box.localToGlobal(localPos);
+    final position = RelativeRect.fromRect(
+      Rect.fromLTWH(globalPos.dx, globalPos.dy, 1, 1),
+      Offset.zero & overlay.size,
+    );
+
+    final wordLabel = word.isNotEmpty
+        ? (word.length > 20 ? '${word.substring(0, 20)}…' : word)
+        : '';
+
+    final isJs = _isActiveJs;
+
+    showMenu<_CtxMenuAction>(
+      context: context,
+      position: position,
+      elevation: 6,
+      items: [
+        PopupMenuItem(
+          value: _CtxMenuAction.gotoDef,
+          enabled: word.isNotEmpty,
+          child: Row(
+            children: [
+              const Icon(Icons.call_made, size: 16),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  word.isNotEmpty ? 'Ir a "$wordLabel"' : 'Ir a definición',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const Text(
+                'F12',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        if (!isJs) ...[
+          PopupMenuItem(
+            value: _CtxMenuAction.infoEvento,
+            enabled: word.isNotEmpty,
+            child: Row(
+              children: [
+                const Icon(Icons.event_note, size: 16),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    word.isNotEmpty
+                        ? 'Info evento "$wordLabel"'
+                        : 'Información del evento',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const Text(
+                  'Alt+I',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+          PopupMenuItem(
+            value: _CtxMenuAction.infoDato,
+            enabled: word.isNotEmpty,
+            child: Row(
+              children: [
+                const Icon(Icons.info_outline, size: 16),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    word.isNotEmpty
+                        ? 'Info dato "$wordLabel"'
+                        : 'Información del dato',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const Text(
+                  'Alt+D',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+          PopupMenuItem(
+            value: _CtxMenuAction.ejecutar,
+            child: const Row(
+              children: [
+                Icon(Icons.play_arrow_rounded, size: 16),
+                SizedBox(width: 8),
+                Expanded(child: Text('Ejecutar procedimiento…')),
+                Text(
+                  'Alt+R',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+        ],
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: _CtxMenuAction.cut,
+          child: Row(
+            children: [
+              Icon(Icons.cut, size: 16),
+              SizedBox(width: 8),
+              Expanded(child: Text('Cortar')),
+              Text(
+                'Ctrl+X',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: _CtxMenuAction.copy,
+          child: Row(
+            children: [
+              Icon(Icons.copy, size: 16),
+              SizedBox(width: 8),
+              Expanded(child: Text('Copiar')),
+              Text(
+                'Ctrl+C',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: _CtxMenuAction.paste,
+          child: Row(
+            children: [
+              Icon(Icons.paste, size: 16),
+              SizedBox(width: 8),
+              Expanded(child: Text('Pegar')),
+              Text(
+                'Ctrl+V',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ).then((action) {
+      if (action == null || !mounted) return;
+      switch (action) {
+        case _CtxMenuAction.gotoDef:
+          unawaited(_goToDefinitionAtCursor());
+          break;
+        case _CtxMenuAction.infoEvento:
+          unawaited(_showInfoEventoAtCursor());
+          break;
+        case _CtxMenuAction.infoDato:
+          unawaited(_showInfoDatoAtCursor());
+          break;
+        case _CtxMenuAction.ejecutar:
+          unawaited(_ejecutarProcedimiento());
+          break;
+        case _CtxMenuAction.cut:
+          unawaited(_cutSelectionToClipboard());
+          break;
+        case _CtxMenuAction.copy:
+          unawaited(_copySelectionToClipboard());
+          break;
+        case _CtxMenuAction.paste:
+          unawaited(_pasteFromClipboard());
+          break;
+      }
     });
   }
 
@@ -2458,6 +2676,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         // Editor Monaco + overlay de schema
         Expanded(
           child: RepaintBoundary(
+            key: _editorAreaKey,
             child: Stack(
               children: [
                 Row(
@@ -2526,13 +2745,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                         onReady: _onReady,
                         onContentChanged: _onContentChanged,
                         onError: (err, _) => debugPrint('Monaco error: $err'),
-                        // Ver _suppressFocusRecovery: desactiva el
-                        // pointerDown handler interno de flutter_monaco
-                        // (que llama a requestNativeFocus, Win32 SetFocus)
-                        // mientras el menú contextual nativo está abierto,
-                        // evitando que ese robo de foco cierre el menú
-                        // antes de que el clic en una opción se procese.
-                        interactionEnabled: !_suppressFocusRecovery,
+                        interactionEnabled: true,
                       ),
                     ),
                     // Docked variables panel

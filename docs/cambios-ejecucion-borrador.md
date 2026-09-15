@@ -30,9 +30,11 @@ Content-Type: application/json
   "cdEntidad": 1, "nuCotizacion": null, "nuItem": null, "cdArea": null,
   "nuPoliza": null, "nuCertificado": null, "nuEndoso": null,
   "nuSiniestro": null, "nuMovimiento": null, "nuInspeccion": null,
+  "nuBienAsegurado": null,
   "inAccion": null, "vaDato": null, "stringDatos": null, "stringMatriz": null,
   "camposAdicionales": null, "tipoContexto": null,
-  "ambiente": null, "timeoutSegundos": null
+  "ambiente": null, "timeoutSegundos": null,
+  "capturarVariables": null
 }
 ```
 

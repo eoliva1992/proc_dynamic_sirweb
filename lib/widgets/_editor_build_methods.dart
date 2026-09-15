@@ -451,6 +451,11 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
             onPressed: _openSnippetsManager,
           ),
           _ToolBtn(
+            icon: Icons.data_object_rounded,
+            tooltip: 'Consultar dato — InfoDato (Alt+D)',
+            onPressed: () => unawaited(_openInfoDatoWindow()),
+          ),
+          _ToolBtn(
             icon: Icons.bolt_rounded,
             tooltip: 'Consultar evento — InfoEvento (Alt+E)',
             onPressed: () => unawaited(_openInfoEventoWindow()),

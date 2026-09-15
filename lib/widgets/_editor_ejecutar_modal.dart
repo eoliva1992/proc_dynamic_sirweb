@@ -76,6 +76,7 @@ const _kCamposEjecucion = <_CampoEjecucion>[
   _CampoEjecucion('nuSiniestro', 'NU_SINIESTRO'),
   _CampoEjecucion('nuMovimiento', 'NU_MOVIMIENTO'),
   _CampoEjecucion('nuInspeccion', 'NU_INSPECCION'),
+  _CampoEjecucion('nuBienAsegurado', 'NU_BIEN_ASEGURADO'),
 ];
 
 const _kCamposTextoEjecucion = <_CampoEjecucion>[
@@ -321,6 +322,7 @@ class _EjecutarProcedimientoModalState
       nuSiniestro: _int('nuSiniestro'),
       nuMovimiento: _int('nuMovimiento'),
       nuInspeccion: _int('nuInspeccion'),
+      nuBienAsegurado: _int('nuBienAsegurado'),
       inAccion: _str('inAccion'),
       vaDato: _str('vaDato'),
       stringDatos: _str('stringDatos'),
