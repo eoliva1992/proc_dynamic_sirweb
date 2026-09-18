@@ -218,6 +218,38 @@ extension _EditorNavigationMethods on _CodeEditorPanelState {
     });
   }
 
+  /// Abre la ventana de invocación de objetos PL/SQL del esquema.
+  ///
+  /// Si hay texto seleccionado o una palabra bajo el cursor, se precarga como objeto inicial.
+  Future<void> _ejecutarLlamadaPlsql() async {
+    if (!mounted) return;
+    String? objetoInicial;
+    final sel = await _selectionInfo();
+    if (sel != null && sel.text.trim().isNotEmpty) {
+      final t = sel.text.trim();
+      if (!t.contains('\n') && t.length < 100) {
+        objetoInicial = t;
+      }
+    }
+    if (objetoInicial == null) {
+      final word = await _wordAtContextMenu();
+      if (word != null &&
+          word.trim().isNotEmpty &&
+          !RegExp(r'^\d+$').hasMatch(word)) {
+        objetoInicial = word.trim();
+      }
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        showEjecutarLlamadaWindow(
+          context,
+          ambiente: widget.ambiente,
+          objeto: objetoInicial,
+        );
+      }
+    });
+  }
+
   Future<void> _openDiff() async {
     final activeProc = _openProcs.firstWhere(
       (p) => p.cdProcedimiento == _activeProcId,

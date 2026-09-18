@@ -250,6 +250,45 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     });
   }
 
+  Future<void> _ejecutarLlamadaPlsql() async {
+    if (!mounted) return;
+    String? objetoInicial;
+    final selected = await _withCtrl(
+      (ctrl) => ctrl.evaluateJavaScript<String>(
+        r'(()=>{'
+        r'  try {'
+        r'    const s = window.editor.getSelection();'
+        r'    if (!s || s.isEmpty()) return null;'
+        r'    return window.editor.getModel().getValueInRange(s) || null;'
+        r'  } catch(e) { return null; }'
+        r'})()',
+      ),
+    );
+    if (selected != null &&
+        selected.trim().isNotEmpty &&
+        !selected.contains('\n') &&
+        selected.trim().length < 100) {
+      objetoInicial = selected.trim();
+    }
+    if (objetoInicial == null) {
+      final word = await _wordAtContextMenu();
+      if (word != null &&
+          word.trim().isNotEmpty &&
+          !RegExp(r'^\d+$').hasMatch(word)) {
+        objetoInicial = word.trim();
+      }
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        showEjecutarLlamadaWindow(
+          context,
+          ambiente: widget.ambiente,
+          objeto: objetoInicial,
+        );
+      }
+    });
+  }
+
   Future<void> _copySelectionToClipboard() async {
     final selected = await _withCtrl(
       (ctrl) => ctrl.evaluateJavaScript<String>(
@@ -446,6 +485,31 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
             ],
           ),
         ),
+        PopupMenuItem(
+          value: _CtxMenuAction.ejecutarLlamada,
+          child: Row(
+            children: [
+              const Icon(
+                Icons.play_arrow_rounded,
+                size: 16,
+                color: Colors.amber,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  word.isNotEmpty
+                      ? 'Ejecutar "$wordLabel"'
+                      : 'Ejecutar llamada PL/SQL',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const Text(
+                'Ctrl+Shift+E',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
         const PopupMenuDivider(),
         const PopupMenuItem(
           value: _CtxMenuAction.cut,
@@ -501,6 +565,9 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
           break;
         case _CtxMenuAction.infoDato:
           unawaited(_showInfoDatoAtCursor());
+          break;
+        case _CtxMenuAction.ejecutarLlamada:
+          unawaited(_ejecutarLlamadaPlsql());
           break;
         case _CtxMenuAction.cut:
           unawaited(_cutSelectionToClipboard());
@@ -592,6 +659,7 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
       '}); } catch(e) {}',
     );
     await ctrl.runJavaScript(_kContextMenuFocusGuardJs);
+    await ctrl.runJavaScript(_kFindWidgetFocusGuardJs);
 
     // Context menu native hook
     await ctrl.runJavaScript(
@@ -692,6 +760,27 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
         ),
         () async {
           unawaited(_openAutorizacionesWindow());
+        },
+      ),
+    );
+
+    actionFutures.add(
+      ctrl.addAction(
+        const fm.MonacoActionDescriptor(
+          id: fm.MonacoAction('oracle.source.ejecutar.llamada'),
+          label: 'Ejecutar llamada PL/SQL…',
+          keybindings: [
+            fm.MonacoKeybinding(
+              ctrlCmd: true,
+              shift: true,
+              key: fm.MonacoKey.keyE,
+            ),
+          ],
+          contextMenuGroupId: 'navigation',
+          contextMenuOrder: 1.95,
+        ),
+        () async {
+          unawaited(_ejecutarLlamadaPlsql());
         },
       ),
     );

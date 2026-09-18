@@ -516,18 +516,123 @@ class SchemaService {
             'Error ejecutando el DDL',
       );
     }
-    final rawList = result['data'] as List? ?? [];
-    return rawList
-        .cast<Map<String, dynamic>>()
-        .map(
-          (e) => (
-            line: (e['line'] as num).toInt(),
-            position: (e['position'] as num).toInt(),
-            text: e['text'] as String? ?? '',
-            attribute: e['attribute'] as String? ?? 'ERROR',
-          ),
-        )
-        .toList();
+    return _compileErrorsFromResult(result);
+  }
+
+  /// Normaliza las respuestas del endpoint de compilación.
+  ///
+  /// Según la versión del backend, los diagnósticos pueden llegar como una
+  /// lista en `data`, dentro de `errors`/`compileErrors`, o como texto Oracle.
+  /// Nunca se debe interpretar una respuesta con diagnósticos como compilación
+  /// correcta solo porque `data` no sea una lista.
+  static List<({int line, int position, String text, String attribute})>
+  _compileErrorsFromResult(Map<String, dynamic> result) {
+    final candidates = <dynamic>[
+      result['data'],
+      result['errors'],
+      result['compileErrors'],
+      result['compilationErrors'],
+      result['compile_errors'],
+    ];
+    final data = result['data'];
+    if (data is Map) {
+      candidates.insertAll(1, [
+        data['errors'],
+        data['compileErrors'],
+        data['compilationErrors'],
+        data['compile_errors'],
+      ]);
+    }
+
+    for (final candidate in candidates) {
+      final errors = _parseCompileErrors(candidate);
+      if (errors.isNotEmpty) return errors;
+    }
+    return [];
+  }
+
+  static List<({int line, int position, String text, String attribute})>
+  _parseCompileErrors(dynamic value) {
+    if (value is List) {
+      final errors =
+          <({int line, int position, String text, String attribute})>[];
+      for (final item in value) {
+        errors.addAll(_parseCompileErrors(item));
+      }
+      return errors;
+    }
+
+    if (value is Map) {
+      final text =
+          (value['text'] ??
+                  value['TEXT'] ??
+                  value['message'] ??
+                  value['MESSAGE'] ??
+                  value['msg'] ??
+                  '')
+              .toString()
+              .trim();
+      if (text.isEmpty) return [];
+      return [
+        (
+          line: _compileErrorNumber(value, const ['line', 'LINE']),
+          position: _compileErrorNumber(value, const [
+            'position',
+            'POSITION',
+            'col',
+            'column',
+          ]),
+          text: text,
+          attribute: (value['attribute'] ?? value['ATTRIBUTE'] ?? 'ERROR')
+              .toString()
+              .toUpperCase(),
+        ),
+      ];
+    }
+
+    if (value is String && value.trim().isNotEmpty) {
+      final errors =
+          <({int line, int position, String text, String attribute})>[];
+      final pattern = RegExp(r'^(\d+)/(\d+)\s+(.+)$', multiLine: true);
+      for (final match in pattern.allMatches(value)) {
+        errors.add((
+          line: int.parse(match.group(1)!),
+          position: int.parse(match.group(2)!),
+          text: match.group(3)!.trim(),
+          attribute: 'ERROR',
+        ));
+      }
+      if (errors.isNotEmpty) return errors;
+
+      var line = 1;
+      for (final text in value.split('\n')) {
+        final trimmed = text.trim();
+        if (trimmed.contains('PLS-') ||
+            trimmed.contains('ORA-') ||
+            trimmed.contains('PL/SQL')) {
+          errors.add((
+            line: line,
+            position: 1,
+            text: trimmed,
+            attribute: 'ERROR',
+          ));
+        }
+        line++;
+      }
+      return errors;
+    }
+
+    return [];
+  }
+
+  static int _compileErrorNumber(Map value, List<String> keys) {
+    for (final key in keys) {
+      final number = value[key];
+      if (number is num) return number.toInt();
+      final parsed = int.tryParse(number?.toString() ?? '');
+      if (parsed != null) return parsed;
+    }
+    return 1;
   }
 
   /// Ejecuta una sentencia DDL suelta (GRANT, CREATE SYNONYM, …) contra el

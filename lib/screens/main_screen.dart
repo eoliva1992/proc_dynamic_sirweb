@@ -32,7 +32,9 @@ import '../widgets/app_toast.dart';
 import '../widgets/search_tab_view.dart';
 import '../widgets/source_tab_controller.dart';
 import '../widgets/server_config_dialog.dart';
+import 'bulk_backup_page.dart';
 import 'env_diff_page.dart';
+import 'paste_diff_page.dart';
 import 'transfer_dialog.dart';
 
 part '_usuario_button.dart';
@@ -616,6 +618,55 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         ),
       );
     }
+  }
+
+  Future<void> _refreshTabProcedure(AppTab tab) async {
+    final proc = tab.procedimiento;
+    if (proc == null || tab.loading) return;
+    if (tab.isDirty) {
+      final action = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          titlePadding: EdgeInsets.zero,
+          title: const ConstellationDialogTitle(
+            child: Text('Refrescar procedimiento'),
+          ),
+          content: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '${proc.cdProcedimiento} tiene cambios sin guardar. '
+              '¿Descartarlos y cargar la versión del servidor?',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop('cancel'),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.orange.shade700,
+              ),
+              onPressed: () => Navigator.of(ctx).pop('discard'),
+              child: const Text('Descartar y refrescar'),
+            ),
+          ],
+        ),
+      );
+      if (action != 'discard' || !mounted) return;
+    }
+
+    final index = _tabs.indexOf(tab);
+    if (index == -1) return;
+    tab.isDirty = false;
+    tab.currentEditorCode = null;
+    _loadingTabIndex = index;
+    setState(() => tab.loading = true);
+    _syncingActiveTab = true;
+    procedimientosProvider.setAmbiente(tab.ambiente);
+    procedimientosProvider.setProcedimientoActual(proc);
+    _syncingActiveTab = false;
+    await procedimientosProvider.seleccionar(proc);
   }
 
   void _onTabReorder(int oldIndex, int newIndex) {
@@ -1443,6 +1494,31 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
               ),
             ),
             const SizedBox(width: 6),
+            Tooltip(
+              message: 'Refrescar procedimiento',
+              child: InkWell(
+                borderRadius: BorderRadius.circular(4),
+                onTap: tab.loading ? null : () => _refreshTabProcedure(tab),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 3,
+                    vertical: 4,
+                  ),
+                  child: tab.loading
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 1.5),
+                        )
+                      : Icon(
+                          Icons.refresh_rounded,
+                          size: 15,
+                          color: mutedColor,
+                        ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
             // version badge with rich tooltip
             Tooltip(
               message: [
@@ -1598,6 +1674,25 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             ),
           ),
           const SizedBox(width: 4),
+          Tooltip(
+            message: 'Abrir comparador pegando texto de origen y destino',
+            child: TextButton.icon(
+              onPressed: _openPasteDiff,
+              icon: const Icon(Icons.content_paste_go_outlined, size: 15),
+              label: const Text('Diff pegado'),
+              style: TextButton.styleFrom(
+                foregroundColor: cs.primary,
+                padding: const EdgeInsets.symmetric(horizontal: 7),
+                minimumSize: const Size(0, 26),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                textStyle: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
           if (tab.procedimiento != null) _buildActionsMenu(tab),
           const SizedBox(width: 4),
         ],
@@ -1615,6 +1710,15 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       icon: Icon(Icons.more_vert, size: 16, color: cs.onSurfaceVariant),
       onSelected: (action) => unawaited(_handleEditorAction(action, tab)),
       itemBuilder: (_) => [
+        const PopupMenuItem(
+          value: _EditorAction.pasteDiff,
+          child: _MenuRow(
+            icon: Icons.content_paste_go_outlined,
+            label: 'Diff desde texto pegado',
+            subtitle: 'Compara dos textos editables',
+          ),
+        ),
+        const PopupMenuDivider(),
         const PopupMenuItem(
           value: _EditorAction.transfer,
           child: _MenuRow(
@@ -1653,10 +1757,16 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   }
 
   Future<void> _handleEditorAction(_EditorAction action, AppTab tab) async {
+    if (action == _EditorAction.pasteDiff) {
+      _openPasteDiff();
+      return;
+    }
     final proc = tab.procedimiento;
     if (proc == null) return;
 
     switch (action) {
+      case _EditorAction.pasteDiff:
+        return;
       case _EditorAction.transfer:
         if (procedimientosProvider.cdUsuario.trim().isEmpty) {
           _showUsuarioDialog(
@@ -1753,6 +1863,10 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       case _EditorAction.restore:
         await _restoreFromBackup(tab);
     }
+  }
+
+  void _openPasteDiff() {
+    showPasteDiff(context);
   }
 
   Future<void> _restoreFromBackup(AppTab tab) async {
@@ -1982,6 +2096,22 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             color: barFgSoft,
           ),
         ),
+        Tooltip(
+          message: 'Backup masivo de objetos',
+          child: IconButton(
+            onPressed: () => showBulkBackupWindow(context, ambiente: _tabs[_activeTab].ambiente),
+            icon: const Icon(Icons.backup_outlined),
+            color: barFgSoft,
+          ),
+        ),
+        Tooltip(
+          message: 'Comparar texto de origen y destino',
+          child: IconButton(
+            onPressed: _openPasteDiff,
+            icon: const Icon(Icons.content_paste_go_outlined, size: 18),
+            color: barFg,
+          ),
+        ),
         AppConsoleButton(color: barFgSoft),
         Observer(
           builder: (_) => _UsuarioButton(
@@ -2099,7 +2229,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   }
 }
 
-enum _EditorAction { transfer, compare, backup, restore }
+enum _EditorAction { pasteDiff, transfer, compare, backup, restore }
 
 class _MenuRow extends StatelessWidget {
   final IconData icon;

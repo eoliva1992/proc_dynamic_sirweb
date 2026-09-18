@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -5,11 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../app_navigator.dart';
 import '../screens/schema_object_diff_page.dart';
+import '../services/backup_service.dart';
 import '../services/schema_recents_service.dart';
 import '../services/schema_service.dart';
 import 'ambiente_selector.dart';
 import 'app_toast.dart';
 import 'constellation_background.dart';
+import 'code_editor_panel.dart' show showEjecutarLlamadaWindow;
 import 'minimized_object_dock.dart';
 import 'source_float_window.dart';
 
@@ -49,17 +52,17 @@ Future<void> showObjectDetails(
       name: name,
       type: type,
       ambiente: ambiente,
-      onOpenSource: () => openSourceWindow(
+      onOpenSource: (selectedAmbiente) => openSourceWindow(
         callerContext,
         name: name,
         objectType: type,
-        ambiente: ambiente,
+        ambiente: selectedAmbiente,
       ),
-      onMinimize: () => MinimizedObjectDock.add(
+      onMinimize: (selectedAmbiente) => MinimizedObjectDock.add(
         callerContext,
         name: name,
         type: type,
-        ambiente: ambiente,
+        ambiente: selectedAmbiente,
         onRestore: (restoreContext) => showObjectDetails(
           restoreContext,
           name: name,
@@ -87,6 +90,7 @@ const _kTypeIcons = {
   'PACKAGE': Icons.inventory_2_outlined,
   'TYPE': Icons.data_object_outlined,
 };
+const _kTiposInvocables = {'PROCEDURE', 'FUNCTION', 'PACKAGE'};
 Color _tc(String t) => _kTypeColors[t] ?? Colors.grey;
 IconData _ti(String t) => _kTypeIcons[t] ?? Icons.storage_outlined;
 
@@ -219,10 +223,10 @@ class _ObjectDetailsModal extends StatefulWidget {
 
   /// Abre el fuente usando el contexto del llamador (sidebar / browser), igual
   /// que el botón "Ver fuente" de las filas del sidebar.
-  final VoidCallback onOpenSource;
+  final void Function(String ambiente) onOpenSource;
 
   /// Minimiza el modal al dock flotante (se cierra el diálogo y queda un chip).
-  final VoidCallback onMinimize;
+  final void Function(String ambiente) onMinimize;
   const _ObjectDetailsModal({
     required this.name,
     required this.type,
@@ -237,6 +241,7 @@ class _ObjectDetailsModal extends StatefulWidget {
 
 class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
   bool _isFavorite = false;
+  late String _currentAmbiente;
 
   /// Desplazamiento del modal respecto del centro (arrastre por la cabecera).
   Offset _position = Offset.zero;
@@ -248,21 +253,34 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
 
   String get name => widget.name;
   String get type => widget.type;
-  String get ambiente => widget.ambiente;
+  String get ambiente => _currentAmbiente;
 
   @override
   void initState() {
     super.initState();
+    _currentAmbiente = widget.ambiente;
+    _loadFavoriteState();
+    _loadObjectStatus();
+  }
+
+  void _changeAmbiente(String newAmbiente) {
+    if (newAmbiente == _currentAmbiente) return;
+    setState(() {
+      _currentAmbiente = newAmbiente;
+      _objectStatus = null;
+      _statusLoading = true;
+    });
     _loadFavoriteState();
     _loadObjectStatus();
   }
 
   Future<void> _loadObjectStatus() async {
+    final requestedAmbiente = ambiente;
     try {
       final props = await SchemaService.instance.getObjectInfo(
         name,
         type,
-        ambiente: ambiente,
+        ambiente: requestedAmbiente,
       );
       String? status;
       for (final p in props) {
@@ -271,22 +289,27 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
           break;
         }
       }
-      if (mounted) {
+      if (mounted && _currentAmbiente == requestedAmbiente) {
         setState(() {
           _objectStatus = status;
           _statusLoading = false;
         });
       }
     } catch (_) {
-      if (mounted) setState(() => _statusLoading = false);
+      if (mounted && _currentAmbiente == requestedAmbiente) {
+        setState(() => _statusLoading = false);
+      }
     }
   }
 
   Future<void> _loadFavoriteState() async {
+    final requestedAmbiente = ambiente;
     final fav = await SchemaRecentsService.instance.isFavorite(
-      SchemaObjectRef(name: name, type: type, ambiente: ambiente),
+      SchemaObjectRef(name: name, type: type, ambiente: requestedAmbiente),
     );
-    if (mounted) setState(() => _isFavorite = fav);
+    if (mounted && _currentAmbiente == requestedAmbiente) {
+      setState(() => _isFavorite = fav);
+    }
   }
 
   Future<void> _toggleFavorite() async {
@@ -303,12 +326,12 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
     Navigator.of(context).pop();
     // Delegamos en el contexto del llamador (sidebar), que sí estÁ dentro del
     // árbol del SourceTabController de MainScreen.
-    widget.onOpenSource();
+    widget.onOpenSource(ambiente);
   }
 
   void _minimize() {
     Navigator.of(context).pop();
-    widget.onMinimize();
+    widget.onMinimize(ambiente);
   }
 
   void _openBackup() {
@@ -321,6 +344,12 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
         color: _tc(type),
       ),
     );
+  }
+
+  void _ejecutarObjeto() {
+    final ctx = rootDialogContext ?? context;
+    Navigator.of(context).pop();
+    showEjecutarLlamadaWindow(ctx, ambiente: ambiente, objeto: name);
   }
 
   void _openDiff() {
@@ -427,21 +456,24 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
                       ),
                       _buildTabBar(isDark, color),
                       Expanded(
-                        child: TabBarView(
-                          children: [
-                            _DetallesTab(
-                              name: name,
-                              type: type,
-                              ambiente: ambiente,
-                            ),
-                            _InfoTab(
-                              name: name,
-                              type: type,
-                              ambiente: ambiente,
-                            ),
-                            _PermisosTab(name: name, ambiente: ambiente),
-                            _ReferenciasTab(name: name, ambiente: ambiente),
-                          ],
+                        child: KeyedSubtree(
+                          key: ValueKey(_currentAmbiente),
+                          child: TabBarView(
+                            children: [
+                              _DetallesTab(
+                                name: name,
+                                type: type,
+                                ambiente: ambiente,
+                              ),
+                              _InfoTab(
+                                name: name,
+                                type: type,
+                                ambiente: ambiente,
+                              ),
+                              _PermisosTab(name: name, ambiente: ambiente),
+                              _ReferenciasTab(name: name, ambiente: ambiente),
+                            ],
+                          ),
                         ),
                       ),
                     ],
@@ -456,7 +488,6 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
   }
 
   Widget _buildHeader(BuildContext context, bool isDark, Color color) {
-    final ambColor = AmbienteSelector.colorForAmbiente(ambiente);
     final hasSource = type != 'TABLE';
     return ConstellationHeader(
       padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
@@ -527,7 +558,10 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
                   children: [
                     _badge(type, color),
                     const SizedBox(width: 6),
-                    _badge(ambiente, ambColor),
+                    AmbienteSelector(
+                      value: ambiente,
+                      onChanged: _changeAmbiente,
+                    ),
                     const SizedBox(width: 6),
                     _StatusBadge(
                       status: _objectStatus,
@@ -541,6 +575,15 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
           ),
           const SizedBox(width: 8),
           // -- Acciones con etiqueta ------------------------------------
+          if (_kTiposInvocables.contains(type))
+            _LabeledAction(
+              icon: Icons.play_arrow_rounded,
+              label: 'Ejecutar',
+              color: color,
+              isDark: isDark,
+              onTap: _ejecutarObjeto,
+            ),
+          if (_kTiposInvocables.contains(type)) const SizedBox(width: 4),
           if (hasSource)
             _LabeledAction(
               icon: Icons.code_rounded,
@@ -939,7 +982,12 @@ class _ObjectBackupDialogState extends State<_ObjectBackupDialog> {
       );
       if (path == null) return;
       await File(path).writeAsString(script, flush: true);
-      AppToast.success('Backup guardado: ${path.split(r"\\").last}');
+      AppToast.successWithAction(
+        'Backup guardado: ${path.split(Platform.pathSeparator).last}',
+        detail: path,
+        actionLabel: 'Abrir ubicación',
+        onAction: () => unawaited(BackupService.revealInExplorer(path)),
+      );
     } catch (e) {
       AppToast.error('Error guardando backup: $e');
     }
@@ -2677,6 +2725,31 @@ class _PackageViewState extends State<_PackageView>
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
+                                  Tooltip(
+                                    message: 'Ejecutar ${s.name}',
+                                    child: InkWell(
+                                      onTap: () {
+                                        final ctx =
+                                            rootDialogContext ?? context;
+                                        Navigator.of(context).pop();
+                                        showEjecutarLlamadaWindow(
+                                          ctx,
+                                          ambiente: widget.ambiente,
+                                          objeto: '${widget.name}.${s.name}',
+                                        );
+                                      },
+                                      borderRadius: BorderRadius.circular(4),
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(3),
+                                        child: Icon(
+                                          Icons.play_arrow_rounded,
+                                          size: 15,
+                                          color: color,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
                                   Text(
                                     '${s.arguments.length}',
                                     style: TextStyle(

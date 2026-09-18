@@ -272,7 +272,12 @@ extension _ObjectSourceBackup on _ObjectSourcePageState {
       );
       if (path == null) return;
       await File(path).writeAsString(script, flush: true);
-      AppToast.success('Backup guardado: ${path.split(r"\\").last}');
+      AppToast.successWithAction(
+        'Backup guardado: ${path.split(Platform.pathSeparator).last}',
+        detail: path,
+        actionLabel: 'Abrir ubicación',
+        onAction: () => unawaited(BackupService.revealInExplorer(path)),
+      );
     } catch (e) {
       AppToast.error('Error guardando backup: $e');
     }

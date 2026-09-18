@@ -475,6 +475,11 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
             tooltip: 'Ejecutar procedimiento dinámico (Alt+R)',
             onPressed: () => unawaited(_ejecutarProcedimiento()),
           ),
+          _ToolBtn(
+            icon: Icons.play_arrow_rounded,
+            tooltip: 'Ejecutar objeto PL/SQL (Ctrl+Shift+E)',
+            onPressed: () => unawaited(_ejecutarLlamadaPlsql()),
+          ),
           const Spacer(),
           _buildErrorBadge(cs),
           const SizedBox(width: 4),

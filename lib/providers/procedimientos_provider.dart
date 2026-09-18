@@ -27,6 +27,7 @@ abstract class _ProcedimientosProvider with Store {
   bool _configuracionesCargadas = false;
   bool _variablesCargadas = false;
   Map<String, String> _configMap = {};
+  int _cargaCompletaId = 0;
 
   @observable
   String ambiente = 'Desa';
@@ -158,6 +159,67 @@ abstract class _ProcedimientosProvider with Store {
     _lastEstado = estado;
     pagina = 1;
     await _ejecutarBusqueda();
+  }
+
+  /// Carga todas las reglas para flujos que necesitan un catálogo completo,
+  /// como el backup masivo. La búsqueda normal permanece paginada.
+  Future<void> cargarTodos({
+    String busqueda = '',
+    String? config,
+    String? estado,
+    int top = 200,
+  }) async {
+    final cargaId = ++_cargaCompletaId;
+    _lastBusqueda = busqueda;
+    _lastConfig = config;
+    _lastEstado = estado;
+    runInAction(() {
+      cargando = true;
+      error = null;
+      mensaje = null;
+      pagina = 1;
+    });
+
+    final todas = <Procedimiento>[];
+    var paginaActual = 1;
+    try {
+      while (true) {
+        final resultado = await _service.listarProcedimientos(
+          busqueda: busqueda,
+          configuracion: config,
+          estado: estado,
+          ambiente: ambiente,
+          top: top,
+          pagina: paginaActual,
+        );
+        if (resultado.items.isEmpty) break;
+
+        todas.addAll(resultado.items);
+        if (!resultado.tieneSiguiente) break;
+
+        final siguiente = resultado.pagina > paginaActual
+            ? resultado.pagina + 1
+            : paginaActual + 1;
+        paginaActual = siguiente;
+      }
+
+      if (cargaId != _cargaCompletaId) return;
+      runInAction(() {
+        resultados = ObservableList.of(todas);
+        pagina = paginaActual;
+        tieneSiguiente = false;
+        tienePrevio = paginaActual > 1;
+      });
+    } catch (e) {
+      if (cargaId != _cargaCompletaId) return;
+      runInAction(() {
+        error = _mensajeDeError(e);
+      });
+    } finally {
+      if (cargaId == _cargaCompletaId) {
+        runInAction(() => cargando = false);
+      }
+    }
   }
 
   @action

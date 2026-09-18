@@ -20,6 +20,8 @@ import 'package:flutter/material.dart';
 
 typedef DiffHunk = ({int origStart, int origEnd, int modStart, int modEnd});
 
+enum DiffEditSide { none, source, target }
+
 /// Calcula hunks de diferencias a nivel de línea usando Unicode encoding.
 List<DiffHunk> computeHunks(String orig, String mod) {
   if (orig == mod) return [];
@@ -148,6 +150,9 @@ class NativeDiffViewer extends StatefulWidget {
     this.lineOffset = 0,
     this.onApplyLineToTarget,
     this.onApplyLineToSource,
+    this.searchQuery = '',
+    this.editableSide = DiffEditSide.none,
+    this.onEditLine,
   });
 
   final String origText;
@@ -170,6 +175,12 @@ class NativeDiffViewer extends StatefulWidget {
 
   /// Llamado cuando el usuario toca "←" en una fila del panel derecho.
   final void Function(int hunkIdx, int hunkRow)? onApplyLineToSource;
+
+  /// Texto a resaltar sin alterar las filas ni el cálculo de diferencias.
+  final String searchQuery;
+
+  final DiffEditSide editableSide;
+  final void Function(bool isSource, int lineNumber, String value)? onEditLine;
 
   @override
   State<NativeDiffViewer> createState() => _NativeDiffViewerState();
@@ -665,11 +676,23 @@ class _NativeDiffViewerState extends State<NativeDiffViewer> {
     final isChanged = row.kind == _K.changed;
     final isCurrent = isChanged && row.hunkIdx == cur;
     final hasSide = text != null;
+    final editable =
+        text != null &&
+        widget.onEditLine != null &&
+        ((isLeft && widget.editableSide == DiffEditSide.source) ||
+            (!isLeft && widget.editableSide == DiffEditSide.target));
+    final searchHit =
+        text != null &&
+        widget.searchQuery.trim().isNotEmpty &&
+        text.toUpperCase().contains(widget.searchQuery.trim().toUpperCase());
 
     Color? bg;
     Color lnBg;
     if (isChanged) {
-      if (isLeft) {
+      if (searchHit) {
+        bg = dark ? const Color(0xFF514600) : const Color(0xFFFFF3B0);
+        lnBg = dark ? const Color(0xFF6B5F00) : const Color(0xFFFFE680);
+      } else if (isLeft) {
         bg = hasSide
             ? (dark ? const Color(0xFF3D1C1C) : const Color(0xFFFFEBEB))
             : (dark ? const Color(0xFF161B22) : const Color(0xFFF6F8FA));
@@ -685,7 +708,9 @@ class _NativeDiffViewerState extends State<NativeDiffViewer> {
             : (dark ? const Color(0xFF161B22) : const Color(0xFFF6F8FA));
       }
     } else {
-      bg = null;
+      bg = searchHit
+          ? (dark ? const Color(0xFF514600) : const Color(0xFFFFF3B0))
+          : null;
       lnBg = dark ? const Color(0xFF161B22) : const Color(0xFFF6F8FA);
     }
 
@@ -765,13 +790,20 @@ class _NativeDiffViewerState extends State<NativeDiffViewer> {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6),
               child: text != null
-                  ? _lineContent(
-                      text: text,
-                      other: isLeft ? row.right : row.left,
-                      showLeft: isLeft,
-                      isChanged: isChanged,
-                      dark: dark,
-                    )
+                  ? editable
+                        ? _editableLine(
+                            text,
+                            num!,
+                            isSource: isLeft,
+                            dark: dark,
+                          )
+                        : _lineContent(
+                            text: text,
+                            other: isLeft ? row.right : row.left,
+                            showLeft: isLeft,
+                            isChanged: isChanged,
+                            dark: dark,
+                          )
                   : const SizedBox.shrink(),
             ),
           ),
@@ -795,13 +827,32 @@ class _NativeDiffViewerState extends State<NativeDiffViewer> {
 
     final isCurrent = row.hunkIdx >= 0 && row.hunkIdx == cur;
     final isChanged = row.kind == _K.changed;
+    final isSource = !row.isAdded;
+    final lineNumber = isSource ? row.origNum : row.modNum;
+    final editable =
+        row.text != null &&
+        lineNumber != null &&
+        widget.onEditLine != null &&
+        ((isSource && widget.editableSide == DiffEditSide.source) ||
+            (!isSource && widget.editableSide == DiffEditSide.target));
+    final searchHit =
+        row.text != null &&
+        widget.searchQuery.trim().isNotEmpty &&
+        row.text!.toUpperCase().contains(
+          widget.searchQuery.trim().toUpperCase(),
+        );
     Color? bg;
     Color lnBg;
     String sign;
     Color signColor;
 
     if (isChanged) {
-      if (row.isAdded) {
+      if (searchHit) {
+        bg = dark ? const Color(0xFF514600) : const Color(0xFFFFF3B0);
+        lnBg = dark ? const Color(0xFF6B5F00) : const Color(0xFFFFE680);
+        sign = row.isAdded ? '+' : '−';
+        signColor = dark ? Colors.amber.shade200 : Colors.amber.shade900;
+      } else if (row.isAdded) {
         bg = dark ? const Color(0xFF1C3D1C) : const Color(0xFFEBFFEB);
         lnBg = dark ? const Color(0xFF205C20) : const Color(0xFFD0FFD0);
         sign = '+';
@@ -813,7 +864,9 @@ class _NativeDiffViewerState extends State<NativeDiffViewer> {
         signColor = dark ? Colors.red.shade400 : Colors.red.shade700;
       }
     } else {
-      bg = null;
+      bg = searchHit
+          ? (dark ? const Color(0xFF514600) : const Color(0xFFFFF3B0))
+          : null;
       lnBg = dark ? const Color(0xFF161B22) : const Color(0xFFF6F8FA);
       sign = ' ';
       signColor = Colors.transparent;
@@ -873,20 +926,49 @@ class _NativeDiffViewerState extends State<NativeDiffViewer> {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.only(right: 6),
-              child: Text(
-                row.text ?? '',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: _kFont.copyWith(
-                  color: dark ? Colors.white70 : Colors.black87,
-                ),
-              ),
+              child: editable
+                  ? _editableLine(
+                      row.text!,
+                      lineNumber,
+                      isSource: isSource,
+                      dark: dark,
+                    )
+                  : Text(
+                      row.text ?? '',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _kFont.copyWith(
+                        color: dark ? Colors.white70 : Colors.black87,
+                      ),
+                    ),
             ),
           ),
         ],
       ),
     );
   }
+
+  Widget _editableLine(
+    String text,
+    int lineNumber, {
+    required bool isSource,
+    required bool dark,
+  }) => Tooltip(
+    message: 'Editá esta línea y presioná Enter para confirmar',
+    child: TextFormField(
+      initialValue: text,
+      maxLines: 1,
+      textInputAction: TextInputAction.done,
+      style: _kFont.copyWith(color: dark ? Colors.white : Colors.black87),
+      decoration: const InputDecoration(
+        isDense: true,
+        border: InputBorder.none,
+        contentPadding: EdgeInsets.zero,
+      ),
+      onFieldSubmitted: (value) =>
+          widget.onEditLine?.call(isSource, lineNumber, value),
+    ),
+  );
 
   // ── Collapsed ──────────────────────────────────────────────────────────────
 

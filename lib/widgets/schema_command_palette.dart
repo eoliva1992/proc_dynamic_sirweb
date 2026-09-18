@@ -5,8 +5,11 @@ import 'package:flutter/services.dart';
 
 import '../services/schema_recents_service.dart';
 import '../services/schema_service.dart';
+import 'code_editor_panel.dart' show showEjecutarLlamadaWindow;
 import 'constellation_background.dart';
 import 'schema_object_details_sheet.dart';
+
+const _kTiposInvocables = {'PROCEDURE', 'FUNCTION', 'PACKAGE'};
 
 const _kTypeColors = {
   'TABLE': Color(0xFF0078D4),
@@ -170,6 +173,25 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
       name: item.name,
       type: item.type,
       ambiente: widget.ambiente,
+    );
+  }
+
+  void _ejecutar(_PaletteItem item) {
+    if (!mounted) return;
+    final navigator = Navigator.of(context);
+    navigator.pop();
+    SchemaRecentsService.instance.addRecent(
+      SchemaObjectRef(
+        name: item.name,
+        type: item.type,
+        owner: item.owner,
+        ambiente: widget.ambiente,
+      ),
+    );
+    showEjecutarLlamadaWindow(
+      navigator.context,
+      ambiente: widget.ambiente,
+      objeto: item.name,
     );
   }
 
@@ -419,6 +441,27 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
                   color: isDark
                       ? Colors.white24
                       : Colors.black.withValues(alpha: 0.24),
+                ),
+                const SizedBox(width: 6),
+              ],
+              if (_kTiposInvocables.contains(item.type)) ...[
+                Tooltip(
+                  message: 'Ejecutar (Ctrl+Shift+E)',
+                  child: InkWell(
+                    onTap: () => _ejecutar(item),
+                    borderRadius: BorderRadius.circular(4),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 2,
+                      ),
+                      child: Icon(
+                        Icons.play_arrow_rounded,
+                        size: 15,
+                        color: color,
+                      ),
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 6),
               ],

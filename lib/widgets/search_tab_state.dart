@@ -194,6 +194,16 @@ class SearchTabState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> refrescar({required String ambiente}) async {
+    if (!hasSearched || cargando) return;
+    await buscar(
+      busqueda: searchText,
+      cfg: config,
+      est: estado,
+      ambiente: ambiente,
+    );
+  }
+
   Future<void> cargarMas({required String ambiente}) async {
     if (!tieneSiguiente || cargandoMas || cargando) return;
     _lastAmbiente = ambiente;

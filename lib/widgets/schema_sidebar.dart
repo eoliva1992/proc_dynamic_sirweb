@@ -8,10 +8,13 @@ import '../services/schema_recents_service.dart';
 import '../services/schema_service.dart';
 import 'ambiente_selector.dart';
 import 'app_toast.dart';
+import 'code_editor_panel.dart' show showEjecutarLlamadaWindow;
 import 'constellation_background.dart';
 import 'schema_command_palette.dart';
 import 'schema_object_details_sheet.dart';
 import 'source_float_window.dart';
+
+const _kTiposInvocables = {'PROCEDURE', 'FUNCTION', 'PACKAGE'};
 
 const _kTypeColors = {
   'TABLE': Color(0xFF0078D4),
@@ -176,6 +179,19 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
       ),
     );
     showObjectDetails(context, name: name, type: type, ambiente: _ambiente);
+    _loadSaved();
+  }
+
+  void _ejecutarObjeto(String name, String type, String owner) {
+    SchemaRecentsService.instance.addRecent(
+      SchemaObjectRef(
+        name: name,
+        type: type,
+        owner: owner,
+        ambiente: _ambiente,
+      ),
+    );
+    showEjecutarLlamadaWindow(context, ambiente: _ambiente, objeto: name);
     _loadSaved();
   }
 
@@ -932,6 +948,9 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
               ambiente: _ambiente,
             )
           : null,
+      onEjecutar: _kTiposInvocables.contains(ref.type)
+          ? () => _ejecutarObjeto(ref.name, ref.type, ref.owner)
+          : null,
       onCopyName: () => _copyName(ref.name),
       onCopyUsage: () => _copyUsage(ref.name, ref.type),
     );
@@ -1096,6 +1115,9 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
               ambiente: _ambiente,
             )
           : null,
+      onEjecutar: _kTiposInvocables.contains(type)
+          ? () => _ejecutarObjeto(name, type, owner)
+          : null,
       onCopyName: () => _copyName(name),
       onCopyUsage: () => _copyUsage(name, type),
       onFavoriteToggle: () => _toggleFavorite(
@@ -1146,6 +1168,7 @@ class _SavedCard extends StatefulWidget {
   final VoidCallback onFavoriteToggle;
   final VoidCallback? onRemove;
   final VoidCallback? onOpenSource;
+  final VoidCallback? onEjecutar;
   final VoidCallback? onCopyName;
   final VoidCallback? onCopyUsage;
 
@@ -1160,6 +1183,7 @@ class _SavedCard extends StatefulWidget {
     required this.onFavoriteToggle,
     this.onRemove,
     this.onOpenSource,
+    this.onEjecutar,
     this.onCopyName,
     this.onCopyUsage,
   });
@@ -1244,6 +1268,21 @@ class _SavedCardState extends State<_SavedCard> {
                             color: widget.isDark
                                 ? Colors.white38
                                 : Colors.black45,
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (widget.onEjecutar != null)
+                    GestureDetector(
+                      onTap: widget.onEjecutar,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: Tooltip(
+                          message: 'Ejecutar (Ctrl+Shift+E)',
+                          child: Icon(
+                            Icons.play_arrow_rounded,
+                            size: 15,
+                            color: widget.color,
                           ),
                         ),
                       ),
@@ -1336,6 +1375,7 @@ class _SidebarRow extends StatefulWidget {
   final VoidCallback onTap;
   final VoidCallback onFavoriteToggle;
   final VoidCallback? onOpenSource;
+  final VoidCallback? onEjecutar;
   final VoidCallback? onCopyName;
   final VoidCallback? onCopyUsage;
 
@@ -1350,6 +1390,7 @@ class _SidebarRow extends StatefulWidget {
     required this.onTap,
     required this.onFavoriteToggle,
     this.onOpenSource,
+    this.onEjecutar,
     this.onCopyName,
     this.onCopyUsage,
   });
@@ -1448,6 +1489,21 @@ class _SidebarRowState extends State<_SidebarRow> {
                           color: widget.isDark
                               ? Colors.white54
                               : Colors.black45,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (widget.onEjecutar != null)
+                  GestureDetector(
+                    onTap: widget.onEjecutar,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Tooltip(
+                        message: 'Ejecutar (Ctrl+Shift+E)',
+                        child: Icon(
+                          Icons.play_arrow_rounded,
+                          size: 15,
+                          color: widget.color,
                         ),
                       ),
                     ),

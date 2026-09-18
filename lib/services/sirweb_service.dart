@@ -270,6 +270,65 @@ class SirwebService {
     );
   }
 
+  Future<List<Procedimiento>> listarTodosProcedimientos({
+    String? busqueda,
+    String? configuracion,
+    String? estado,
+    String? ambiente,
+    int top = 200,
+  }) async {
+    final tamanos = <int>[top, 50, 25].toSet();
+    Object? ultimoError;
+    for (final tamano in tamanos) {
+      try {
+        return await _listarTodosProcedimientosConPagina(
+          busqueda: busqueda,
+          configuracion: configuracion,
+          estado: estado,
+          ambiente: ambiente,
+          top: tamano,
+        );
+      } catch (error) {
+        ultimoError = error;
+      }
+    }
+    throw ultimoError ?? Exception('No se pudieron listar los procedimientos');
+  }
+
+  Future<List<Procedimiento>> _listarTodosProcedimientosConPagina({
+    String? busqueda,
+    String? configuracion,
+    String? estado,
+    String? ambiente,
+    required int top,
+  }) async {
+    final todos = <Procedimiento>[];
+    var paginaActual = 1;
+
+    while (true) {
+      final resultado = await listarProcedimientos(
+        busqueda: busqueda,
+        configuracion: configuracion,
+        estado: estado,
+        ambiente: ambiente,
+        top: top,
+        pagina: paginaActual,
+      );
+      if (resultado.items.isEmpty) break;
+
+      todos.addAll(resultado.items);
+      if (!resultado.tieneSiguiente) break;
+
+      final siguiente = resultado.pagina > paginaActual
+          ? resultado.pagina + 1
+          : paginaActual + 1;
+      if (siguiente == paginaActual) break;
+      paginaActual = siguiente;
+    }
+
+    return todos;
+  }
+
   Future<Procedimiento> obtenerProcedimiento(
     String cdProcedimiento, {
     String? ambiente,

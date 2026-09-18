@@ -14,29 +14,7 @@ VoidCallback _showFloatingWindow(
   BuildContext context,
   Widget Function(VoidCallback close) builder,
 ) {
-  late OverlayEntry entry;
-  var removed = false;
-
-  void close() {
-    if (removed) return;
-    removed = true;
-    entry.remove();
-  }
-
-  // Sin `Material` envolvente de pantalla completa: cada ventana pone el suyo
-  // sobre su propio rectángulo. Así el resto de la pantalla queda libre y los
-  // clics llegan al editor y a las demás ventanas.
-  // Se envuelve la ventana en un `Overlay` local:
-  // Así los menús contextuales, popups y dropdowns abiertos desde ella
-  // (p. ej. `AmbienteSelector`, `showMenu`, etc.) se dibujan en este Overlay
-  // interno y quedan GARANTIZADAMENTE por delante del marco y contenido de
-  // la ventana flotante, en vez de insertarse en el overlay raíz por detrás.
-  entry = OverlayEntry(
-    builder: (_) =>
-        Overlay(initialEntries: [OverlayEntry(builder: (_) => builder(close))]),
-  );
-  Overlay.of(context, rootOverlay: true).insert(entry);
-  return close;
+  return showFloatingWindow(context, builder);
 }
 
 /// Reparte posiciones para las ventanas minimizadas, de modo que no se

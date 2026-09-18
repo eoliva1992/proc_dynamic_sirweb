@@ -1416,6 +1416,188 @@ class _LlamadaPlsqlModalState extends State<_LlamadaPlsqlModal> {
     });
   }
 
+  /// Extrae los argumentos de una llamada manual y los vuelca al formulario.
+  ///
+  /// Acepta argumentos nombrados (`P_ID => 10`) y posicionales. El separador
+  /// sólo se reconoce fuera de strings y llamadas anidadas, así que expresiones
+  /// como `TO_DATE('01/01/2026', 'DD/MM/YYYY')` permanecen intactas.
+  void _aplicarFirmaManual() {
+    final texto = _manualCtrl.text.trim();
+    if (texto.isEmpty) {
+      AppToast.warning('Pegá una llamada para aplicar la firma');
+      return;
+    }
+    if (_firma.isEmpty) {
+      AppToast.warning('Primero seleccioná el objeto y cargá su firma');
+      return;
+    }
+
+    final argumentos = _extraerArgumentosLlamada(texto);
+    if (argumentos == null || argumentos.isEmpty) {
+      AppToast.warning('No se encontraron argumentos en la llamada');
+      return;
+    }
+
+    final entradas = _firma
+        .where((p) => p.esEntrada && !p.bloqueado && !p.esRetorno)
+        .toList();
+    final porNombre = <String, String>{};
+    final posicionales = <String>[];
+    for (final argumento in argumentos) {
+      final separador = _indiceSeparadorNombrado(argumento);
+      if (separador == null) {
+        posicionales.add(argumento.trim());
+      } else {
+        final nombre = argumento.substring(0, separador).trim().toUpperCase();
+        final valor = argumento.substring(separador + 2).trim();
+        porNombre[nombre] = valor;
+      }
+    }
+
+    var aplicados = 0;
+    var indicePosicional = 0;
+    for (final parametro in entradas) {
+      final valor =
+          porNombre[parametro.nombre.toUpperCase()] ??
+          (indicePosicional < posicionales.length
+              ? posicionales[indicePosicional++]
+              : null);
+      if (valor == null) continue;
+
+      final limpio = _valorDesdeFirma(valor, parametro);
+      _valores[parametro.nombre]!.text = limpio;
+      if (_esExpresionSql(limpio, parametro)) {
+        _expresiones.add(parametro.nombre);
+      } else {
+        _expresiones.remove(parametro.nombre);
+      }
+      aplicados++;
+    }
+
+    if (aplicados == 0) {
+      AppToast.warning('La firma no coincide con los parámetros del objeto');
+      return;
+    }
+    setState(() => _manual = false);
+    AppToast.info('$aplicados parámetro(s) cargado(s) en el formulario');
+  }
+
+  static List<String>? _extraerArgumentosLlamada(String texto) {
+    final inicio = texto.indexOf('(');
+    if (inicio < 0) return null;
+
+    var profundidad = 0;
+    var enString = false;
+    var fin = -1;
+    for (var i = inicio; i < texto.length; i++) {
+      final c = texto[i];
+      if (c == "'") {
+        if (enString && i + 1 < texto.length && texto[i + 1] == "'") {
+          i++;
+          continue;
+        }
+        enString = !enString;
+      } else if (!enString && c == '(') {
+        profundidad++;
+      } else if (!enString && c == ')') {
+        profundidad--;
+        if (profundidad == 0) {
+          fin = i;
+          break;
+        }
+      }
+    }
+    if (fin < 0) return null;
+    return _separarArgumentos(texto.substring(inicio + 1, fin));
+  }
+
+  static List<String> _separarArgumentos(String texto) {
+    final resultado = <String>[];
+    var inicio = 0;
+    var profundidad = 0;
+    var enString = false;
+    for (var i = 0; i < texto.length; i++) {
+      final c = texto[i];
+      if (c == "'") {
+        if (enString && i + 1 < texto.length && texto[i + 1] == "'") {
+          i++;
+          continue;
+        }
+        enString = !enString;
+      } else if (!enString && c == '(') {
+        profundidad++;
+      } else if (!enString && c == ')') {
+        profundidad--;
+      } else if (!enString && profundidad == 0 && c == ',') {
+        final argumento = texto.substring(inicio, i).trim();
+        if (argumento.isNotEmpty) resultado.add(argumento);
+        inicio = i + 1;
+      }
+    }
+    final ultimo = texto.substring(inicio).trim();
+    if (ultimo.isNotEmpty) resultado.add(ultimo);
+    return resultado;
+  }
+
+  static int? _indiceSeparadorNombrado(String argumento) {
+    var profundidad = 0;
+    var enString = false;
+    for (var i = 0; i < argumento.length - 1; i++) {
+      final c = argumento[i];
+      if (c == "'") {
+        if (enString && i + 1 < argumento.length && argumento[i + 1] == "'") {
+          i++;
+          continue;
+        }
+        enString = !enString;
+      } else if (!enString && c == '(') {
+        profundidad++;
+      } else if (!enString && c == ')') {
+        profundidad--;
+      } else if (!enString &&
+          profundidad == 0 &&
+          c == '=' &&
+          argumento[i + 1] == '>') {
+        return i;
+      }
+    }
+    return null;
+  }
+
+  static String _valorDesdeFirma(String valor, ParametroFirma parametro) {
+    var limpio = valor.trim().replaceFirst(RegExp(r';\s*$'), '');
+    if (parametro.esFecha) {
+      final fechaSql = RegExp(
+        r"^(?:DATE|TIMESTAMP(?:\s+WITH(?:\s+LOCAL)?\s+TIME\s+ZONE)?)\s*'([^']+)'$",
+        caseSensitive: false,
+      ).firstMatch(limpio);
+      if (fechaSql != null) limpio = fechaSql.group(1)!;
+      if (limpio.length >= 2 &&
+          limpio.startsWith("'") &&
+          limpio.endsWith("'")) {
+        limpio = limpio.substring(1, limpio.length - 1).replaceAll("''", "'");
+      }
+      final fecha = _parsearFecha(limpio);
+      if (fecha != null) {
+        return parametro.esFechaConHora || limpio.contains(':')
+            ? _formatearFechaHora(fecha)
+            : _formatearFecha(fecha);
+      }
+      return limpio;
+    }
+    if (limpio.length >= 2 && limpio.startsWith("'") && limpio.endsWith("'")) {
+      return limpio.substring(1, limpio.length - 1).replaceAll("''", "'");
+    }
+    return limpio.toUpperCase() == 'NULL' ? '' : limpio;
+  }
+
+  static bool _esExpresionSql(String valor, ParametroFirma parametro) {
+    if (valor.isEmpty || parametro.esNumerico) return false;
+    return valor.contains('(') ||
+        valor.toUpperCase() == 'SYSDATE' ||
+        valor.toUpperCase() == 'SYSTIMESTAMP';
+  }
+
   // ── Build ───────────────────────────────────────────────────────────────
 
   @override
@@ -2008,44 +2190,103 @@ class _LlamadaPlsqlModalState extends State<_LlamadaPlsqlModal> {
 
                 // ── Modo manual vs formulario por parámetro ───────────────
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Expanded(
                       child: _SeccionLabel(
                         label: _manual
-                            ? 'Llamada manual'
-                            : 'Firma completa (${parametros.length})',
+                            ? 'Modo manual'
+                            : 'Formulario de parámetros',
                         isDark: isDark,
                       ),
                     ),
-                    TextButton.icon(
-                      onPressed: _toggleManual,
-                      icon: Icon(
-                        _manual ? Icons.list_alt_rounded : Icons.edit_rounded,
-                        size: 14,
-                      ),
-                      label: Text(
-                        _manual ? 'Formulario' : 'Manual',
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        minimumSize: const Size(0, 28),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    Text(
+                      _manual
+                          ? 'Firma editable'
+                          : '${parametros.length} parámetro(s)',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: _manual
+                            ? _kLlamadaAccent
+                            : (isDark ? Colors.white38 : Colors.black38),
+                        fontWeight: _manual ? FontWeight.w700 : FontWeight.w400,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 7),
+                SegmentedButton<bool>(
+                  style: SegmentedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    minimumSize: const Size(0, 32),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    textStyle: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  showSelectedIcon: false,
+                  segments: const [
+                    ButtonSegment<bool>(
+                      value: false,
+                      icon: Icon(Icons.list_alt_rounded, size: 15),
+                      label: Text('Formulario'),
+                    ),
+                    ButtonSegment<bool>(
+                      value: true,
+                      icon: Icon(Icons.edit_note_rounded, size: 15),
+                      label: Text('Modo manual'),
+                    ),
+                  ],
+                  selected: {_manual},
+                  onSelectionChanged: (seleccion) {
+                    if (seleccion.isNotEmpty && seleccion.first != _manual) {
+                      _toggleManual();
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
 
                 if (_manual)
-                  _CampoTexto(
-                    controller: _manualCtrl,
-                    label: '',
-                    hint: "SIR.PCK_X.MI_PROC(P_UNO => 1, P_DOS => 'texto');",
-                    numerico: false,
-                    isDark: isDark,
-                    maxLines: 6,
-                    onChanged: (_) => setState(() {}),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Pegá una firma PL/SQL y aplicala al formulario para completar sus campos.',
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          color: isDark ? Colors.white54 : Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      _CampoTexto(
+                        controller: _manualCtrl,
+                        label: '',
+                        hint:
+                            "SIR.PCK_X.MI_PROC(P_UNO => 1, P_DOS => 'texto');",
+                        numerico: false,
+                        isDark: isDark,
+                        maxLines: 6,
+                        onChanged: (_) => setState(() {}),
+                      ),
+                      const SizedBox(height: 6),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: _aplicarFirmaManual,
+                          icon: const Icon(Icons.input_rounded, size: 14),
+                          label: const Text(
+                            'Aplicar firma al formulario',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            minimumSize: const Size(0, 28),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ),
+                      ),
+                    ],
                   )
                 else if (parametros.isEmpty)
                   Text(

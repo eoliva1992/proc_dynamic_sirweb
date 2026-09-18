@@ -7,14 +7,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_monaco/flutter_monaco.dart' as fm;
 import '../services/app_log.dart';
+import '../services/backup_service.dart';
 import '../services/schema_service.dart';
+import '../screens/schema_object_diff_page.dart';
 import '_editor_plsql_checker.dart';
 import '_editor_plsql_completions.dart';
 import '_editor_themes.dart';
 import 'ambiente_selector.dart';
 import 'app_toast.dart';
 import 'code_editor_panel.dart'
-    show showInfoEventoWindow, showInfoDatoWindow, showAutorizacionesWindow;
+    show
+        showInfoEventoWindow,
+        showInfoDatoWindow,
+        showAutorizacionesWindow,
+        showEjecutarLlamadaWindow;
 import 'constellation_background.dart';
 import 'monaco_snippets.dart';
 import 'slide_up_panel.dart';
@@ -46,9 +52,19 @@ const kTypeIcons = {
   'TYPE': Icons.data_object_outlined,
 };
 
+const _kTiposInvocables = {'PROCEDURE', 'FUNCTION', 'PACKAGE'};
+
 enum _ViewerCompileStatus { idle, compiling, ok, error }
 
-enum _CtxMenuAction { gotoDef, infoEvento, infoDato, cut, copy, paste }
+enum _CtxMenuAction {
+  gotoDef,
+  infoEvento,
+  infoDato,
+  ejecutarLlamada,
+  cut,
+  copy,
+  paste,
+}
 
 // ── Guardas contra el editor ya destruido ────────────────────────────────────
 // `flutter_monaco` lanza `MonacoDisposedError: MonacoController has been
@@ -102,19 +118,27 @@ void _disposeMonacoQuietly(Object? Function() action) {
 // code_editor_panel.dart's `_onReady`.
 const String _kContextMenuFocusGuardJs =
     '(function(){'
-    '  function isMenuOpen(){'
-    '    return !!document.querySelector(".monaco-menu-container");'
+    '  function isFocusHeld(){'
+    '    if(window.__fmFindWanted) return true;'
+    '    if(document.querySelector(".monaco-menu-container")) return true;'
+    '    var fw=document.querySelector(".find-widget");'
+    '    if(fw&&fw.classList.contains("visible")) return true;'
+    '    var act=document.activeElement;'
+    '    if(act&&(act.tagName==="INPUT"||act.tagName==="TEXTAREA")) {'
+    '      if(!act.classList.contains("inputarea")&&!act.classList.contains("native-edit-context")) return true;'
+    '    }'
+    '    return false;'
     '  }'
     '  function patchEl(el){'
     '    if(!el||el._fp) return;'
     '    el._fp=true;'
     '    var o=el.focus.bind(el);'
-    '    el.focus=function(opts){ if(!isMenuOpen()) o(opts); };'
+    '    el.focus=function(opts){ if(!isFocusHeld()) o(opts); };'
     '  }'
     '  if(!document.body._fp){'
     '    document.body._fp=true;'
     '    var ob=document.body.focus.bind(document.body);'
-    '    document.body.focus=function(){ if(!isMenuOpen()) ob(); };'
+    '    document.body.focus=function(){ if(!isFocusHeld()) ob(); };'
     '  }'
     '  function tryPatch(){'
     '    patchEl(document.querySelector(".monaco-editor .inputarea"));'
@@ -122,12 +146,114 @@ const String _kContextMenuFocusGuardJs =
     '    if(window.editor&&!window.editor._fp){'
     '      window.editor._fp=true;'
     '      var oe=window.editor.focus.bind(window.editor);'
-    '      window.editor.focus=function(){ if(!isMenuOpen()) oe(); };'
+    '      window.editor.focus=function(){ if(!isFocusHeld()) oe(); };'
     '    }'
     '  }'
     '  tryPatch();'
     '  var obs=new MutationObserver(tryPatch);'
     '  obs.observe(document.body,{childList:true,subtree:true});'
+    '})()';
+
+// Same forceFocus race that breaks the right-click menu (see above) also
+// breaks Ctrl+F / the search icon: Monaco's own focus juggling steals focus
+// back from the find widget's input right after opening it, so typing does
+// nothing. Ported from code_editor_panel.dart's identical fix — blocks focus
+// redirection while `.find-widget.visible` (or an auxiliary input) is active,
+// and exposes `window.__fmOpenFind()` which opens the find widget and keeps
+// re-focusing its input until it actually takes focus.
+const String _kFindWidgetFocusGuardJs =
+    '(function(){'
+    '  if(window.__fmFindGuardInstalled) return;'
+    '  window.__fmFindGuardInstalled = true;'
+    '  window.__fmFindWanted = false;'
+    '  function isFindOpen(){'
+    '    if(window.__fmFindWanted) return true;'
+    '    var fw=document.querySelector(".find-widget");'
+    '    if(fw&&fw.classList.contains("visible")) return true;'
+    '    var act = document.activeElement;'
+    '    if(act && (act.tagName==="INPUT" || act.tagName==="TEXTAREA")) {'
+    '      if(!act.classList.contains("inputarea") && !act.classList.contains("native-edit-context")) return true;'
+    '    }'
+    '    return false;'
+    '  }'
+    '  window.__fmAuxInput = function(){'
+    '    var act = document.activeElement;'
+    '    if(act && (act.tagName==="INPUT" || act.tagName==="TEXTAREA")) {'
+    '      if(!act.classList.contains("inputarea") && !act.classList.contains("native-edit-context")) return act;'
+    '    }'
+    '    return null;'
+    '  };'
+    '  function patchFn(obj, name){'
+    '    if(!obj || !obj[name] || obj[name]._fp) return;'
+    '    var orig = obj[name].bind(obj);'
+    '    var patched = function(){'
+    '      if(!isFindOpen()) return orig.apply(this, arguments);'
+    '    };'
+    '    patched._fp = true;'
+    '    obj[name] = patched;'
+    '  }'
+    '  function patchEl(el){'
+    '    if(!el||el._fp) return;'
+    '    el._fp=true;'
+    '    var o=el.focus.bind(el);'
+    '    el.focus=function(opts){ if(!isFindOpen()) o(opts); };'
+    '  }'
+    '  if(!document.body._fp){'
+    '    document.body._fp=true;'
+    '    var ob=document.body.focus.bind(document.body);'
+    '    document.body.focus=function(){ if(!isFindOpen()) ob(); };'
+    '  }'
+    '  if(window.flutterMonaco){'
+    '    patchFn(window.flutterMonaco, "forceFocus");'
+    '    patchFn(window.flutterMonaco, "focus");'
+    '    window.flutterMonaco.__fp = true;'
+    '  }'
+    '  patchFn(window, "focus");'
+    '  function tryPatch(){'
+    '    patchEl(document.querySelector(".monaco-editor .inputarea"));'
+    '    patchEl(document.querySelector(".monaco-editor .native-edit-context"));'
+    '    if(window.editor&&!window.editor._fp){'
+    '      window.editor._fp=true;'
+    '      var oe=window.editor.focus.bind(window.editor);'
+    '      window.editor.focus=function(){ if(!isFindOpen()) oe(); };'
+    '    }'
+    '    if(window.flutterMonaco && !window.flutterMonaco.__fp){'
+    '      patchFn(window.flutterMonaco, "forceFocus");'
+    '      patchFn(window.flutterMonaco, "focus");'
+    '      window.flutterMonaco.__fp = true;'
+    '    }'
+    '  }'
+    '  tryPatch();'
+    '  var obs=new MutationObserver(tryPatch);'
+    '  obs.observe(document.body,{childList:true,subtree:true});'
+    '  window.__fmOpenFind = function(){'
+    '    window.__fmFindWanted = true;'
+    '    setTimeout(function(){ window.__fmFindWanted = false; }, 1500);'
+    '    try { window.editor.trigger("keyboard", "actions.find"); } catch(e){}'
+    '    var count = 0;'
+    '    var chase = setInterval(function(){'
+    '      count++;'
+    '      var inp = document.querySelector(".find-widget .find-part input");'
+    '      if(inp) {'
+    '        inp.focus();'
+    '        if(document.activeElement === inp || count > 20) clearInterval(chase);'
+    '      } else if(count > 20) {'
+    '        clearInterval(chase);'
+    '      }'
+    '    }, 30);'
+    '  };'
+    '  document.addEventListener("focusout",function(e){'
+    '    if(!isFindOpen()) return;'
+    '    var inp=document.querySelector(".find-widget .find-part input");'
+    '    if(!inp||e.target!==inp) return;'
+    '    setTimeout(function(){ if(isFindOpen()) inp.focus(); },0);'
+    '  },true);'
+    '  document.addEventListener("keydown",function(e){'
+    '    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="f"){'
+    '      e.preventDefault();'
+    '      window.__fmOpenFind();'
+    '    }'
+    '  },true);'
     '})()';
 
 class ObjectSourcePage extends StatefulWidget {
@@ -156,10 +282,13 @@ class ObjectSourcePage extends StatefulWidget {
 }
 
 class _ObjectSourcePageState extends State<ObjectSourcePage>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   TabController? _tabCtrl;
   ({String spec, String? body})? _data;
   Object? _error;
+  bool _loading = false;
+  String? _objectStatus;
+  bool _statusLoading = true;
 
   // single shared controller — multi-doc for packages/types, single-doc for others
   fm.MonacoController? _specCtrl;
@@ -193,7 +322,72 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
   @override
   void initState() {
     super.initState();
+    _loadObjectSource();
+  }
+
+  @override
+  void didUpdateWidget(covariant ObjectSourcePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.name != widget.name ||
+        oldWidget.objectType != widget.objectType ||
+        oldWidget.ambiente != widget.ambiente) {
+      _loadObjectStatus();
+    }
+  }
+
+  Future<void> _loadObjectStatus() async {
+    final requestedName = widget.name;
+    final requestedType = widget.objectType;
+    final requestedAmbiente = widget.ambiente;
+    if (mounted) setState(() => _statusLoading = true);
+    String? status;
+    try {
+      final info = await SchemaService.instance.getObjectInfo(
+        requestedName,
+        requestedType,
+        ambiente: requestedAmbiente,
+      );
+      for (final property in info) {
+        if (property.name.toUpperCase() == 'STATUS') {
+          status = property.value.trim().toUpperCase();
+          break;
+        }
+      }
+    } catch (_) {}
+    if (!mounted ||
+        requestedName != widget.name ||
+        requestedType != widget.objectType ||
+        requestedAmbiente != widget.ambiente) {
+      return;
+    }
+    setState(() {
+      _objectStatus = status;
+      _statusLoading = false;
+    });
+  }
+
+  Future<void> _loadObjectSource() async {
+    _loadObjectStatus();
     final isTable = widget.objectType == 'TABLE';
+    _tabCtrl?.dispose();
+    _tabCtrl = null;
+    _specText = '';
+    _bodyText = '';
+    _specErrors = 0;
+    _bodyErrors = 0;
+    _specIssues = [];
+    _bodyIssues = [];
+    _specCompileIssues = [];
+    _bodyCompileIssues = [];
+    _activeSubprogram = null;
+    _compileStatus = _ViewerCompileStatus.idle;
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+        _data = null;
+      });
+    }
     final sourceFuture = isTable
         ? SchemaService.instance
               .getTableDdl(widget.name, ambiente: widget.ambiente)
@@ -223,6 +417,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
           if (!mounted) return;
           setState(() {
             _data = data;
+            _loading = false;
             // Only PACKAGE has a meaningful spec/body split
             if (data.body != null && widget.objectType == 'PACKAGE') {
               _tabCtrl = TabController(length: 2, vsync: this);
@@ -230,7 +425,12 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
           });
         })
         .catchError((Object e) {
-          if (mounted) setState(() => _error = e);
+          if (mounted) {
+            setState(() {
+              _loading = false;
+              _error = e;
+            });
+          }
         });
   }
 
@@ -351,12 +551,21 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
 
   void _triggerFind() {
     _specCtrl?.runJavaScript(
-      'try{editor.getAction("actions.find").run();}catch(e){}',
+      'try{window.__fmOpenFind ? window.__fmOpenFind() : editor.getAction("actions.find").run();}catch(e){}',
     );
   }
 
   void _openSnippetsManager() {
     openSnippetsManager(context);
+  }
+
+  void _openDiff() {
+    showSchemaObjectDiff(
+      context,
+      objectName: widget.name,
+      objectType: widget.objectType,
+      sourceAmbiente: widget.ambiente,
+    );
   }
 
   // Parses PROCEDURE/FUNCTION declarations with their 1-based line numbers.
@@ -555,6 +764,51 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
                     ),
                   ),
 
+                  // Botón ejecutar (para PROCEDURE, FUNCTION, PACKAGE)
+                  if (_kTiposInvocables.contains(
+                    widget.objectType.toUpperCase(),
+                  )) ...[
+                    const SizedBox(width: 4),
+                    Tooltip(
+                      message: 'Ejecutar objeto (Ctrl+Shift+E)',
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(4),
+                        onTap: () {
+                          showEjecutarLlamadaWindow(
+                            context,
+                            ambiente: widget.ambiente,
+                            objeto: widget.name,
+                          );
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 5,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.play_arrow_rounded,
+                                size: 16,
+                                color: typeColor,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                'Ejecutar',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: typeColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+
                   // Separador
                   Container(
                     width: 1,
@@ -593,7 +847,54 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
                         ),
                       ),
                     ),
+                  const SizedBox(width: 4),
+                  _buildObjectStatusChip(isDark),
                   const SizedBox(width: 8),
+                  Tooltip(
+                    message: 'Comparar entre ambientes',
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(4),
+                      onTap: _openDiff,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 5,
+                        ),
+                        child: Icon(
+                          Icons.compare_arrows_rounded,
+                          size: 17,
+                          color: typeColor,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Tooltip(
+                    message: 'Refrescar objeto',
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(4),
+                      onTap: _loading ? null : _loadObjectSource,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 5,
+                        ),
+                        child: _loading
+                            ? const SizedBox(
+                                width: 17,
+                                height: 17,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 1.5,
+                                ),
+                              )
+                            : Icon(
+                                Icons.refresh_rounded,
+                                size: 17,
+                                color: typeColor,
+                              ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -683,6 +984,22 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
                 const Spacer(),
               if (_data != null) ...[
                 IconButton(
+                  tooltip: 'Refrescar objeto',
+                  icon: _loading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 1.5),
+                        )
+                      : const Icon(Icons.refresh_rounded, size: 16),
+                  onPressed: _loading ? null : _loadObjectSource,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                ),
+                IconButton(
                   tooltip: 'Copiar fuente',
                   icon: const Icon(Icons.content_copy_outlined, size: 16),
                   onPressed: _copyCurrentSource,
@@ -696,6 +1013,16 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
                   tooltip: 'Generar backup SQL',
                   icon: const Icon(Icons.download_outlined, size: 16),
                   onPressed: _showBackupDialog,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Comparar entre ambientes',
+                  icon: const Icon(Icons.compare_arrows_rounded, size: 16),
+                  onPressed: _openDiff,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(
                     minWidth: 32,
@@ -776,6 +1103,12 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
                   fontSize: 13,
                   color: isDark ? Colors.white70 : Colors.black54,
                 ),
+              ),
+              const SizedBox(height: 12),
+              TextButton.icon(
+                onPressed: _loading ? null : _loadObjectSource,
+                icon: const Icon(Icons.refresh_rounded, size: 16),
+                label: const Text('Reintentar'),
               ),
             ],
           ),
@@ -1248,6 +1581,52 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
                 ),
               ),
     };
+  }
+
+  Widget _buildObjectStatusChip(bool isDark) {
+    final status = _objectStatus;
+    final color = status == 'VALID'
+        ? Colors.green.shade600
+        : status == 'INVALID'
+        ? Colors.red.shade600
+        : Colors.grey.shade500;
+    final label = _statusLoading ? '...' : (status ?? '?');
+    return Tooltip(
+      message: 'Estado Oracle: ${status ?? 'no disponible'}',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: color.withValues(alpha: 0.5), width: 0.8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _statusLoading
+                  ? Icons.hourglass_empty
+                  : status == 'VALID'
+                  ? Icons.check_circle_outline
+                  : status == 'INVALID'
+                  ? Icons.error_outline
+                  : Icons.help_outline,
+              size: 12,
+              color: color,
+            ),
+            const SizedBox(width: 3),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 9,
+                color: color,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildStatusBar(bool isDark) {

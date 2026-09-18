@@ -163,6 +163,10 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
                         _buildFiltersToggle(cs),
                         const SizedBox(width: 8),
                         _buildBuscarButton(compact: compact),
+                        if (hasSearched) ...[
+                          const SizedBox(width: 4),
+                          _buildRefreshButton(compact: compact),
+                        ],
                         const SizedBox(width: 8),
                         AmbienteSelector(
                           value: widget.ambiente,
@@ -538,6 +542,26 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
               style: style,
             ),
     );
+  }
+
+  Widget _buildRefreshButton({bool compact = false}) {
+    final loading = widget.tabState.cargando;
+    final button = IconButton(
+      onPressed: loading
+          ? null
+          : () => widget.tabState.refrescar(ambiente: widget.ambiente),
+      tooltip: 'Refrescar procedimientos',
+      icon: loading
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 1.5),
+            )
+          : const Icon(Icons.refresh_rounded, size: 18),
+      padding: EdgeInsets.zero,
+      constraints: BoxConstraints(minWidth: compact ? 32 : 38, minHeight: 38),
+    );
+    return Tooltip(message: 'Refrescar procedimientos', child: button);
   }
 
   List<Widget> _buildOverflowMenu() {

@@ -76,6 +76,11 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
   /// Ambiente DESTINO (derecha). Editable desde la toolbar.
   late String _targetAmbiente;
 
+  /// Estado del objeto en Oracle (`ALL_OBJECTS.STATUS`) por ambiente.
+  String? _sourceStatus;
+  String? _targetStatus;
+  bool _statusLoading = true;
+
   /// Cambia uno de los ambientes comparados.
   ///
   /// Si el nuevo ambiente coincide con el del otro lado, se intercambian para
@@ -95,6 +100,7 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
       }
       _resetComparacion();
     });
+    _loadObjectStatuses();
   }
 
   /// Intercambia origen y destino. Tampoco recompara automáticamente.
@@ -105,6 +111,7 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
       _targetAmbiente = tmp;
       _resetComparacion();
     });
+    _loadObjectStatuses();
   }
 
   /// Descarta la comparación en curso (se debe volver a pulsar *Comparar*).
@@ -120,6 +127,42 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
     _error = null;
     _sourceMissing = false;
     _targetMissing = false;
+  }
+
+  Future<String?> _fetchObjectStatus(String ambiente) async {
+    try {
+      final info = await SchemaService.instance.getObjectInfo(
+        widget.objectName,
+        widget.objectType,
+        ambiente: ambiente,
+      );
+      for (final property in info) {
+        if (property.name.toUpperCase() == 'STATUS') {
+          return property.value.trim().toUpperCase();
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> _loadObjectStatuses() async {
+    final sourceAmbiente = _sourceAmbiente;
+    final targetAmbiente = _targetAmbiente;
+    setState(() => _statusLoading = true);
+    final statuses = await Future.wait([
+      _fetchObjectStatus(sourceAmbiente),
+      _fetchObjectStatus(targetAmbiente),
+    ]);
+    if (!mounted ||
+        sourceAmbiente != _sourceAmbiente ||
+        targetAmbiente != _targetAmbiente) {
+      return;
+    }
+    setState(() {
+      _sourceStatus = statuses[0];
+      _targetStatus = statuses[1];
+      _statusLoading = false;
+    });
   }
 
   // ── Carga ──────────────────────────────────────────────────────────────────
@@ -246,6 +289,11 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
   final _diffCtrl = NativeDiffController();
   final _history = <({String original, String modified})>[];
   final _sidebarFilterCtrl = TextEditingController();
+  final _searchCtrl = TextEditingController();
+  final _searchFocusNode = FocusNode();
+  DiffEditSide _editSide = DiffEditSide.none;
+  String _searchQuery = '';
+  int _searchIndex = 0;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Lifecycle
@@ -262,6 +310,7 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
       (a) => a != _sourceAmbiente,
     );
     _diffCtrl.visibleOrigLine.addListener(_onVisibleLineChanged);
+    _loadObjectStatuses();
   }
 
   @override
@@ -269,6 +318,8 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
     FloatingWindowSlots.release(_slot);
     _diffCtrl.dispose();
     _sidebarFilterCtrl.dispose();
+    _searchCtrl.dispose();
+    _searchFocusNode.dispose();
     _sidebarListCtrl.dispose();
     super.dispose();
   }
@@ -330,12 +381,56 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
     final fp = _focusedProcItem;
     if (fp == null) return _modifiedText;
     final bounds = _findProcBounds(fp.name, _modifiedText);
-    if (bounds == null)
+    if (bounds == null) {
       return _modifiedText; // proc no encontrado en destino → vista completa
+    }
     final lines = _modifiedText.split('\n');
     final s = (bounds.lineNum - 1).clamp(0, lines.length);
     final e = bounds.lineEnd.clamp(s, lines.length);
     return lines.sublist(s, e).join('\n');
+  }
+
+  List<({bool isSource, int line})> get _searchMatches {
+    final q = _searchQuery.trim().toUpperCase();
+    if (q.isEmpty) return const [];
+    final matches = <({bool isSource, int line})>[];
+    for (final entry in _viewOrig.split('\n').asMap().entries) {
+      if (entry.value.toUpperCase().contains(q)) {
+        matches.add((isSource: true, line: entry.key + 1 + _viewLineOffset));
+      }
+    }
+    for (final entry in _viewMod.split('\n').asMap().entries) {
+      if (entry.value.toUpperCase().contains(q)) {
+        matches.add((isSource: false, line: entry.key + 1 + _viewLineOffset));
+      }
+    }
+    return matches;
+  }
+
+  void _setSearchQuery(String value) {
+    setState(() {
+      _searchQuery = value;
+      _searchIndex = 0;
+    });
+    if (value.trim().isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _searchQuery != value) return;
+        final matches = _searchMatches;
+        if (matches.isNotEmpty) {
+          _diffCtrl.scrollToOrigLine(matches.first.line);
+        }
+      });
+    }
+  }
+
+  void _moveSearch(int delta) {
+    final matches = _searchMatches;
+    if (matches.isEmpty) return;
+    setState(() {
+      _searchIndex = (_searchIndex + delta) % matches.length;
+      if (_searchIndex < 0) _searchIndex += matches.length;
+    });
+    _diffCtrl.scrollToOrigLine(matches[_searchIndex].line);
   }
 
   /// Offset para números de línea del visor cuando hay foco.
@@ -347,8 +442,9 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
     final fp = _focusedProcItem;
     if (fp == null) return fragment;
     final bounds = _findProcBounds(fp.name, _modifiedText);
-    if (bounds == null)
+    if (bounds == null) {
       return fragment; // no se puede empalmar, retornar tal cual
+    }
     final lines = _modifiedText.split('\n');
     final s = (bounds.lineNum - 1).clamp(0, lines.length);
     final e = bounds.lineEnd.clamp(s, lines.length);
@@ -436,8 +532,6 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
     setState(() {
       _loading = true;
       _error = null;
-      _sourceCode = null;
-      _compilationErrors = [];
       _sourceMissing = false;
       _targetMissing = false;
     });
@@ -769,8 +863,10 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
     return (grants: grantsOk, synonyms: synonymsOk, fallos: fallos);
   }
 
-  Future<void> _compile() async {
-    final code = _modifiedText;
+  Future<void> _compile({required bool isSource}) async {
+    final code = isSource ? _currentOriginal : _modifiedText;
+    final ambiente = isSource ? _sourceAmbiente : _targetAmbiente;
+    final lado = isSource ? 'origen' : 'destino';
     setState(() {
       _compiling = true;
       _compilationErrors = [];
@@ -780,7 +876,7 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
         code,
         widget.objectName,
         widget.objectType,
-        ambiente: _targetAmbiente,
+        ambiente: ambiente,
       );
       if (!mounted) return;
       setState(() {
@@ -790,12 +886,12 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
       AppLog.instance.compilation(
         objectName: widget.objectName,
         objectType: widget.objectType,
-        ambiente: _targetAmbiente,
+        ambiente: ambiente,
         part: _isPackage ? _part : null,
         errors: errors,
       );
       if (errors.isEmpty) {
-        AppToast.success('Compilado correctamente en $_targetAmbiente');
+        AppToast.success('Compilado correctamente en $ambiente');
       } else {
         AppToast.error(
           'Compilación con ${errors.length} error(es) — ver consola',
@@ -805,18 +901,19 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
       if (!mounted) return;
       setState(() => _compiling = false);
       AppLog.instance.exception(
-        'Compilar ${widget.objectName} en $_targetAmbiente',
+        'Compilar ${widget.objectName} en $ambiente',
         e,
         stack: st,
         source: 'Compilación',
         datos: {
           'Objeto': '${widget.objectName} (${widget.objectType})',
-          'Ambiente': _targetAmbiente,
+          'Ambiente': ambiente,
+          'Lado': lado,
           if (_isPackage) 'Parte': _part,
         },
       );
       AppToast.error(
-        'No se pudo compilar en $_targetAmbiente: '
+        'No se pudo compilar en $ambiente: '
         '${AppLog.describe(e)} — ver consola',
       );
     }
@@ -956,6 +1053,110 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
     });
   }
 
+  Future<void> _confirmReplace({
+    required bool towardsTarget,
+    required bool focusedOnly,
+  }) async {
+    final direction = towardsTarget ? 'ORIGEN → DESTINO' : 'DESTINO → ORIGEN';
+    final scope = focusedOnly
+        ? 'solo ${_focusedProcName!}'
+        : 'todo el contenido';
+    final part = _isPackage ? ' · $_part' : '';
+    final destination = towardsTarget ? _targetAmbiente : _sourceAmbiente;
+    final source = towardsTarget ? _sourceAmbiente : _targetAmbiente;
+
+    final confirmed = await showFloatingDialog<bool>(
+      context,
+      (dialogContext, close) => AlertDialog(
+        title: const Text('Confirmar reemplazo'),
+        content: Text(
+          'Se reemplazará $scope de $destination con el contenido de '
+          '$source ($direction)$part.\n\n'
+          'El cambio será local en este comparador y podrá deshacerse con '
+          'Ctrl+Z.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => close(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => close(true),
+            child: const Text('Reemplazar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    if (focusedOnly) {
+      if (towardsTarget) {
+        _applyAllToTarget();
+      } else {
+        _applyAllToSource();
+      }
+    } else {
+      final sourceText = towardsTarget ? _currentOriginal : _modifiedText;
+      setState(() {
+        _history.add((original: _currentOriginal, modified: _modifiedText));
+        if (towardsTarget) {
+          _modifiedText = sourceText;
+        } else {
+          _currentOriginal = sourceText;
+        }
+      });
+    }
+  }
+
+  Widget _replaceMenu(ColorScheme cs) {
+    final hasFocus = _focusedProcName != null;
+    return MenuAnchor(
+      alignmentOffset: const Offset(0, 4),
+      menuChildren: [
+        MenuItemButton(
+          onPressed: () =>
+              _confirmReplace(towardsTarget: true, focusedOnly: false),
+          leadingIcon: Icon(Icons.keyboard_double_arrow_right, size: 15),
+          child: const Text('Completo: Origen → Destino'),
+        ),
+        MenuItemButton(
+          onPressed: () =>
+              _confirmReplace(towardsTarget: false, focusedOnly: false),
+          leadingIcon: Icon(Icons.keyboard_double_arrow_left, size: 15),
+          child: const Text('Completo: Destino → Origen'),
+        ),
+        if (hasFocus) ...[
+          const Divider(height: 1),
+          MenuItemButton(
+            onPressed: () =>
+                _confirmReplace(towardsTarget: true, focusedOnly: true),
+            leadingIcon: Icon(Icons.arrow_forward, size: 15),
+            child: Text('Solo ${_focusedProcName!}: Origen → Destino'),
+          ),
+          MenuItemButton(
+            onPressed: () =>
+                _confirmReplace(towardsTarget: false, focusedOnly: true),
+            leadingIcon: Icon(Icons.arrow_back, size: 15),
+            child: Text('Solo ${_focusedProcName!}: Destino → Origen'),
+          ),
+        ],
+      ],
+      builder: (context, controller, _) => Tooltip(
+        message: 'Reemplazar contenido',
+        waitDuration: const Duration(milliseconds: 400),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(4),
+          onTap: () =>
+              controller.isOpen ? controller.close() : controller.open(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Icon(Icons.find_replace_rounded, size: 15, color: cs.error),
+          ),
+        ),
+      ),
+    );
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Aplicar cambios — por LÍNEA (callbacks del viewer)
   // ─────────────────────────────────────────────────────────────────────────
@@ -1038,106 +1239,53 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
   // Editar origen / destino (reutilizable)
   // ─────────────────────────────────────────────────────────────────────────
 
-  /// Editor de texto plano del código origen/destino.
-  ///
-  /// Se abre como ventana flotante (no `showDialog`) porque el comparador vive
-  /// en el overlay raíz: un diálogo montado como ruta del Navigator quedaría
-  /// por detrás y no se podría usar.
-  void _openEditDialog({required bool isSource}) {
-    final cs = Theme.of(context).colorScheme;
-    final color = isSource
-        ? AmbienteSelector.colorForAmbiente(_sourceAmbiente)
-        : AmbienteSelector.colorForAmbiente(_targetAmbiente);
-    final label = isSource
-        ? 'ORIGEN — ${_sourceAmbiente.toUpperCase()}'
-        : 'DESTINO — ${_targetAmbiente.toUpperCase()}';
-    final ec = TextEditingController(
-      text: isSource ? _currentOriginal : _modifiedText,
-    );
-
-    showFloatingWindow(context, barrierColor: Colors.black54, (dismiss) {
-      void close() {
-        dismiss();
-        ec.dispose();
-      }
-
-      return Padding(
-        padding: const EdgeInsets.all(24),
-        child: Material(
-          color: cs.surface,
-          clipBehavior: Clip.antiAlias,
-          borderRadius: BorderRadius.circular(10),
-          elevation: 16,
-          child: Column(
-            children: [
-              ConstellationHeader(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-                lineColor: color.withValues(alpha: 0.35),
-                decoration: BoxDecoration(color: cs.surfaceContainerHigh),
-                child: Row(
-                  children: [
-                    Icon(Icons.edit_outlined, size: 16, color: color),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Editar $label · ${widget.objectName}$_bodyNote',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    TextButton(onPressed: close, child: const Text('Cancelar')),
-                    const SizedBox(width: 8),
-                    FilledButton.icon(
-                      style: FilledButton.styleFrom(backgroundColor: color),
-                      onPressed: () {
-                        setState(() {
-                          if (isSource) {
-                            _history.add((
-                              original: _currentOriginal,
-                              modified: _modifiedText,
-                            ));
-                            _currentOriginal = ec.text;
-                          } else {
-                            _modifiedText = ec.text;
-                          }
-                        });
-                        close();
-                      },
-                      icon: const Icon(Icons.check, size: 14),
-                      label: const Text('Aplicar'),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: TextField(
-                  controller: ec,
-                  maxLines: null,
-                  expands: true,
-                  autofocus: true,
-                  style: const TextStyle(
-                    fontFamily: 'Consolas',
-                    fontSize: 12,
-                    height: 1.45,
-                  ),
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.all(14),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
+  void _setEditSide(bool isSource) {
+    setState(() {
+      _editSide = isSource ? DiffEditSide.source : DiffEditSide.target;
     });
   }
+
+  void _stopEditing() => setState(() => _editSide = DiffEditSide.none);
+
+  void _editLine(bool isSource, int lineNumber, String value) {
+    final lines = (isSource ? _currentOriginal : _modifiedText).split('\n');
+    var lineIndex = lineNumber - 1;
+    if (!isSource && _focusedProcName != null) {
+      final bounds = _findProcBounds(_focusedProcName!, _modifiedText);
+      if (bounds != null) {
+        lineIndex = bounds.lineNum - 1 + lineNumber - _viewLineOffset - 1;
+      }
+    }
+    if (lineIndex < 0 ||
+        lineIndex >= lines.length ||
+        lines[lineIndex] == value) {
+      return;
+    }
+    setState(() {
+      _history.add((original: _currentOriginal, modified: _modifiedText));
+      lines[lineIndex] = value;
+      if (isSource) {
+        _currentOriginal = lines.join('\n');
+      } else {
+        _modifiedText = lines.join('\n');
+      }
+      _compilationErrors = [];
+    });
+  }
+
+  Widget _buildDiffViewer() => NativeDiffViewer(
+    origText: _viewOrig,
+    modText: _viewMod,
+    sideBySide: _sideBySide,
+    showAllLines: _showAllLines,
+    lineOffset: _viewLineOffset,
+    controller: _diffCtrl,
+    onApplyLineToTarget: _applyLineToTarget,
+    onApplyLineToSource: _applyLineToSource,
+    searchQuery: _searchQuery,
+    editableSide: _editSide,
+    onEditLine: _editLine,
+  );
 
   // ─────────────────────────────────────────────────────────────────────────
   // Sidebar: parseo de PROCEDURE / FUNCTION en paquetes
@@ -1590,14 +1738,13 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
                 ),
               )
             : const Icon(Icons.compare_arrows, size: 13),
-        label: compact
-            ? const SizedBox.shrink()
-            : const Text('Comparar', style: TextStyle(fontSize: 11)),
+        label: Text(
+          compact ? 'Recomparar' : 'Comparar',
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        ),
         style: FilledButton.styleFrom(
-          padding: compact
-              ? const EdgeInsets.fromLTRB(8, 4, 4, 4)
-              : const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          minimumSize: Size.zero,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          minimumSize: const Size(0, 32),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
       ),
@@ -1611,11 +1758,74 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
       borderRadius: BorderRadius.circular(4),
       onTap: _swapAmbientes,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-        child: Icon(Icons.swap_horiz, size: 15, color: cs.onSurfaceVariant),
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 7),
+        child: Icon(Icons.swap_horiz, size: 18, color: cs.onSurfaceVariant),
       ),
     ),
   );
+
+  Widget _buildSearchControl(ColorScheme cs) {
+    final matches = _searchMatches;
+    final count = matches.length;
+    final position = count == 0 ? 0 : _searchIndex + 1;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 170,
+          height: 30,
+          child: TextField(
+            controller: _searchCtrl,
+            focusNode: _searchFocusNode,
+            onChanged: _setSearchQuery,
+            onEditingComplete: () {
+              _moveSearch(1);
+              _searchFocusNode.requestFocus();
+            },
+            style: const TextStyle(fontSize: 11),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: 'Buscar en comparar',
+              hintStyle: const TextStyle(fontSize: 11),
+              prefixIcon: const Icon(Icons.search, size: 15),
+              suffixIcon: _searchQuery.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Limpiar búsqueda',
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        _setSearchQuery('');
+                      },
+                      icon: const Icon(Icons.close, size: 14),
+                      visualDensity: VisualDensity.compact,
+                    ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 7),
+              border: const OutlineInputBorder(),
+            ),
+          ),
+        ),
+        if (_searchQuery.trim().isNotEmpty) ...[
+          const SizedBox(width: 4),
+          Text(
+            '$position/$count',
+            style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
+          ),
+          IconButton(
+            tooltip: 'Coincidencia anterior',
+            onPressed: count == 0 ? null : () => _moveSearch(-1),
+            icon: const Icon(Icons.keyboard_arrow_up, size: 16),
+            visualDensity: VisualDensity.compact,
+          ),
+          IconButton(
+            tooltip: 'Siguiente coincidencia',
+            onPressed: count == 0 ? null : () => _moveSearch(1),
+            icon: const Icon(Icons.keyboard_arrow_down, size: 16),
+            visualDensity: VisualDensity.compact,
+          ),
+        ],
+      ],
+    );
+  }
 
   /// Menú de dos opciones (Origen / Destino) para las acciones de la toolbar.
   ///
@@ -1774,18 +1984,7 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
           child: Column(
             children: [
               if (_missingAmbiente != null) _buildMissingBanner(isDark, cs),
-              Expanded(
-                child: NativeDiffViewer(
-                  origText: _viewOrig,
-                  modText: _viewMod,
-                  sideBySide: _sideBySide,
-                  showAllLines: _showAllLines,
-                  lineOffset: _viewLineOffset,
-                  controller: _diffCtrl,
-                  onApplyLineToTarget: _applyLineToTarget,
-                  onApplyLineToSource: _applyLineToSource,
-                ),
-              ),
+              Expanded(child: _buildDiffViewer()),
               if (_compilationErrors.isNotEmpty) _buildErrorsPanel(isDark, cs),
             ],
           ),
@@ -1943,485 +2142,614 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
     // lanzar la comparación.
     if (!hasDiff) {
       return Container(
-        height: 38,
+        height: 42,
         decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF161B22) : const Color(0xFFF6F8FA),
-          border: Border(bottom: BorderSide(color: divColor)),
+          color: isDark ? const Color(0xFF151A21) : const Color(0xFFF8FAFC),
+          border: Border(
+            top: BorderSide(color: divColor.withValues(alpha: 0.55)),
+            bottom: BorderSide(color: divColor),
+          ),
         ),
-        child: Row(
-          children: [
-            const SizedBox(width: 8),
-            _ambBadgeSelector(
-              amb: _sourceAmbiente,
-              color: srcColor,
-              role: 'ORIGEN',
-              isSource: true,
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            scrollDirection: Axis.horizontal,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth - 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(width: 8),
+                  _ambBadgeWithStatus(
+                    amb: _sourceAmbiente,
+                    color: srcColor,
+                    role: 'ORIGEN',
+                    isSource: true,
+                  ),
+                  _swapButton(cs),
+                  _ambBadgeWithStatus(
+                    amb: _targetAmbiente,
+                    color: tgtColor,
+                    role: 'DESTINO',
+                    isSource: false,
+                  ),
+                  const SizedBox(width: 8),
+                  ..._compareControls(cs),
+                  const SizedBox(width: 8),
+                ],
+              ),
             ),
-            _swapButton(cs),
-            _ambBadgeSelector(
-              amb: _targetAmbiente,
-              color: tgtColor,
-              role: 'DESTINO',
-              isSource: false,
-            ),
-            const Spacer(),
-            ..._compareControls(cs),
-            const SizedBox(width: 8),
-          ],
+          ),
         ),
       );
     }
 
     return Container(
-      height: 38,
+      height: 42,
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF161B22) : const Color(0xFFF6F8FA),
-        border: Border(bottom: BorderSide(color: divColor)),
+        color: isDark ? const Color(0xFF151A21) : const Color(0xFFF8FAFC),
+        border: Border(
+          top: BorderSide(color: divColor.withValues(alpha: 0.55)),
+          bottom: BorderSide(color: divColor),
+        ),
       ),
-      child: Row(
-        children: [
-          // ── Lado izquierdo: ORIGEN ────────────────────────────────────────
-          const SizedBox(width: 8),
-          _ambBadgeSelector(
-            amb: _sourceAmbiente,
-            color: srcColor,
-            role: 'ORIGEN',
-            isSource: true,
-          ),
-          const SizedBox(width: 4),
-
-          // ←← copia todo DESTINO→ORIGEN
-          _tbBtn(
-            tooltip: 'Copiar TODO: DESTINO→ORIGEN  (Alt+Shift+←)',
-            icon: Icons.keyboard_double_arrow_left,
-            color: srcColor,
-            onTap: _applyAllToSource,
-          ),
-
-          // ← copia hunk actual DESTINO→ORIGEN
-          _tbBtn(
-            tooltip: 'Aplicar cambio actual: DESTINO→ORIGEN  (Alt+←)',
-            icon: Icons.chevron_left,
-            color: srcColor,
-            size: 20,
-            onTap: _applyCurrentHunkToSource,
-          ),
-
-          // ── Navegación central ────────────────────────────────────────────
-          _vSep(divColor),
-          _tbBtn(
-            tooltip: 'Cambio anterior  (Alt+↑)',
-            icon: Icons.keyboard_arrow_up,
-            onTap: _prevChange,
-          ),
-
-          // Contador de hunks
-          ListenableBuilder(
-            listenable: _diffCtrl,
-            builder: (_, __) {
-              final tot = _diffCtrl.totalHunks;
-              final cur = _diffCtrl.currentHunk;
-              return Container(
-                constraints: const BoxConstraints(minWidth: 52),
-                alignment: Alignment.center,
-                child: tot == 0
-                    ? Text(
-                        '✓ Sin cambios',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.green.shade500,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      )
-                    : Text(
-                        '${cur + 1} / $tot',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: cs.onSurface,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-              );
-            },
-          ),
-
-          _tbBtn(
-            tooltip: 'Siguiente cambio  (Alt+↓)',
-            icon: Icons.keyboard_arrow_down,
-            onTap: _nextChange,
-          ),
-          _vSep(divColor),
-
-          // → copia hunk actual ORIGEN→DESTINO
-          _tbBtn(
-            tooltip: 'Aplicar cambio actual: ORIGEN→DESTINO  (Alt+→)',
-            icon: Icons.chevron_right,
-            color: tgtColor,
-            size: 20,
-            onTap: _applyCurrentHunkToTarget,
-          ),
-
-          // →→ copia todo ORIGEN→DESTINO
-          _tbBtn(
-            tooltip: 'Copiar TODO: ORIGEN→DESTINO  (Alt+Shift+→)',
-            icon: Icons.keyboard_double_arrow_right,
-            color: tgtColor,
-            onTap: _applyAllToTarget,
-          ),
-
-          const SizedBox(width: 4),
-          _ambBadgeSelector(
-            amb: _targetAmbiente,
-            color: tgtColor,
-            role: 'DESTINO',
-            isSource: false,
-          ),
-
-          // ── Separador principal ───────────────────────────────────────────
-          const Spacer(),
-
-          // Chip de foco activo (solo PACKAGE, cuando hay foco)
-          if (_focusedProcName != null) ...[
-            _vSep(divColor),
-            Tooltip(
-              message:
-                  'Viendo solo: $_focusedProcName  –  Clic × para ver el paquete completo',
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
-                padding: const EdgeInsets.fromLTRB(7, 2, 4, 2),
-                decoration: BoxDecoration(
-                  color: cs.primary.withValues(alpha: 0.13),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: cs.primary.withValues(alpha: 0.45),
-                    width: 0.8,
-                  ),
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          scrollDirection: Axis.horizontal,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minWidth: constraints.maxWidth - 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // ── Lado izquierdo: ORIGEN ────────────────────────────────────────
+                const SizedBox(width: 8),
+                _ambBadgeWithStatus(
+                  amb: _sourceAmbiente,
+                  color: srcColor,
+                  role: 'ORIGEN',
+                  isSource: true,
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.center_focus_strong,
-                      size: 11,
-                      color: cs.primary,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      _focusedProcName!,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontFamily: 'Consolas',
-                        fontWeight: FontWeight.w700,
-                        color: cs.primary,
-                      ),
-                    ),
-                    const SizedBox(width: 3),
-                    GestureDetector(
-                      onTap: _clearFocus,
-                      child: Icon(
-                        Icons.close,
-                        size: 12,
-                        color: cs.primary.withValues(alpha: 0.7),
-                      ),
-                    ),
-                  ],
+                const SizedBox(width: 4),
+
+                // ←← copia todo DESTINO→ORIGEN
+                _tbBtn(
+                  tooltip: 'Copiar TODO: DESTINO→ORIGEN  (Alt+Shift+←)',
+                  icon: Icons.keyboard_double_arrow_left,
+                  color: srcColor,
+                  onTap: _applyAllToSource,
                 ),
-              ),
-            ),
-          ],
 
-          _vSep(divColor),
-
-          // Toggle sidebar (solo PACKAGE)
-          if (_isPackage) ...[
-            Tooltip(
-              message: _sidebarVisible
-                  ? 'Ocultar panel de navegación'
-                  : 'Mostrar panel de navegación',
-              child: InkWell(
-                borderRadius: BorderRadius.circular(4),
-                onTap: () => setState(() => _sidebarVisible = !_sidebarVisible),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 6,
-                  ),
-                  child: Icon(
-                    _sidebarVisible
-                        ? Icons.view_sidebar
-                        : Icons.view_sidebar_outlined,
-                    size: 14,
-                    color: _sidebarVisible
-                        ? Theme.of(context).colorScheme.primary
-                        : cs.onSurfaceVariant,
-                  ),
+                // ← copia hunk actual DESTINO→ORIGEN
+                _tbBtn(
+                  tooltip: 'Aplicar cambio actual: DESTINO→ORIGEN  (Alt+←)',
+                  icon: Icons.chevron_left,
+                  color: srcColor,
+                  size: 20,
+                  onTap: _applyCurrentHunkToSource,
                 ),
-              ),
-            ),
-            _vSep(divColor),
-          ],
 
-          // Solo diffs / Código completo
-          Tooltip(
-            message: _showAllLines
-                ? 'Mostrar solo diffs'
-                : 'Mostrar código completo',
-            child: InkWell(
-              borderRadius: BorderRadius.circular(4),
-              onTap: () => setState(() => _showAllLines = !_showAllLines),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                child: Row(
-                  children: [
-                    Icon(
-                      _showAllLines
-                          ? Icons.article_outlined
-                          : Icons.difference_outlined,
-                      size: 14,
-                      color: _showAllLines
-                          ? Colors.amber.shade600
-                          : cs.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      _showAllLines ? 'Completo' : 'Solo diffs',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: _showAllLines
-                            ? Colors.amber.shade600
-                            : cs.onSurfaceVariant,
-                        fontWeight: FontWeight.w500,
+                // ── Navegación central ────────────────────────────────────────────
+                _vSep(divColor),
+                _tbBtn(
+                  tooltip: 'Cambio anterior  (Alt+↑)',
+                  icon: Icons.keyboard_arrow_up,
+                  onTap: _prevChange,
+                ),
+
+                // Contador de hunks
+                ListenableBuilder(
+                  listenable: _diffCtrl,
+                  builder: (_, _) {
+                    final tot = _diffCtrl.totalHunks;
+                    final cur = _diffCtrl.currentHunk;
+                    return Container(
+                      constraints: const BoxConstraints(
+                        minWidth: 52,
+                        minHeight: 26,
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          _vSep(divColor),
-
-          // SBS / Unified
-          Tooltip(
-            message: _sideBySide ? 'Vista unificada' : 'Vista lado a lado',
-            child: InkWell(
-              borderRadius: BorderRadius.circular(4),
-              onTap: () => setState(() => _sideBySide = !_sideBySide),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                child: Row(
-                  children: [
-                    Icon(
-                      _sideBySide
-                          ? Icons.view_agenda_outlined
-                          : Icons.view_sidebar_outlined,
-                      size: 14,
-                      color: cs.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      _sideBySide ? 'Dividida' : 'Unificada',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: cs.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          _vSep(divColor),
-
-          // Editar origen / destino — menú, oculto en modo foco
-          if (_focusedProcName == null) ...[
-            _srcTgtMenu(
-              cs,
-              tooltip: 'Editar código (Origen / Destino)',
-              icon: Icons.edit_outlined,
-              srcIcon: Icons.edit_note_outlined,
-              tgtIcon: Icons.edit_outlined,
-              srcLabel: 'Editar Origen',
-              tgtLabel: 'Editar Destino',
-              onSelected: (isSource) => _openEditDialog(isSource: isSource),
-            ),
-            _vSep(divColor),
-          ],
-
-          // Undo con badge
-          Tooltip(
-            message: _history.isEmpty
-                ? 'Nada que deshacer'
-                : 'Deshacer  Ctrl+Z  (${_history.length} operaciones)',
-            child: InkWell(
-              borderRadius: BorderRadius.circular(4),
-              onTap: _history.isEmpty ? null : _undo,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Icon(
-                      Icons.undo,
-                      size: 16,
-                      color: _history.isEmpty
-                          ? cs.onSurfaceVariant.withValues(alpha: 0.3)
-                          : Colors.amber.shade600,
-                    ),
-                    if (_history.isNotEmpty)
-                      Positioned(
-                        top: -4,
-                        right: -6,
-                        child: Container(
-                          width: 13,
-                          height: 13,
-                          decoration: BoxDecoration(
-                            color: Colors.amber.shade600,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Center(
-                            child: Text(
-                              '${_history.length}',
-                              style: const TextStyle(
-                                fontSize: 7,
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: cs.primary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: cs.primary.withValues(alpha: 0.22),
                         ),
                       ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          _vSep(divColor),
-
-          // Backup — menú con Origen y Destino (oculto en modo foco)
-          if (_focusedProcName == null) ...[
-            _srcTgtMenu(
-              cs,
-              tooltip: 'Backup del objeto (Origen / Destino)',
-              icon: Icons.save_alt_outlined,
-              srcIcon: Icons.download_outlined,
-              tgtIcon: Icons.download_outlined,
-              srcLabel: 'Backup Origen',
-              tgtLabel: 'Backup Destino',
-              onSelected: (isSource) => isSource
-                  ? _backup(text: _currentOriginal, isSource: true)
-                  : _backup(text: _modifiedText, isSource: false),
-            ),
-          ], // fin if _focusedProcName == null (backup)
-
-          _vSep(divColor),
-
-          // Controles de comparación (re-comparar / cambiar ambiente o parte)
-          ..._compareControls(cs, compact: true),
-
-          _vSep(divColor),
-
-          // Compilar — oculto cuando hay foco en un procedimiento puntual
-          if (_focusedProcName != null)
-            Tooltip(
-              message:
-                  'Estás viendo solo "$_focusedProcName".\n'
-                  'Salí del foco (×) para compilar el destino completo.',
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      size: 14,
-                      color: Colors.orange.shade400,
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      'Salir del foco para compilar',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Colors.orange.shade400,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    InkWell(
-                      onTap: _clearFocus,
-                      borderRadius: BorderRadius.circular(10),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.shade400.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: Colors.orange.shade400,
-                            width: 0.8,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.zoom_out_map,
-                              size: 11,
-                              color: Colors.orange.shade400,
-                            ),
-                            const SizedBox(width: 3),
-                            Text(
-                              'Ver todo',
+                      child: tot == 0
+                          ? Text(
+                              '✓ Sin cambios',
                               style: TextStyle(
                                 fontSize: 10,
-                                color: Colors.orange.shade400,
+                                color: Colors.green.shade500,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            )
+                          : Text(
+                              '${cur + 1} / $tot',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: cs.onSurface,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
-                          ],
+                    );
+                  },
+                ),
+
+                _tbBtn(
+                  tooltip: 'Siguiente cambio  (Alt+↓)',
+                  icon: Icons.keyboard_arrow_down,
+                  onTap: _nextChange,
+                ),
+                _vSep(divColor),
+
+                // → copia hunk actual ORIGEN→DESTINO
+                _tbBtn(
+                  tooltip: 'Aplicar cambio actual: ORIGEN→DESTINO  (Alt+→)',
+                  icon: Icons.chevron_right,
+                  color: tgtColor,
+                  size: 20,
+                  onTap: _applyCurrentHunkToTarget,
+                ),
+
+                // →→ copia todo ORIGEN→DESTINO
+                _tbBtn(
+                  tooltip: 'Copiar TODO: ORIGEN→DESTINO  (Alt+Shift+→)',
+                  icon: Icons.keyboard_double_arrow_right,
+                  color: tgtColor,
+                  onTap: _applyAllToTarget,
+                ),
+
+                const SizedBox(width: 4),
+                _ambBadgeWithStatus(
+                  amb: _targetAmbiente,
+                  color: tgtColor,
+                  role: 'DESTINO',
+                  isSource: false,
+                ),
+
+                _vSep(divColor),
+                _replaceMenu(cs),
+
+                // ── Separador principal ───────────────────────────────────────────
+                const SizedBox(width: 8),
+
+                // Chip de foco activo (solo PACKAGE, cuando hay foco)
+                if (_focusedProcName != null) ...[
+                  _vSep(divColor),
+                  Tooltip(
+                    message:
+                        'Viendo solo: $_focusedProcName  –  Clic × para ver el paquete completo',
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 7,
+                      ),
+                      padding: const EdgeInsets.fromLTRB(7, 2, 4, 2),
+                      decoration: BoxDecoration(
+                        color: cs.primary.withValues(alpha: 0.13),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: cs.primary.withValues(alpha: 0.45),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.center_focus_strong,
+                            size: 11,
+                            color: cs.primary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _focusedProcName!,
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontFamily: 'Consolas',
+                              fontWeight: FontWeight.w700,
+                              color: cs.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 3),
+                          GestureDetector(
+                            onTap: _clearFocus,
+                            child: Icon(
+                              Icons.close,
+                              size: 12,
+                              color: cs.primary.withValues(alpha: 0.7),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+
+                _vSep(divColor),
+
+                // Toggle sidebar (solo PACKAGE)
+                if (_isPackage) ...[
+                  Tooltip(
+                    message: _sidebarVisible
+                        ? 'Ocultar panel de navegación'
+                        : 'Mostrar panel de navegación',
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(4),
+                      onTap: () =>
+                          setState(() => _sidebarVisible = !_sidebarVisible),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
+                        child: Icon(
+                          _sidebarVisible
+                              ? Icons.view_sidebar
+                              : Icons.view_sidebar_outlined,
+                          size: 14,
+                          color: _sidebarVisible
+                              ? Theme.of(context).colorScheme.primary
+                              : cs.onSurfaceVariant,
                         ),
                       ),
                     ),
-                  ],
-                ),
-              ),
-            )
-          else
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-              child: FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: tgtColor,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
                   ),
-                  minimumSize: Size.zero,
-                  textStyle: const TextStyle(fontSize: 11),
+                  _vSep(divColor),
+                ],
+
+                // Solo diffs / Código completo
+                Tooltip(
+                  message: _showAllLines
+                      ? 'Mostrar solo diffs'
+                      : 'Mostrar código completo',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(4),
+                    onTap: () => setState(() => _showAllLines = !_showAllLines),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _showAllLines
+                                ? Icons.article_outlined
+                                : Icons.difference_outlined,
+                            size: 14,
+                            color: _showAllLines
+                                ? Colors.amber.shade600
+                                : cs.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _showAllLines ? 'Completo' : 'Solo diffs',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: _showAllLines
+                                  ? Colors.amber.shade600
+                                  : cs.onSurfaceVariant,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
-                onPressed: _compiling ? null : _compile,
-                icon: _compiling
-                    ? const SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 1.5,
-                          color: Colors.white,
+
+                _vSep(divColor),
+
+                // SBS / Unified
+                Tooltip(
+                  message: _sideBySide
+                      ? 'Vista unificada'
+                      : 'Vista lado a lado',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(4),
+                    onTap: () => setState(() => _sideBySide = !_sideBySide),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _sideBySide
+                                ? Icons.view_agenda_outlined
+                                : Icons.view_sidebar_outlined,
+                            size: 14,
+                            color: cs.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _sideBySide ? 'Dividida' : 'Unificada',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                _vSep(divColor),
+
+                _buildSearchControl(cs),
+
+                _vSep(divColor),
+
+                // Editar origen / destino en la misma ventana, incluso en foco
+                _srcTgtMenu(
+                  cs,
+                  tooltip: 'Editar código (Origen / Destino)',
+                  icon: Icons.edit_outlined,
+                  srcIcon: Icons.edit_note_outlined,
+                  tgtIcon: Icons.edit_outlined,
+                  srcLabel: 'Editar Origen',
+                  tgtLabel: 'Editar Destino',
+                  onSelected: _setEditSide,
+                ),
+                if (_editSide != DiffEditSide.none) ...[
+                  Text(
+                    'Enter para confirmar',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: cs.onSurfaceVariant,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Tooltip(
+                    message: 'Salir del modo edición',
+                    child: IconButton(
+                      onPressed: _stopEditing,
+                      icon: const Icon(Icons.check, size: 15),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                ],
+                _vSep(divColor),
+
+                // Undo con badge
+                Tooltip(
+                  message: _history.isEmpty
+                      ? 'Nada que deshacer'
+                      : 'Deshacer  Ctrl+Z  (${_history.length} operaciones)',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(4),
+                    onTap: _history.isEmpty ? null : _undo,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Icon(
+                            Icons.undo,
+                            size: 16,
+                            color: _history.isEmpty
+                                ? cs.onSurfaceVariant.withValues(alpha: 0.3)
+                                : Colors.amber.shade600,
+                          ),
+                          if (_history.isNotEmpty)
+                            Positioned(
+                              top: -4,
+                              right: -6,
+                              child: Container(
+                                width: 13,
+                                height: 13,
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.shade600,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    '${_history.length}',
+                                    style: const TextStyle(
+                                      fontSize: 7,
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                _vSep(divColor),
+
+                // Backup — menú con Origen y Destino (oculto en modo foco)
+                if (_focusedProcName == null) ...[
+                  _srcTgtMenu(
+                    cs,
+                    tooltip: 'Backup del objeto (Origen / Destino)',
+                    icon: Icons.save_alt_outlined,
+                    srcIcon: Icons.download_outlined,
+                    tgtIcon: Icons.download_outlined,
+                    srcLabel: 'Backup Origen',
+                    tgtLabel: 'Backup Destino',
+                    onSelected: (isSource) => isSource
+                        ? _backup(text: _currentOriginal, isSource: true)
+                        : _backup(text: _modifiedText, isSource: false),
+                  ),
+                ], // fin if _focusedProcName == null (backup)
+
+                _vSep(divColor),
+
+                // Controles de comparación (re-comparar / cambiar ambiente o parte)
+                _replaceMenu(cs),
+                _vSep(divColor),
+                ..._compareControls(cs, compact: true),
+
+                _vSep(divColor),
+
+                // Compilar — oculto cuando hay foco en un procedimiento puntual
+                if (_focusedProcName != null)
+                  Tooltip(
+                    message:
+                        'Estás viendo solo "$_focusedProcName".\n'
+                        'Salí del foco (×) para compilar el destino completo.',
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 5,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.warning_amber_rounded,
+                            size: 14,
+                            color: Colors.orange.shade400,
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            'Salir del foco para compilar',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.orange.shade400,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          InkWell(
+                            onTap: _clearFocus,
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.shade400.withValues(
+                                  alpha: 0.15,
+                                ),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: Colors.orange.shade400,
+                                  width: 0.8,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.zoom_out_map,
+                                    size: 11,
+                                    color: Colors.orange.shade400,
+                                  ),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    'Ver todo',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.orange.shade400,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 5,
+                    ),
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: srcColor,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
                         ),
-                      )
-                    : const Icon(Icons.build_outlined, size: 13),
-                label: Text(
-                  'Compilar $_targetAmbiente',
-                  style: const TextStyle(fontSize: 11),
-                ),
-              ),
+                        minimumSize: const Size(0, 32),
+                        textStyle: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      onPressed: _compiling
+                          ? null
+                          : () => _compile(isSource: true),
+                      icon: _compiling
+                          ? const SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.build_outlined, size: 16),
+                      label: Text(
+                        'Compilar $_sourceAmbiente',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 5,
+                    ),
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: tgtColor,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        minimumSize: const Size(0, 32),
+                        textStyle: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      onPressed: _compiling
+                          ? null
+                          : () => _compile(isSource: false),
+                      icon: _compiling
+                          ? const SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.build_outlined, size: 16),
+                      label: Text(
+                        'Compilar $_targetAmbiente',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(width: 4),
+              ],
             ),
-          const SizedBox(width: 4),
-        ],
+          ),
+        ),
       ),
     );
   }
@@ -2439,9 +2767,16 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
       message: tooltip,
       child: InkWell(
         borderRadius: BorderRadius.circular(4),
+        mouseCursor: SystemMouseCursors.click,
+        hoverColor: Theme.of(
+          context,
+        ).colorScheme.primary.withValues(alpha: 0.10),
+        splashColor: Theme.of(
+          context,
+        ).colorScheme.primary.withValues(alpha: 0.16),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
           child: Icon(
             icon,
             size: size,
@@ -2454,9 +2789,9 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
 
   Widget _vSep(Color color) => Container(
     width: 1,
-    height: 22,
+    height: 24,
     margin: const EdgeInsets.symmetric(horizontal: 4),
-    color: color,
+    color: color.withValues(alpha: 0.65),
   );
 
   // ── Menú contextual de procedimiento ─────────────────────────────────────
@@ -2925,6 +3260,72 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
 
   // ── Badge de ambiente ──────────────────────────────────────────────────────
 
+  Widget _ambBadgeWithStatus({
+    required String amb,
+    required Color color,
+    required String role,
+    required bool isSource,
+  }) {
+    final status = isSource ? _sourceStatus : _targetStatus;
+    final statusColor = status == 'VALID'
+        ? Colors.green.shade600
+        : status == 'INVALID'
+        ? Colors.red.shade600
+        : Colors.grey.shade500;
+    final statusLabel = _statusLoading ? '...' : (status ?? '?');
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _ambBadgeSelector(
+          amb: amb,
+          color: color,
+          role: role,
+          isSource: isSource,
+        ),
+        const SizedBox(width: 3),
+        Tooltip(
+          message: 'Estado Oracle: ${status ?? 'no disponible'}',
+          waitDuration: const Duration(milliseconds: 400),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            decoration: BoxDecoration(
+              color: statusColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: statusColor, width: 0.7),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_statusLoading)
+                  Icon(Icons.hourglass_empty, size: 10, color: statusColor)
+                else
+                  Icon(
+                    status == 'VALID'
+                        ? Icons.check_circle_outline
+                        : status == 'INVALID'
+                        ? Icons.error_outline
+                        : Icons.help_outline,
+                    size: 10,
+                    color: statusColor,
+                  ),
+                const SizedBox(width: 2),
+                Text(
+                  statusLabel,
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 8,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   /// Badge de ambiente que además permite cambiarlo desde un menú.
   ///
   /// Se usa tanto para ORIGEN como para DESTINO: al elegir otro ambiente se
@@ -2975,7 +3376,7 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
           onTap: () =>
               controller.isOpen ? controller.close() : controller.open(),
           child: Container(
-            padding: const EdgeInsets.fromLTRB(5, 2, 2, 2),
+            padding: const EdgeInsets.fromLTRB(8, 4, 4, 4),
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(4),
@@ -2988,12 +3389,12 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
                   '$role · $amb',
                   style: TextStyle(
                     color: color,
-                    fontSize: 9,
+                    fontSize: 11,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 0.4,
                   ),
                 ),
-                Icon(Icons.arrow_drop_down, size: 13, color: color),
+                Icon(Icons.arrow_drop_down, size: 18, color: color),
               ],
             ),
           ),

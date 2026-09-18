@@ -53,24 +53,15 @@ abstract final class BackupService {
     required String source,
     String? part,
   }) async {
-    final now = DateTime.now();
-    String p(int v) => v.toString().padLeft(2, '0');
-    final fecha =
-        '${now.year}-${p(now.month)}-${p(now.day)} ${p(now.hour)}:${p(now.minute)}:${p(now.second)}';
-    final partLabel = part != null ? ' ($part)' : '';
     final partSuffix = part != null ? '_$part' : '';
 
-    final script =
-        '''-- ============================================================
--- BACKUP Schema Object — SirWeb
--- Objeto      : $objectName
--- Tipo        : $objectType$partLabel
--- Ambiente    : $ambiente
--- FechaBackup : $fecha
--- ============================================================
-
-$source
-''';
+    final script = buildSchemaScript(
+      objectName: objectName,
+      objectType: objectType,
+      ambiente: ambiente,
+      source: source,
+      part: part,
+    );
 
     final path = await FilePicker.saveFile(
       dialogTitle: 'Guardar backup — $objectName ($ambiente)',
@@ -89,6 +80,14 @@ $source
     );
     return path;
   }
+
+  static String buildSchemaScript({
+    required String objectName,
+    required String objectType,
+    required String ambiente,
+    required String source,
+    String? part,
+  }) => source;
 
   // ── Abrir el explorador de archivos ─────────────────────────────────────
 
@@ -151,7 +150,7 @@ $source
 
   // ── Script generation — Oracle MERGE against SIR.PROCEDIMIENTODINAMICO ───
 
-  static String _buildScript(
+  static String buildDynamicScript(
     Procedimiento proc,
     String ambiente,
     String cdUsuario,
@@ -203,6 +202,12 @@ END;
 /
 """;
   }
+
+  static String _buildScript(
+    Procedimiento proc,
+    String ambiente,
+    String cdUsuario,
+  ) => buildDynamicScript(proc, ambiente, cdUsuario);
 
   // ── Script parsing ────────────────────────────────────────────────────────
 

@@ -237,6 +237,28 @@ extension _ObjectSourcePackageNav on _ObjectSourcePageState {
                                   fontFamily: 'Consolas',
                                 ),
                               ),
+                              const SizedBox(width: 4),
+                              Tooltip(
+                                message: 'Ejecutar ${widget.name}.${sub.name}',
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(4),
+                                  onTap: () {
+                                    showEjecutarLlamadaWindow(
+                                      context,
+                                      ambiente: widget.ambiente,
+                                      objeto: '${widget.name}.${sub.name}',
+                                    );
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(3.0),
+                                    child: Icon(
+                                      Icons.play_arrow_rounded,
+                                      size: 14,
+                                      color: kindColor,
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ],
                           ),
                         ),

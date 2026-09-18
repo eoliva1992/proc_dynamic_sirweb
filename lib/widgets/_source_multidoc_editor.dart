@@ -530,6 +530,8 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
         case _CtxMenuAction.infoDato:
           unawaited(_showInfoDatoAtCursor());
           break;
+        case _CtxMenuAction.ejecutarLlamada:
+          break;
         case _CtxMenuAction.cut:
           unawaited(_cutSelectionToClipboard());
           break;
@@ -649,6 +651,7 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
       '}); } catch(e) {}',
     );
     await ctrl.runJavaScript(_kContextMenuFocusGuardJs);
+    await ctrl.runJavaScript(_kFindWidgetFocusGuardJs);
 
     // Context menu native hook
     await ctrl.runJavaScript(

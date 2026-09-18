@@ -195,6 +195,7 @@ enum _CtxMenuAction {
   infoEvento,
   infoDato,
   ejecutar,
+  ejecutarLlamada,
   copy,
   cut,
   paste,
@@ -373,6 +374,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   MonacoActionRegistration? _infoDatoAction;
   MonacoActionRegistration? _infoUsosAction;
   MonacoActionRegistration? _ejecutarAction;
+  MonacoActionRegistration? _llamadaAction;
   MonacoActionRegistration? _copyAction;
   MonacoActionRegistration? _cutAction;
   MonacoActionRegistration? _pasteAction;
@@ -528,6 +530,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _disposeQuietly(() => _infoDatoAction?.dispose());
     _disposeQuietly(() => _infoUsosAction?.dispose());
     _disposeQuietly(() => _ejecutarAction?.dispose());
+    _disposeQuietly(() => _llamadaAction?.dispose());
     _disposeQuietly(() => _copyAction?.dispose());
     _disposeQuietly(() => _cutAction?.dispose());
     _disposeQuietly(() => _pasteAction?.dispose());
@@ -1002,6 +1005,27 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
             },
           )
           .then((a) => _ejecutarAction = a),
+      // Abre la ventana de invocación de objetos PL/SQL.
+      ctrl
+          .addAction(
+            MonacoActionDescriptor(
+              id: MonacoAction('custom.ejecutar.llamada'),
+              label: 'Ejecutar objeto PL/SQL…',
+              keybindings: [
+                MonacoKeybinding(
+                  ctrlCmd: true,
+                  shift: true,
+                  key: MonacoKey.keyE,
+                ),
+              ],
+              contextMenuGroupId: 'navigation',
+              contextMenuOrder: 1.83,
+            ),
+            () async {
+              unawaited(_ejecutarLlamadaPlsql());
+            },
+          )
+          .then((a) => _llamadaAction = a),
       // Abre la ventana de InfoEvento (sin requerir una palabra bajo el cursor).
       ctrl.addAction(
         MonacoActionDescriptor(
@@ -2071,6 +2095,20 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
               ],
             ),
           ),
+          PopupMenuItem(
+            value: _CtxMenuAction.ejecutarLlamada,
+            child: const Row(
+              children: [
+                Icon(Icons.play_circle_outline_rounded, size: 16),
+                SizedBox(width: 8),
+                Expanded(child: Text('Ejecutar objeto PL/SQL…')),
+                Text(
+                  'Ctrl+Shift+E',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
         ],
         const PopupMenuDivider(),
         const PopupMenuItem(
@@ -2130,6 +2168,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           break;
         case _CtxMenuAction.ejecutar:
           unawaited(_ejecutarProcedimiento());
+          break;
+        case _CtxMenuAction.ejecutarLlamada:
+          unawaited(_ejecutarLlamadaPlsql());
           break;
         case _CtxMenuAction.cut:
           unawaited(_cutSelectionToClipboard());
