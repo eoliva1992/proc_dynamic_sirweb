@@ -1981,16 +1981,20 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                     final color = _typeColor(item.type);
                     final isFavorite = _favoriteIds.contains(item.id);
                     final isSelected = _selected.contains(item);
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
+                    return Draggable<BulkBackupItem>(
+                      data: item,
+                      maxSimultaneousDrags: _running ? 0 : 1,
+                      feedback: _dragFeedback(item, color, cs),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
                           borderRadius: BorderRadius.circular(10),
                           onTap: _running
                               ? null
                               : () => setState(() => isSelected ? _selected.remove(item) : _selected.add(item)),
-                          child: AnimatedContainer(
+                            child: AnimatedContainer(
                             duration: const Duration(milliseconds: 140),
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                             decoration: BoxDecoration(
@@ -2096,6 +2100,7 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                                 ),
                               ],
                             ),
+                            ),
                           ),
                         ),
                       ),
@@ -2104,6 +2109,30 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                 ),
         ),
       ],
+    );
+  }
+
+  Widget _dragFeedback(BulkBackupItem item, Color color, ColorScheme cs) {
+    return Material(
+      elevation: 8,
+      borderRadius: BorderRadius.circular(10),
+      color: Theme.of(context).colorScheme.surface,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 280),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.backup_outlined, size: 16, color: color),
+              const SizedBox(width: 8),
+              Flexible(child: Text(item.name, overflow: TextOverflow.ellipsis)),
+              const SizedBox(width: 8),
+              Icon(Icons.arrow_forward_rounded, size: 15, color: cs.primary),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -2147,12 +2176,26 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
   Widget _selectedPanel() {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF131722) : const Color(0xFFF8FAFC),
-        border: Border(left: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.4))),
-      ),
-      child: Column(
+    return DragTarget<BulkBackupItem>(
+      onAcceptWithDetails: (details) {
+        if (_running) return;
+        setState(() => _selected.add(details.data));
+      },
+      builder: (context, candidateData, rejectedData) {
+        final isDropActive = candidateData.isNotEmpty;
+        return Container(
+          decoration: BoxDecoration(
+            color: isDropActive
+                ? cs.primary.withValues(alpha: isDark ? 0.16 : 0.08)
+                : (isDark ? const Color(0xFF131722) : const Color(0xFFF8FAFC)),
+            border: Border(
+              left: BorderSide(
+                color: isDropActive ? cs.primary : cs.outlineVariant.withValues(alpha: 0.4),
+                width: isDropActive ? 2 : 1,
+              ),
+            ),
+          ),
+          child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Header del panel lateral
@@ -2294,7 +2337,9 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                   ),
           ),
         ],
-      ),
+          ),
+        );
+      },
     );
   }
 }

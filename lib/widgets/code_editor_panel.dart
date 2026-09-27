@@ -375,6 +375,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   MonacoActionRegistration? _infoUsosAction;
   MonacoActionRegistration? _ejecutarAction;
   MonacoActionRegistration? _llamadaAction;
+  MonacoActionRegistration? _findAction;
   MonacoActionRegistration? _copyAction;
   MonacoActionRegistration? _cutAction;
   MonacoActionRegistration? _pasteAction;
@@ -531,6 +532,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _disposeQuietly(() => _infoUsosAction?.dispose());
     _disposeQuietly(() => _ejecutarAction?.dispose());
     _disposeQuietly(() => _llamadaAction?.dispose());
+    _disposeQuietly(() => _findAction?.dispose());
     _disposeQuietly(() => _copyAction?.dispose());
     _disposeQuietly(() => _cutAction?.dispose());
     _disposeQuietly(() => _pasteAction?.dispose());
@@ -708,15 +710,13 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     );
 
     // forceFocus (editor-api.js) calls window.focus → document.body.focus →
-    // ed.focus → ta.focus in that order. Block all focus redirection whenever
-    // .find-widget.visible OR an auxiliary input is active.
+    // ed.focus → ta.focus in that order. Block forceFocus only while an auxiliary
+    // input is active or the search widget is opening.
     await ctrl.runJavaScript(
       '(function(){'
       '  window.__fmFindWanted = false;'
-      '  function isFindOpen(){'
-      '    if(window.__fmFindWanted) return true;'
-      '    var fw=document.querySelector(".find-widget");'
-      '    if(fw&&fw.classList.contains("visible")) return true;'
+      '  window.__fmContextMenuAux = null;'
+      '  function isAuxFocused(){'
       '    var act = document.activeElement;'
       '    if(act && (act.tagName==="INPUT" || act.tagName==="TEXTAREA")) {'
       '      if(!act.classList.contains("inputarea") && !act.classList.contains("native-edit-context")) return true;'
@@ -724,46 +724,31 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       '    return false;'
       '  }'
       '  window.__fmAuxInput = function(){'
+      '    if (window.__fmContextMenuAux) return window.__fmContextMenuAux;'
       '    var act = document.activeElement;'
       '    if(act && (act.tagName==="INPUT" || act.tagName==="TEXTAREA")) {'
       '      if(!act.classList.contains("inputarea") && !act.classList.contains("native-edit-context")) return act;'
       '    }'
       '    return null;'
       '  };'
+      '  function shouldSuppressForceFocus(){'
+      '    return window.__fmFindWanted || isAuxFocused();'
+      '  }'
       '  function patchFn(obj, name){'
       '    if(!obj || !obj[name] || obj[name]._fp) return;'
       '    var orig = obj[name].bind(obj);'
       '    var patched = function(){'
-      '      if(!isFindOpen()) return orig.apply(this, arguments);'
+      '      if(!shouldSuppressForceFocus()) return orig.apply(this, arguments);'
       '    };'
       '    patched._fp = true;'
       '    obj[name] = patched;'
-      '  }'
-      '  function patchEl(el){'
-      '    if(!el||el._fp) return;'
-      '    el._fp=true;'
-      '    var o=el.focus.bind(el);'
-      '    el.focus=function(opts){ if(!isFindOpen()) o(opts); };'
-      '  }'
-      '  if(!document.body._fp){'
-      '    document.body._fp=true;'
-      '    var ob=document.body.focus.bind(document.body);'
-      '    document.body.focus=function(){ if(!isFindOpen()) ob(); };'
       '  }'
       '  if(window.flutterMonaco){'
       '    patchFn(window.flutterMonaco, "forceFocus");'
       '    patchFn(window.flutterMonaco, "focus");'
       '    window.flutterMonaco.__fp = true;'
       '  }'
-      '  patchFn(window, "focus");'
       '  function tryPatch(){'
-      '    patchEl(document.querySelector(".monaco-editor .inputarea"));'
-      '    patchEl(document.querySelector(".monaco-editor .native-edit-context"));'
-      '    if(window.editor&&!window.editor._fp){'
-      '      window.editor._fp=true;'
-      '      var oe=window.editor.focus.bind(window.editor);'
-      '      window.editor.focus=function(){ if(!isFindOpen()) oe(); };'
-      '    }'
       '    if(window.flutterMonaco && !window.flutterMonaco.__fp){'
       '      patchFn(window.flutterMonaco, "forceFocus");'
       '      patchFn(window.flutterMonaco, "focus");'
@@ -773,9 +758,15 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       '  tryPatch();'
       '  var obs=new MutationObserver(tryPatch);'
       '  obs.observe(document.body,{childList:true,subtree:true});'
+      '  document.addEventListener("mousedown",function(e){'
+      '    window.__fmContextMenuAux = null;'
+      '    var fw = document.querySelector(".find-widget");'
+      '    if(!fw || !fw.contains(e.target)) {'
+      '      window.__fmFindWanted = false;'
+      '    }'
+      '  },true);'
       '  window.__fmOpenFind = function(){'
       '    window.__fmFindWanted = true;'
-      '    setTimeout(function(){ window.__fmFindWanted = false; }, 1500);'
       '    try { window.editor.trigger("keyboard", "actions.find"); } catch(e){}'
       '    var count = 0;'
       '    var chase = setInterval(function(){'
@@ -783,18 +774,16 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       '      var inp = document.querySelector(".find-widget .find-part input");'
       '      if(inp) {'
       '        inp.focus();'
-      '        if(document.activeElement === inp || count > 20) clearInterval(chase);'
+      '        if(document.activeElement === inp || count > 20) {'
+      '          clearInterval(chase);'
+      '          window.__fmFindWanted = false;'
+      '        }'
       '      } else if(count > 20) {'
       '        clearInterval(chase);'
+      '        window.__fmFindWanted = false;'
       '      }'
-      '    }, 30);'
+      '    }, 25);'
       '  };'
-      '  document.addEventListener("focusout",function(e){'
-      '    if(!isFindOpen()) return;'
-      '    var inp=document.querySelector(".find-widget .find-part input");'
-      '    if(!inp||e.target!==inp) return;'
-      '    setTimeout(function(){ if(isFindOpen()) inp.focus(); },0);'
-      '  },true);'
       '  document.addEventListener("keydown",function(e){'
       '    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="f"){'
       '      e.preventDefault();'
@@ -815,15 +804,30 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       'document.addEventListener("contextmenu",function(e){'
       '  e.preventDefault();'
       '  try {'
-      '    var target = window.editor.getTargetAtClientPoint'
+      '    var isAux = e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || (e.target.closest && e.target.closest(".find-widget")));'
+      '    window.__fmContextMenuAux = isAux'
+      '      ? (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA"'
+      '          ? e.target'
+      '          : document.querySelector(".find-widget .find-part input"))'
+      '      : null;'
+      '    if (!isAux && window.editor) {'
+      '      try { window.editor.focus(); } catch(_) {}'
+      '    }'
+      '    var target = (!isAux && window.editor.getTargetAtClientPoint)'
       '      ? window.editor.getTargetAtClientPoint(e.clientX, e.clientY)'
       '      : null;'
-      '    var pos = (target && target.position) || window.editor.getPosition();'
+      '    var pos = (target && target.position) || (!isAux ? window.editor.getPosition() : null);'
       '    var word = "";'
       '    if (pos) {'
       '      var w = window.editor.getModel().getWordAtPosition(pos);'
       '      word = w ? w.word : "";'
       '      window.editor.setPosition(pos);'
+      '    } else if (isAux && window.__fmContextMenuAux) {'
+      '      var aux = window.__fmContextMenuAux;'
+      '      var s = aux.selectionStart, end = aux.selectionEnd;'
+      '      if (s != null && end != null && s !== end) {'
+      '        word = aux.value.substring(s, end);'
+      '      }'
       '    }'
       '    window.FlutterMonaco.emit("fmMenuOpening", {'
       '      x: e.clientX, y: e.clientY, word: word,'
@@ -1052,6 +1056,23 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           unawaited(_openAutorizacionesWindow());
         },
       ),
+      // Ctrl+F para abrir el buscador de forma controlada sin perder el foco
+      ctrl
+          .addAction(
+            MonacoActionDescriptor(
+              id: MonacoAction('custom.find'),
+              label: 'Buscar en el documento',
+              keybindings: [
+                MonacoKeybinding(ctrlCmd: true, key: MonacoKey.keyF),
+              ],
+            ),
+            () async {
+              await ctrl.runJavaScript(
+                'if(window.__fmOpenFind) window.__fmOpenFind();',
+              );
+            },
+          )
+          .then((a) => _findAction = a),
       // Clipboard bridge: navigator.clipboard is blocked on file:// (WebView2).
       // These actions override Ctrl+C/X/V so Flutter's native clipboard is used.
       ctrl
@@ -1914,6 +1935,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         r'        var text = val.substring(start, end);'
         r'        aux.value = val.substring(0, start) + val.substring(end);'
         r'        aux.selectionStart = aux.selectionEnd = start;'
+        r'        aux.focus();'
         r'        aux.dispatchEvent(new Event("input", { bubbles: true }));'
         r'        return text;'
         r'      }'
@@ -1924,6 +1946,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         r'    const m = window.editor.getModel();'
         r'    const t = m.getValueInRange(s) || null;'
         r'    if (!t) return null;'
+        r'    window.editor.focus();'
         r'    window.editor.executeEdits("flutter-cut", [{ range: s, text: "", forceMoveMarkers: true }]);'
         r'    window.editor.pushUndoStop();'
         r'    return t;'
@@ -1960,11 +1983,13 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         '      var val = aux.value || "";'
         '      aux.value = val.substring(0, start) + t + val.substring(end);'
         '      aux.selectionStart = aux.selectionEnd = start + t.length;'
+        '      aux.focus();'
         '      aux.dispatchEvent(new Event("input", { bubbles: true }));'
         '      return "ok";'
         '    }'
         '    const ed = window.editor;'
         '    if (!ed) return "err";'
+        '    ed.focus();'
         '    let sels = ed.getSelections();'
         '    if (!sels || sels.length === 0) {'
         '      const s = ed.getSelection();'
@@ -2155,6 +2180,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         ),
       ],
     ).then((action) {
+      unawaited(
+        _withCtrl(
+          (ctrl) => ctrl.runJavaScript('window.__fmContextMenuAux = null;'),
+        ),
+      );
       if (action == null || !mounted) return;
       switch (action) {
         case _CtxMenuAction.gotoDef:

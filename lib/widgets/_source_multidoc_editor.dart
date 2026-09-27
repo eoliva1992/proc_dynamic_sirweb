@@ -650,8 +650,7 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
       '  acceptSuggestionOnEnter:"off", tabCompletion:"on"'
       '}); } catch(e) {}',
     );
-    await ctrl.runJavaScript(_kContextMenuFocusGuardJs);
-    await ctrl.runJavaScript(_kFindWidgetFocusGuardJs);
+    await ctrl.runJavaScript(_kFindAndFocusGuardJs);
 
     // Context menu native hook
     await ctrl.runJavaScript(
@@ -752,6 +751,24 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
         ),
         () async {
           unawaited(_openAutorizacionesWindow());
+        },
+      ),
+    );
+
+    // Ctrl+F para abrir el buscador de forma controlada sin perder el foco
+    actionFutures.add(
+      ctrl.addAction(
+        const fm.MonacoActionDescriptor(
+          id: fm.MonacoAction('custom.find'),
+          label: 'Buscar en el documento',
+          keybindings: [
+            fm.MonacoKeybinding(ctrlCmd: true, key: fm.MonacoKey.keyF),
+          ],
+        ),
+        () async {
+          await ctrl.runJavaScript(
+            'if(window.__fmOpenFind) window.__fmOpenFind();',
+          );
         },
       ),
     );

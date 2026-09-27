@@ -22,6 +22,9 @@ class AppTab {
   /// en lugar del editor de procedimientos dinámicos o la vista de búsqueda.
   ({String name, String objectType, String ambiente})? sourceViewer;
 
+  /// Cuando es `true`, este tab muestra el Ejecutor SQL/PL-SQL.
+  bool isSqlExecutor = false;
+
   AppTab({String? ambiente})
     : tabId = _counter++,
       searchState = SearchTabState(),
@@ -29,8 +32,14 @@ class AppTab {
 
   /// Tab en modo búsqueda (sin procedimiento ni visor de fuente cargado).
   bool get inSearchMode =>
-      procedimiento == null && !loading && sourceViewer == null;
+      procedimiento == null &&
+      !loading &&
+      sourceViewer == null &&
+      !isSqlExecutor;
 
   /// Tab en modo visor de código fuente Oracle.
   bool get inSourceViewMode => sourceViewer != null;
+
+  /// Tab en modo Ejecutor SQL/PL-SQL.
+  bool get inSqlExecutorMode => isSqlExecutor;
 }

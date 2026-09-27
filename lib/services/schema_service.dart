@@ -234,6 +234,21 @@ class SchemaService {
     }
   }
 
+  /// Columnas de clave primaria de una tabla, para el generador de
+  /// INSERT/UPDATE/MERGE del Ejecutor SQL.
+  ///
+  /// TODO: no hay endpoint todavía; cuando el backend lo publique, reemplazar
+  /// por una llamada real (candidato: `get_table_primary_key`). Mientras
+  /// tanto lanza para que el llamador caiga al selector manual de columnas.
+  Future<List<String>> getPrimaryKeyColumns(
+    String tableName, {
+    String? ambiente,
+  }) async {
+    throw UnimplementedError(
+      'getPrimaryKeyColumns aún no está soportado por el backend',
+    );
+  }
+
   /// Caché en memoria de argumentos por `AMBIENTE|OBJETO`.
   final _argsCache =
       <String, List<({String name, String dataType, String inOut})>>{};

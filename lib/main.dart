@@ -10,6 +10,7 @@ import 'screens/main_screen.dart';
 import 'services/app_log.dart';
 import 'services/favorites_service.dart';
 import 'services/schema_service.dart';
+import 'services/server_config_service.dart';
 import 'widgets/_editor_themes.dart';
 import 'widgets/code_editor_panel.dart';
 import 'widgets/object_source_page.dart';
@@ -88,6 +89,7 @@ Future<void> main(List<String> args) async {
       await themeStore.loadFromPrefs();
       await editorThemeStore.loadFromPrefs();
       await FavoritesService.load();
+      unawaited(ServerConfigService().getBaseUrl());
       unawaited(SchemaService.instance.loadMetadata());
 
       // Catch any unhandled Flutter framework errors: show on-screen instead of closing

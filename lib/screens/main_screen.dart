@@ -35,6 +35,7 @@ import '../widgets/server_config_dialog.dart';
 import 'bulk_backup_page.dart';
 import 'env_diff_page.dart';
 import 'paste_diff_page.dart';
+import 'sql_executor_page.dart';
 import 'transfer_dialog.dart';
 
 part '_usuario_button.dart';
@@ -531,6 +532,19 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     });
     _markTabLive(_activeTab);
     // No sync provider — los tabs de fuente son independientes del editor
+  }
+
+  /// Abre el Ejecutor SQL/PL-SQL en un tab nuevo.
+  void _addSqlExecutorTab() {
+    if (!_ensureTabSlot()) return;
+    final tab = AppTab(ambiente: _tabs[_activeTab].ambiente)
+      ..isSqlExecutor = true;
+    setState(() {
+      _tabs.add(tab);
+      _activeTab = _tabs.length - 1;
+    });
+    _markTabLive(_activeTab);
+    // No sync provider — independiente del editor de procedimientos.
   }
 
   void _onTabAmbienteChanged(AppTab tab, String newAmbiente) {
@@ -1133,6 +1147,12 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             shift: true,
           ): () =>
               showAppConsole(context),
+          // Ejecutor SQL/PL-SQL en un tab nuevo.
+          const SingleActivator(
+            LogicalKeyboardKey.keyQ,
+            control: true,
+            shift: true,
+          ): _addSqlExecutorTab,
         },
         child: Focus(
           autofocus: true,
@@ -1244,6 +1264,15 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   }
 
   Widget _buildTabContent(AppTab tab) {
+    // ── Ejecutor SQL/PL-SQL ──────────────────────────────────────────────────
+    if (tab.inSqlExecutorMode) {
+      return SqlExecutorPage(
+        key: ValueKey('sql_${tab.tabId}'),
+        ambiente: tab.ambiente,
+        onAmbienteChanged: (v) => _onTabAmbienteChanged(tab, v),
+      );
+    }
+
     // ── Visor de código fuente Oracle ────────────────────────────────────────
     if (tab.inSourceViewMode) {
       final sv = tab.sourceViewer!;
@@ -2101,6 +2130,14 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           child: IconButton(
             onPressed: () => showBulkBackupWindow(context, ambiente: _tabs[_activeTab].ambiente),
             icon: const Icon(Icons.backup_outlined),
+            color: barFgSoft,
+          ),
+        ),
+        Tooltip(
+          message: 'Ejecutor de sentencias SQL / PL-SQL',
+          child: IconButton(
+            onPressed: _addSqlExecutorTab,
+            icon: const Icon(Icons.storage_rounded),
             color: barFgSoft,
           ),
         ),

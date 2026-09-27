@@ -326,6 +326,11 @@ class _MainTabBarState extends State<_MainTabBar> {
       icon = _sourceTypeIcon(sv.objectType);
       label = sv.name;
       typeLabel = _sourceTypeLabel(sv.objectType);
+    } else if (tab.isSqlExecutor) {
+      accentColor = const Color(0xFF0078D4);
+      icon = Icons.storage_rounded;
+      label = 'SQL';
+      typeLabel = 'Ejecutor SQL';
     } else if (inEditor && tab.procedimiento != null) {
       accentColor = ConfigBadge.colorForConfig(
         tab.procedimiento!.inConfiguracion,
