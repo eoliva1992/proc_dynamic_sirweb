@@ -21,6 +21,7 @@ class _MultiDocSourceEditor extends StatefulWidget {
   final void Function(List<PlSqlIssue>)? onSpecIssuesChanged;
   final void Function(List<PlSqlIssue>)? onBodyIssuesChanged;
   final void Function(bool checking)? onBackendChecking;
+  final void Function(fm.MonacoController ctrl)? onBodyReady;
 
   /// Callback para navegar a la definición de un objeto Oracle desde el editor.
   final void Function(String name, String objectType)? onGotoDefinition;
@@ -44,6 +45,7 @@ class _MultiDocSourceEditor extends StatefulWidget {
     this.onSpecIssuesChanged,
     this.onBodyIssuesChanged,
     this.onBackendChecking,
+    this.onBodyReady,
     this.onGotoDefinition,
   });
 
@@ -100,6 +102,7 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
   @override
   void initState() {
     super.initState();
+    _isBody = widget.tabCtrl.index == 1;
     widget.tabCtrl.addListener(_onTabChanged);
     snippetsRevision.addListener(_onSnippetsRevisionChanged);
   }
@@ -623,7 +626,9 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
       language: fm.MonacoLanguage.sql,
       uri: Uri.parse('file:///source/spec.sql'),
     );
-    await ctrl.activateDocument(_specDoc!);
+    if (!_isBody) {
+      await ctrl.activateDocument(_specDoc!);
+    }
     if (mounted) setState(() => _specReady = true);
     widget.onSpecTextChanged?.call(widget.spec);
 
@@ -895,6 +900,7 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
     setState(() => _bodyReady = true);
     _currentBodyCode = body;
     if (_isBody) await _withCtrl((c) => c.activateDocument(doc));
+    widget.onBodyReady?.call(ctrl);
     if (widget.isPlSql) _scheduleCheck(body, isBody: true);
   }
 

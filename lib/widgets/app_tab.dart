@@ -20,7 +20,14 @@ class AppTab {
 
   /// Cuando está seteado, este tab muestra el visor de código fuente Oracle
   /// en lugar del editor de procedimientos dinámicos o la vista de búsqueda.
-  ({String name, String objectType, String ambiente})? sourceViewer;
+  ({
+    String name,
+    String objectType,
+    String ambiente,
+    int? initialLine,
+    String? initialSearchTerm,
+  })?
+  sourceViewer;
 
   /// Cuando es `true`, este tab muestra el Ejecutor SQL/PL-SQL.
   bool isSqlExecutor = false;

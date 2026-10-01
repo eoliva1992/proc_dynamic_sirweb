@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import '../models/schema_source_search.dart';
 import 'app_log.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -985,6 +986,70 @@ class SchemaService {
       comments: data['comments'] as String?,
       grants: data['grants'] as String?,
     );
+  }
+
+  /// Busca coincidencias dentro del código fuente de objetos Oracle:
+  /// `GET /tools/schema/search-source?texto=&owner=&ambiente=&maxResultados=200`
+  Future<SchemaSourceSearchResult> searchSource({
+    required String texto,
+    String? owner,
+    String? ambiente,
+    int maxResultados = 200,
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    final trimmed = texto.trim();
+    if (trimmed.isEmpty) return const SchemaSourceSearchResult();
+
+    final host = await ServerConfigService().getBaseUrl();
+    final env = _env(ambiente);
+
+    final queryParams = <String, String>{
+      'texto': trimmed,
+      if (owner != null && owner.isNotEmpty && owner != 'null') 'owner': owner,
+      'ambiente': env,
+      'maxResultados': maxResultados.toString(),
+    };
+
+    final uri = Uri.parse(
+      '$host/tools/schema/search-source',
+    ).replace(queryParameters: queryParams);
+
+    final reloj = Stopwatch()..start();
+    try {
+      final response = await _client.get(uri).timeout(timeout);
+      reloj.stop();
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final Map<String, dynamic> body = jsonDecode(response.body);
+        if (body['success'] == false) {
+          throw Exception(
+            body['message']?.toString() ??
+                body['error']?.toString() ??
+                'Error en búsqueda de código fuente',
+          );
+        }
+        final data = body['data'];
+        if (data is Map<String, dynamic>) {
+          return SchemaSourceSearchResult.fromJson(data);
+        } else if (data is Map) {
+          return SchemaSourceSearchResult.fromJson(
+            Map<String, dynamic>.from(data),
+          );
+        }
+        return const SchemaSourceSearchResult();
+      } else {
+        throw Exception(
+          'HTTP ${response.statusCode}: ${response.reasonPhrase}',
+        );
+      }
+    } catch (e) {
+      reloj.stop();
+      AppLog.instance.error(
+        'Fallo al buscar en fuente: $e',
+        source: 'search_source',
+      );
+      rethrow;
+    }
   }
 
   /// Fuerza recarga desde el servidor en la próxima llamada (para todos los ambientes).

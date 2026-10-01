@@ -32,7 +32,9 @@ import '../widgets/app_toast.dart';
 import '../widgets/search_tab_view.dart';
 import '../widgets/source_tab_controller.dart';
 import '../widgets/server_config_dialog.dart';
+import '../widgets/usuario_dialog.dart';
 import 'bulk_backup_page.dart';
+import 'batch_transfer_page.dart';
 import 'env_diff_page.dart';
 import 'paste_diff_page.dart';
 import 'sql_executor_page.dart';
@@ -511,6 +513,8 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     required String name,
     required String objectType,
     required String ambiente,
+    int? initialLine,
+    String? initialSearchTerm,
   }) {
     // Buscar si ya existe un tab para este objeto
     final existing = _tabs.indexWhere(
@@ -520,12 +524,29 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           t.sourceViewer?.ambiente == ambiente,
     );
     if (existing >= 0) {
+      if (initialLine != null || initialSearchTerm != null) {
+        _tabs[existing].sourceViewer = (
+          name: name,
+          objectType: objectType,
+          ambiente: ambiente,
+          initialLine: initialLine ?? _tabs[existing].sourceViewer?.initialLine,
+          initialSearchTerm:
+              initialSearchTerm ??
+              _tabs[existing].sourceViewer?.initialSearchTerm,
+        );
+      }
       _activateTab(existing);
       return;
     }
     if (!_ensureTabSlot()) return;
     final tab = AppTab(ambiente: ambiente)
-      ..sourceViewer = (name: name, objectType: objectType, ambiente: ambiente);
+      ..sourceViewer = (
+        name: name,
+        objectType: objectType,
+        ambiente: ambiente,
+        initialLine: initialLine,
+        initialSearchTerm: initialSearchTerm,
+      );
     setState(() {
       _tabs.add(tab);
       _activeTab = _tabs.length - 1;
@@ -865,252 +886,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   }
 
   void _showUsuarioDialog(BuildContext context, {VoidCallback? onSaved}) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final provider = procedimientosProvider;
-    final ctrl = TextEditingController(text: provider.cdUsuario);
-
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'usuario',
-      barrierColor: Colors.black54,
-      transitionDuration: const Duration(milliseconds: 260),
-      transitionBuilder: (ctx, anim, _, child) {
-        final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutBack);
-        return ScaleTransition(
-          scale: curved,
-          child: FadeTransition(opacity: anim, child: child),
-        );
-      },
-      pageBuilder: (ctx, _, _) {
-        return Center(
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: 340,
-              decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: isDark ? 0.5 : 0.15),
-                    blurRadius: 32,
-                    offset: const Offset(0, 12),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // ── Cabecera con gradiente ──────────────────────────────
-                  ConstellationHeader(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 28),
-                    onDark: true,
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(16),
-                      topRight: Radius.circular(16),
-                    ),
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Color(0xFF0078D4), Color(0xFF005A9E)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.only(
-                        topLeft: Radius.circular(16),
-                        topRight: Radius.circular(16),
-                      ),
-                    ),
-                    child: Column(
-                      children: [
-                        Container(
-                          width: 56,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.4),
-                              width: 2,
-                            ),
-                          ),
-                          child: const Icon(
-                            Icons.person_rounded,
-                            size: 30,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        const Text(
-                          'Identificación',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.3,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Ingresá tu código de usuario',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.75),
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // ── Cuerpo ──────────────────────────────────────────────
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-                    child: TextField(
-                      controller: ctrl,
-                      autofocus: true,
-                      style: TextStyle(
-                        color: isDark
-                            ? const Color(0xFFD4D4D4)
-                            : Colors.black87,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 1.2,
-                      ),
-                      textCapitalization: TextCapitalization.characters,
-                      inputFormatters: [
-                        TextInputFormatter.withFunction(
-                          (old, val) => val.copyWith(
-                            text: val.text.toUpperCase(),
-                            selection: val.selection,
-                          ),
-                        ),
-                      ],
-                      decoration: InputDecoration(
-                        hintText: 'Ej: EOLIVA',
-                        hintStyle: TextStyle(
-                          color: isDark
-                              ? const Color(0xFF555555)
-                              : Colors.black38,
-                          fontWeight: FontWeight.normal,
-                          letterSpacing: 0,
-                        ),
-                        prefixIcon: Icon(
-                          Icons.badge_outlined,
-                          size: 18,
-                          color: isDark
-                              ? const Color(0xFF0078D4)
-                              : const Color(0xFF0078D4),
-                        ),
-                        filled: true,
-                        fillColor: isDark
-                            ? const Color(0xFF2D2D2D)
-                            : const Color(0xFFF5F7FA),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 14,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide.none,
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(
-                            color: isDark
-                                ? const Color(0xFF3A3A3A)
-                                : const Color(0xFFDDE2EA),
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(
-                            color: Color(0xFF0078D4),
-                            width: 1.5,
-                          ),
-                        ),
-                      ),
-                      onSubmitted: (v) {
-                        provider.setCdUsuario(v.trim());
-                        Navigator.of(ctx).pop();
-                        if (v.trim().isNotEmpty) onSaved?.call();
-                      },
-                    ),
-                  ),
-
-                  // ── Acciones ────────────────────────────────────────────
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextButton(
-                            onPressed: () => Navigator.of(ctx).pop(),
-                            style: TextButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                side: BorderSide(
-                                  color: isDark
-                                      ? const Color(0xFF3A3A3A)
-                                      : Colors.grey.shade300,
-                                ),
-                              ),
-                            ),
-                            child: Text(
-                              'Cancelar',
-                              style: TextStyle(
-                                color: isDark
-                                    ? const Color(0xFF808080)
-                                    : Colors.black45,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: () {
-                              provider.setCdUsuario(ctrl.text.trim());
-                              Navigator.of(ctx).pop();
-                              if (ctrl.text.trim().isNotEmpty) onSaved?.call();
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF0078D4),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.check_rounded, size: 16),
-                                SizedBox(width: 6),
-                                Text(
-                                  'Guardar',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
+    showUsuarioDialog(context, onSaved: onSaved);
   }
 
   @override
@@ -1279,16 +1055,22 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       return ObjectSourcePage(
         // Incluir ambiente en el key fuerza un remount (→ recarga desde Oracle)
         // cada vez que el usuario cambia el ambiente.
-        key: ValueKey('src_${tab.tabId}_${sv.ambiente}'),
+        key: ValueKey(
+          'src_${tab.tabId}_${sv.ambiente}_${sv.initialLine ?? 0}_${sv.initialSearchTerm ?? ''}',
+        ),
         name: sv.name,
         objectType: sv.objectType,
         ambiente: sv.ambiente,
+        initialLine: sv.initialLine,
+        initialSearchTerm: sv.initialSearchTerm,
         onAmbienteChanged: (newAmbiente) {
           setState(() {
             tab.sourceViewer = (
               name: sv.name,
               objectType: sv.objectType,
               ambiente: newAmbiente,
+              initialLine: sv.initialLine,
+              initialSearchTerm: sv.initialSearchTerm,
             );
             tab.ambiente = newAmbiente; // actualiza la badge del tab bar
           });
@@ -2128,8 +1910,22 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         Tooltip(
           message: 'Backup masivo de objetos',
           child: IconButton(
-            onPressed: () => showBulkBackupWindow(context, ambiente: _tabs[_activeTab].ambiente),
+            onPressed: () => showBulkBackupWindow(
+              context,
+              ambiente: _tabs[_activeTab].ambiente,
+            ),
             icon: const Icon(Icons.backup_outlined),
+            color: barFgSoft,
+          ),
+        ),
+        Tooltip(
+          message: 'Transferencia por lote a uno o varios ambientes',
+          child: IconButton(
+            onPressed: () => showBatchTransferWindow(
+              context,
+              ambiente: _tabs[_activeTab].ambiente,
+            ),
+            icon: const Icon(Icons.move_up_rounded),
             color: barFgSoft,
           ),
         ),

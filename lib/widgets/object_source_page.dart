@@ -171,24 +171,78 @@ const String _kFindAndFocusGuardJs =
     '      window.__fmFindWanted = false;'
     '    }'
     '  },true);'
-    '  window.__fmOpenFind = function(){'
+    '  window.__fmOpenFind = function(initialVal, targetLine){'
     '    window.__fmFindWanted = true;'
-    '    try { window.editor.trigger("keyboard", "actions.find"); } catch(e){}'
+    '    try {'
+    '      var ed = window.editor;'
+    '      var fc = ed && ed.getContribution("editor.contrib.findController");'
+    '      if(targetLine && ed){'
+    '        ed.setPosition({lineNumber: targetLine, column: 1});'
+    '        ed.revealLineInCenter(targetLine);'
+    '      }'
+    '      if(initialVal) {'
+    '        if(fc && fc.getState()){ fc.getState().change({searchString: initialVal}, false); }'
+    '      }'
+    '      if(ed) { ed.trigger("keyboard", "actions.find"); }'
+    '      if(initialVal && fc && fc.getState()){'
+    '        fc.getState().change({searchString: initialVal}, false);'
+    '      }'
+    '      if(targetLine && ed){'
+    '        ed.setPosition({lineNumber: targetLine, column: 1});'
+    '        ed.revealLineInCenter(targetLine);'
+    '      }'
+    '    } catch(e){}'
     '    var count = 0;'
     '    var chase = setInterval(function(){'
     '      count++;'
-    '      var inp = document.querySelector(".find-widget .find-part input");'
+    '      var inp = document.querySelector(".find-widget textarea, .find-widget input, .monaco-findInput textarea, .monaco-findInput input");'
     '      if(inp) {'
+    '        if(initialVal !== undefined && initialVal !== null && initialVal !== "") {'
+    '          if(inp.value !== initialVal) {'
+    '            inp.value = initialVal;'
+    '            inp.dispatchEvent(new Event("input", {bubbles: true}));'
+    '            inp.dispatchEvent(new Event("change", {bubbles: true}));'
+    '          }'
+    '          try {'
+    '            var fc2 = window.editor && window.editor.getContribution("editor.contrib.findController");'
+    '            if(fc2 && fc2.getState()){ fc2.getState().change({searchString: initialVal}, false); }'
+    '          } catch(_){}'
+    '        }'
     '        inp.focus();'
-    '        if(document.activeElement === inp || count > 20) {'
+    '        inp.select();'
+    '        if(targetLine && window.editor){'
+    '          try {'
+    '            window.editor.setPosition({lineNumber: targetLine, column: 1});'
+    '            window.editor.revealLineInCenter(targetLine);'
+    '          } catch(_){}'
+    '        }'
+    '        if(document.activeElement === inp || count > 30) {'
     '          clearInterval(chase);'
     '          window.__fmFindWanted = false;'
     '        }'
-    '      } else if(count > 20) {'
+    '      } else if(count > 30) {'
     '        clearInterval(chase);'
     '        window.__fmFindWanted = false;'
     '      }'
     '    }, 25);'
+    '    if(targetLine){'
+    '      setTimeout(function(){'
+    '        try {'
+    '          if(window.editor){'
+    '            window.editor.setPosition({lineNumber: targetLine, column: 1});'
+    '            window.editor.revealLineInCenter(targetLine);'
+    '          }'
+    '        } catch(_){}'
+    '      }, 120);'
+    '      setTimeout(function(){'
+    '        try {'
+    '          if(window.editor){'
+    '            window.editor.setPosition({lineNumber: targetLine, column: 1});'
+    '            window.editor.revealLineInCenter(targetLine);'
+    '          }'
+    '        } catch(_){}'
+    '      }, 350);'
+    '    }'
     '  };'
     '  document.addEventListener("keydown",function(e){'
     '    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="f"){'
@@ -206,6 +260,12 @@ class ObjectSourcePage extends StatefulWidget {
   /// When true, renders content without a Scaffold (for embedding in a float window).
   final bool embedded;
 
+  /// Línea inicial a la que navegar y posicionar el cursor tras cargar el fuente.
+  final int? initialLine;
+
+  /// Término de búsqueda opcional para precargar en el widget Find de Monaco.
+  final String? initialSearchTerm;
+
   /// Callback para cambiar el ambiente desde el AppBar (solo en modo tab).
   /// Si es null, el ambiente se muestra como badge estático (modo ventana separada).
   final ValueChanged<String>? onAmbienteChanged;
@@ -216,6 +276,8 @@ class ObjectSourcePage extends StatefulWidget {
     required this.objectType,
     required this.ambiente,
     this.embedded = false,
+    this.initialLine,
+    this.initialSearchTerm,
     this.onAmbienteChanged,
   });
 
@@ -231,6 +293,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
   bool _loading = false;
   String? _objectStatus;
   bool _statusLoading = true;
+  bool _initialLineNavigated = false;
 
   // single shared controller — multi-doc for packages/types, single-doc for others
   fm.MonacoController? _specCtrl;
@@ -275,6 +338,14 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
         oldWidget.ambiente != widget.ambiente) {
       _loadObjectStatus();
     }
+    if (oldWidget.initialLine != widget.initialLine ||
+        oldWidget.initialSearchTerm != widget.initialSearchTerm ||
+        oldWidget.name != widget.name) {
+      _initialLineNavigated = false;
+      if (_specCtrl != null) {
+        _navigateToInitialLineIfNeeded(_specCtrl!);
+      }
+    }
   }
 
   Future<void> _loadObjectStatus() async {
@@ -313,6 +384,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
     final isTable = widget.objectType == 'TABLE';
     _tabCtrl?.dispose();
     _tabCtrl = null;
+    _initialLineNavigated = false;
     _specText = '';
     _bodyText = '';
     _specErrors = 0;
@@ -360,9 +432,18 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
           setState(() {
             _data = data;
             _loading = false;
-            // Only PACKAGE has a meaningful spec/body split
-            if (data.body != null && widget.objectType == 'PACKAGE') {
-              _tabCtrl = TabController(length: 2, vsync: this);
+            // Only PACKAGE/TYPE/PACKAGE BODY has a meaningful spec/body split
+            if (data.body != null &&
+                (widget.objectType == 'PACKAGE' ||
+                    widget.objectType == 'PACKAGE BODY' ||
+                    widget.objectType == 'TYPE')) {
+              final initialIndex =
+                  (widget.initialLine != null && data.body!.isNotEmpty) ? 1 : 0;
+              _tabCtrl = TabController(
+                length: 2,
+                vsync: this,
+                initialIndex: initialIndex,
+              );
             }
           });
         })
@@ -493,12 +574,66 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
 
   void _triggerFind() {
     _specCtrl?.runJavaScript(
-      'try{window.__fmOpenFind ? window.__fmOpenFind() : editor.getAction("actions.find").run();}catch(e){}',
+      'try{window.__fmOpenFind ? window.__fmOpenFind() : (window.editor && window.editor.getAction("actions.find").run());}catch(e){}',
     );
   }
 
   void _openSnippetsManager() {
     openSnippetsManager(context);
+  }
+
+  void _navigateToInitialLineIfNeeded(fm.MonacoController ctrl) {
+    final line = widget.initialLine;
+    final searchTerm = widget.initialSearchTerm?.trim();
+    if ((line == null || line <= 0) &&
+        (searchTerm == null || searchTerm.isEmpty)) {
+      return;
+    }
+    if (_initialLineNavigated) return;
+    _initialLineNavigated = true;
+
+    void doNavigate() {
+      if (!mounted) return;
+      if (line != null && line > 0) {
+        ctrl.setCursorPosition(fm.Position(line: line, column: 1));
+        ctrl.revealLine(line, center: true);
+        ctrl.runJavaScript(
+          'try{'
+          'var ed = window.editor;'
+          'if(ed){'
+          '  ed.setPosition({lineNumber:$line,column:1});'
+          '  ed.revealLineInCenter($line);'
+          '  ed.focus();'
+          '}'
+          '}catch(e){}',
+        );
+      }
+
+      if (searchTerm != null && searchTerm.isNotEmpty) {
+        final escaped = jsonEncode(searchTerm);
+        final lineArg = line != null && line > 0 ? '$line' : 'null';
+        // Pre-cargar el término de búsqueda en el widget Find de Monaco y enfocarlo con auto-focus
+        ctrl.runJavaScript(
+          'try{'
+          'var term=$escaped;'
+          'if(window.__fmOpenFind){'
+          '  window.__fmOpenFind(term, $lineArg);'
+          '} else {'
+          '  var ed=window.editor;'
+          '  var fc=ed && ed.getContribution("editor.contrib.findController");'
+          '  if(fc && fc.getState()){ fc.getState().change({searchString: term}, false); }'
+          '  if(ed) {'
+          '    ed.getAction("actions.find").run();'
+          '    if($lineArg){ ed.setPosition({lineNumber:$lineArg,column:1}); ed.revealLineInCenter($lineArg); }'
+          '  }'
+          '}'
+          '}catch(e){}',
+        );
+      }
+    }
+
+    Future.delayed(const Duration(milliseconds: 150), doNavigate);
+    Future.delayed(const Duration(milliseconds: 400), doNavigate);
   }
 
   void _openDiff() {
@@ -1080,7 +1215,15 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
           _bodyText = _data!.body ?? '';
           _subprograms = _parseSubprograms(_data!.body ?? '');
           _specSubprograms = _parseSubprograms(_data!.spec);
+          if (_tabCtrl?.index == 0) {
+            _navigateToInitialLineIfNeeded(c);
+          }
         }),
+        onBodyReady: (c) {
+          if (_tabCtrl?.index == 1) {
+            _navigateToInitialLineIfNeeded(c);
+          }
+        },
         onSpecTextChanged: (t) {
           _specText = t;
           _specSubprograms = _parseSubprograms(t);
@@ -1122,6 +1265,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
       onControllerReady: (c) => setState(() {
         _specCtrl = c;
         _specText = _data!.spec;
+        _navigateToInitialLineIfNeeded(c);
       }),
       onTextChanged: (t) => _specText = t,
       onErrorCountChanged: (n) => setState(() => _specErrors = n),

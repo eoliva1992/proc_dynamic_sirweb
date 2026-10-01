@@ -6,6 +6,8 @@ typedef OpenSourceTab =
       required String name,
       required String objectType,
       required String ambiente,
+      int? initialLine,
+      String? initialSearchTerm,
     });
 
 /// InheritedWidget que provee una función para abrir una fuente Oracle como

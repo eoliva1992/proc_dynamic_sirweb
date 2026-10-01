@@ -257,12 +257,21 @@ extension _EditorNavigationMethods on _CodeEditorPanelState {
     );
     final current = await _withCtrl((ctrl) => ctrl.document.getText());
     if (current == null || !mounted) return;
-    await showProcedureDiff(
+    showProcedureDiff(
       context,
       title: 'Diff — ${activeProc.cdProcedimiento}',
       original: activeProc.deTexto,
       modified: current,
       language: activeProc.inConfiguracion == 'J' ? 'javascript' : 'sql',
+      procId: activeProc.cdProcedimiento,
+      ambiente: widget.ambiente,
+      onApplyToEditor: (newCode) async {
+        final doc = _docs[activeProc.cdProcedimiento];
+        if (doc != null) {
+          await _withCtrl((_) => doc.setText(newCode));
+        }
+        _onContentChanged(newCode);
+      },
     );
   }
 }

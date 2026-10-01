@@ -69,4 +69,73 @@ void main() {
     expect(await future, isNull);
     expect(find.text('Confirmar'), findsNothing);
   });
+
+  testWidgets('abrir diálogo desde MenuAnchor y cerrar ventana o diálogo', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app());
+    final ctx = rootNavigatorKey.currentContext!;
+
+    var count = 0;
+
+    showFloatingWindow(
+      ctx,
+      (close) => StatefulBuilder(
+        builder: (context, setState) => Material(
+          child: Column(
+            children: [
+              Text('COUNT: $count'),
+              MenuAnchor(
+                menuChildren: [
+                  MenuItemButton(
+                    onPressed: () async {
+                      final res = await showFloatingDialog<String>(
+                        ctx,
+                        (dialogCtx, closeDialog) => AlertDialog(
+                          title: const Text('Diálogo Menu'),
+                          content: const TextField(),
+                          actions: [
+                            FilledButton(
+                              onPressed: () => closeDialog('OK'),
+                              child: const Text('Aceptar'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (res != null) {
+                        setState(() => count++);
+                      }
+                    },
+                    child: const Text('Abrir diálogo'),
+                  ),
+                ],
+                builder: (context, controller, child) => IconButton(
+                  icon: const Icon(Icons.more_vert),
+                  onPressed: () => controller.open(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(IconButton));
+    await tester.pumpAndSettle();
+    expect(find.text('Abrir diálogo'), findsOneWidget);
+
+    await tester.tap(find.text('Abrir diálogo'));
+    await tester.pumpAndSettle();
+    expect(find.text('Diálogo Menu'), findsOneWidget);
+
+    // Simular escribir texto en el TextField
+    await tester.enterText(find.byType(TextField), 'PROC_TEST');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Aceptar'));
+    await tester.pumpAndSettle();
+    expect(find.text('Diálogo Menu'), findsNothing);
+    expect(find.text('COUNT: 1'), findsOneWidget);
+  });
 }

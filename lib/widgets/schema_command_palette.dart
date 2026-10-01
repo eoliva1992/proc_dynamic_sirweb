@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../models/schema_source_search.dart';
 import '../services/schema_recents_service.dart';
 import '../services/schema_service.dart';
 import 'code_editor_panel.dart' show showEjecutarLlamadaWindow;
 import 'constellation_background.dart';
 import 'schema_object_details_sheet.dart';
+import 'source_float_window.dart' show openSourceWindow;
 
 const _kTiposInvocables = {'PROCEDURE', 'FUNCTION', 'PACKAGE'};
 
@@ -33,11 +35,20 @@ class _PaletteItem {
   final String type;
   final String owner;
   final bool isRecent;
+  final bool isSourceMatch;
+  final int? line;
+  final String? matchedText;
+  final int? matchCount;
+
   const _PaletteItem({
     required this.name,
     required this.type,
     this.owner = '',
     this.isRecent = false,
+    this.isSourceMatch = false,
+    this.line,
+    this.matchedText,
+    this.matchCount,
   });
 }
 
@@ -76,13 +87,19 @@ class _SchemaCommandPalette extends StatefulWidget {
 
 class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
   final _ctrl = TextEditingController();
-  final _keyboardFocus = FocusNode();
+  final _searchFocusNode = FocusNode();
   String _query = '';
   List<SchemaObjectRef>? _recents;
   SchemaMetadata? _meta;
   Timer? _debounce;
+  Timer? _sourceDebounce;
   int _focusedIdx = 0;
   final _scrollCtrl = ScrollController();
+
+  // Búsqueda en código fuente del servidor
+  bool _sourceLoading = false;
+  SchemaSourceSearchResult _sourceResult = const SchemaSourceSearchResult();
+  String _lastSearchedSourceText = '';
 
   @override
   void initState() {
@@ -90,19 +107,26 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
     _meta = SchemaService.instance.getCached(ambiente: widget.ambiente);
     _loadRecents();
     _ctrl.addListener(_onQueryChanged);
+    // Asegurar autofocus en el campo de texto del buscador
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchFocusNode.requestFocus();
+    });
   }
 
   @override
   void dispose() {
     _ctrl.dispose();
-    _keyboardFocus.dispose();
+    _searchFocusNode.dispose();
     _debounce?.cancel();
+    _sourceDebounce?.cancel();
     _scrollCtrl.dispose();
     super.dispose();
   }
 
   void _onQueryChanged() {
     _debounce?.cancel();
+    _sourceDebounce?.cancel();
+
     _debounce = Timer(const Duration(milliseconds: 80), () {
       if (mounted) {
         setState(() {
@@ -111,6 +135,52 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
         });
       }
     });
+
+    final currentText = _ctrl.text.trim();
+    if (currentText.length >= 3) {
+      _sourceDebounce = Timer(const Duration(milliseconds: 400), () {
+        _searchSource(currentText);
+      });
+    } else {
+      if (_sourceResult.isNotEmpty || _sourceLoading) {
+        setState(() {
+          _sourceLoading = false;
+          _sourceResult = const SchemaSourceSearchResult();
+          _lastSearchedSourceText = '';
+        });
+      }
+    }
+  }
+
+  Future<void> _searchSource(String text) async {
+    if (text == _lastSearchedSourceText) return;
+    if (!mounted) return;
+
+    setState(() {
+      _sourceLoading = true;
+    });
+
+    try {
+      final res = await SchemaService.instance.searchSource(
+        texto: text,
+        ambiente: widget.ambiente,
+        maxResultados: 100,
+      );
+      if (!mounted) return;
+      if (_ctrl.text.trim() == text) {
+        setState(() {
+          _sourceResult = res;
+          _lastSearchedSourceText = text;
+          _sourceLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _sourceLoading = false;
+        });
+      }
+    }
   }
 
   Future<void> _loadRecents() async {
@@ -151,7 +221,42 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
         results.add(_PaletteItem(name: o.name, type: o.type, owner: o.owner));
       }
     }
-    return results.take(60).toList();
+    final nameResults = results.take(60).toList();
+
+    // Incorporar resultados de búsqueda en fuente Oracle
+    if (_query.isNotEmpty && _sourceResult.isNotEmpty) {
+      // Si la búsqueda por nombre no devolvió nada, sugerir los objetos directamente
+      if (nameResults.isEmpty && _sourceResult.objects.isNotEmpty) {
+        for (final obj in _sourceResult.objects) {
+          nameResults.add(
+            _PaletteItem(
+              name: obj.name,
+              type: obj.objectType,
+              owner: obj.owner,
+              isSourceMatch: true,
+              line: obj.firstLine,
+              matchCount: obj.matchCount,
+            ),
+          );
+        }
+      }
+
+      // Añadir detalle de líneas individuales encontradas
+      for (final m in _sourceResult.matches.take(30)) {
+        nameResults.add(
+          _PaletteItem(
+            name: m.name,
+            type: m.objectType,
+            owner: m.owner,
+            isSourceMatch: true,
+            line: m.line,
+            matchedText: m.text,
+          ),
+        );
+      }
+    }
+
+    return nameResults;
   }
 
   void _select(_PaletteItem item) {
@@ -168,12 +273,28 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
         ambiente: widget.ambiente,
       ),
     );
-    showObjectDetails(
-      navigator.context,
-      name: item.name,
-      type: item.type,
-      ambiente: widget.ambiente,
-    );
+
+    if (item.isSourceMatch && item.line != null) {
+      final effectiveType = item.type.toUpperCase() == 'PACKAGE BODY'
+          ? 'PACKAGE'
+          : item.type;
+      final term = _query.trim();
+      openSourceWindow(
+        navigator.context,
+        name: item.name,
+        objectType: effectiveType,
+        ambiente: widget.ambiente,
+        initialLine: item.line,
+        initialSearchTerm: term.isNotEmpty ? term : null,
+      );
+    } else {
+      showObjectDetails(
+        navigator.context,
+        name: item.name,
+        type: item.type,
+        ambiente: widget.ambiente,
+      );
+    }
   }
 
   void _ejecutar(_PaletteItem item) {
@@ -239,10 +360,13 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
     return Center(
       child: Material(
         color: Colors.transparent,
-        child: KeyboardListener(
-          focusNode: _keyboardFocus,
-          autofocus: true,
-          onKeyEvent: _handleKeyEvent,
+        child: Focus(
+          onKeyEvent: (node, event) {
+            if (_handleKeyEvent(event)) {
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
           child: Container(
             width: 620,
             constraints: const BoxConstraints(maxHeight: 500),
@@ -293,6 +417,7 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
       borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
       child: TextField(
         controller: _ctrl,
+        focusNode: _searchFocusNode,
         autofocus: true,
         style: TextStyle(
           fontSize: 14,
@@ -352,12 +477,29 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
       rows.add(_sectionLabel('RECIENTES', isDark));
     }
 
+    final hasOnlySourceMatches =
+        _query.isNotEmpty && items.every((i) => i.isSourceMatch);
+    bool didAddDidYouMeanSection = false;
+    bool didAddContentSection = false;
+
     for (int i = 0; i < items.length; i++) {
       final item = items[i];
-      if (_query.isNotEmpty && item.type != lastType) {
-        rows.add(_sectionLabel(item.type, isDark));
-        lastType = item.type;
+
+      if (_query.isNotEmpty) {
+        if (hasOnlySourceMatches && !didAddDidYouMeanSection) {
+          rows.add(_sectionDidYouMean(isDark));
+          didAddDidYouMeanSection = true;
+        } else if (!hasOnlySourceMatches &&
+            item.isSourceMatch &&
+            !didAddContentSection) {
+          rows.add(_sectionLabel('COINCIDENCIAS EN CÓDIGO FUENTE', isDark));
+          didAddContentSection = true;
+        } else if (!item.isSourceMatch && item.type != lastType) {
+          rows.add(_sectionLabel(item.type, isDark));
+          lastType = item.type;
+        }
       }
+
       rows.add(_buildRow(item, i, isDark));
     }
 
@@ -367,6 +509,45 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
         shrinkWrap: true,
         padding: const EdgeInsets.only(bottom: 4),
         children: rows,
+      ),
+    );
+  }
+
+  Widget _sectionDidYouMean(bool isDark) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(10, 8, 10, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0078D4).withValues(alpha: isDark ? 0.16 : 0.08),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: const Color(
+            0xFF0078D4,
+          ).withValues(alpha: isDark ? 0.35 : 0.25),
+          width: 0.8,
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.lightbulb_outline_rounded,
+            size: 15,
+            color: Color(0xFF0078D4),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '¿Quizás quisiste decir...? (Coincidencias en código)',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: isDark
+                    ? const Color(0xFF90CAFF)
+                    : const Color(0xFF005A9E),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -424,14 +605,78 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
                   color: color.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(5),
                 ),
-                child: Icon(icon, size: 13, color: color),
+                child: Icon(
+                  item.isSourceMatch ? Icons.data_object_rounded : icon,
+                  size: 13,
+                  color: color,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: _HighlightedText(
-                  text: item.name,
-                  query: _query,
-                  isDark: isDark,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: _HighlightedText(
+                            text: item.name,
+                            query: _query,
+                            isDark: isDark,
+                          ),
+                        ),
+                        if (item.line != null) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.white10
+                                  : Colors.black.withValues(alpha: 0.05),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                            child: Text(
+                              'L${item.line}',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontFamily: 'Consolas',
+                                fontWeight: FontWeight.bold,
+                                color: isDark
+                                    ? Colors.cyanAccent.shade100
+                                    : const Color(0xFF0078D4),
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (item.matchCount != null &&
+                            item.matchCount! > 1) ...[
+                          const SizedBox(width: 6),
+                          Text(
+                            '(${item.matchCount} coincidencias)',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: isDark ? Colors.white38 : Colors.black38,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (item.matchedText != null &&
+                        item.matchedText!.trim().isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      _HighlightedText(
+                        text: item.matchedText!.trim(),
+                        query: _query,
+                        isDark: isDark,
+                        fontSize: 11,
+                        textColor: isDark ? Colors.white54 : Colors.black54,
+                      ),
+                    ],
+                  ],
                 ),
               ),
               if (item.isRecent) ...[
@@ -516,12 +761,40 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
 
   Widget _buildNoResults(bool isDark) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 28),
-    child: Text(
-      'Sin resultados para "$_query"',
-      style: TextStyle(
-        fontSize: 13,
-        color: isDark ? Colors.white38 : Colors.black38,
-      ),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (_sourceLoading) ...[
+          const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Buscando en el código fuente...',
+            style: TextStyle(
+              fontSize: 12,
+              fontStyle: FontStyle.italic,
+              color: isDark ? Colors.white54 : Colors.black54,
+            ),
+          ),
+        ] else ...[
+          Icon(
+            Icons.search_off_rounded,
+            size: 28,
+            color: isDark ? Colors.white24 : Colors.black26,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Sin resultados para "$_query"',
+            style: TextStyle(
+              fontSize: 13,
+              color: isDark ? Colors.white38 : Colors.black38,
+            ),
+          ),
+        ],
+      ],
     ),
   );
 
@@ -547,6 +820,23 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
           _footerKey('↵', 'abrir', isDark),
           const SizedBox(width: 12),
           _footerKey('Esc', 'cerrar', isDark),
+          if (_sourceLoading) ...[
+            const SizedBox(width: 16),
+            const SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(strokeWidth: 1.5),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              'Buscando en código...',
+              style: TextStyle(
+                fontSize: 10,
+                fontStyle: FontStyle.italic,
+                color: isDark ? Colors.white54 : Colors.black54,
+              ),
+            ),
+          ],
           const Spacer(),
           Text(
             widget.ambiente,
@@ -597,23 +887,28 @@ class _HighlightedText extends StatelessWidget {
   final String text;
   final String query;
   final bool isDark;
+  final double fontSize;
+  final Color? textColor;
 
   const _HighlightedText({
     required this.text,
     required this.query,
     required this.isDark,
+    this.fontSize = 13,
+    this.textColor,
   });
 
   @override
   Widget build(BuildContext context) {
-    final baseColor = isDark ? const Color(0xFFD4D4D4) : Colors.black87;
+    final baseColor =
+        textColor ?? (isDark ? const Color(0xFFD4D4D4) : Colors.black87);
     final highlightColor = const Color(0xFF0078D4);
 
     if (query.isEmpty) {
       return Text(
         text,
         style: TextStyle(
-          fontSize: 13,
+          fontSize: fontSize,
           fontFamily: 'Consolas',
           color: baseColor,
           fontWeight: FontWeight.w500,
@@ -628,7 +923,7 @@ class _HighlightedText extends StatelessWidget {
       return Text(
         text,
         style: TextStyle(
-          fontSize: 13,
+          fontSize: fontSize,
           fontFamily: 'Consolas',
           color: baseColor,
           fontWeight: FontWeight.w500,
@@ -653,7 +948,7 @@ class _HighlightedText extends StatelessWidget {
             TextSpan(text: text.substring(idx + query.length)),
         ],
         style: TextStyle(
-          fontSize: 13,
+          fontSize: fontSize,
           fontFamily: 'Consolas',
           color: baseColor,
           fontWeight: FontWeight.w500,

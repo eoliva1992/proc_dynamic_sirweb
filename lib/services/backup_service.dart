@@ -66,7 +66,7 @@ abstract final class BackupService {
     final path = await FilePicker.saveFile(
       dialogTitle: 'Guardar backup — $objectName ($ambiente)',
       fileName:
-          '${objectName}_${objectType}${partSuffix}_${ambiente.toUpperCase()}.sql',
+          '${objectName}_$objectType${partSuffix}_${ambiente.toUpperCase()}.sql',
       type: FileType.custom,
       allowedExtensions: ['sql'],
     );
@@ -88,6 +88,92 @@ abstract final class BackupService {
     required String source,
     String? part,
   }) => source;
+
+  /// Genera un script SQL restaurable para un objeto de esquema Oracle,
+  /// contemplando SPEC y BODY para objetos compuestos (PACKAGE/TYPE).
+  static String buildFullSchemaScript({
+    required String objectName,
+    required String objectType,
+    required String ambiente,
+    required String specSource,
+    String? bodySource,
+  }) {
+    final now = DateTime.now();
+    String p(int v) => v.toString().padLeft(2, '0');
+    final fecha =
+        '${now.year}-${p(now.month)}-${p(now.day)} ${p(now.hour)}:${p(now.minute)}:${p(now.second)}';
+
+    final buffer = StringBuffer();
+    buffer.writeln('-- ============================================================');
+    buffer.writeln('-- BACKUP SCHEMA OBJECT');
+    buffer.writeln('-- Objeto   : $objectName');
+    buffer.writeln('-- Tipo     : $objectType');
+    buffer.writeln('-- Ambiente : $ambiente');
+    buffer.writeln('-- Fecha    : $fecha');
+    buffer.writeln('-- ============================================================');
+    buffer.writeln();
+
+    String normalizeDdl(String ddl) {
+      final trimmed = ddl.trim();
+      if (trimmed.isEmpty) return '';
+      if (trimmed.endsWith('/')) return trimmed;
+      if (trimmed.endsWith(';')) return '$trimmed\n/';
+      return '$trimmed\n/';
+    }
+
+    if (objectType.toUpperCase() == 'PACKAGE' ||
+        objectType.toUpperCase() == 'TYPE') {
+      if (specSource.trim().isNotEmpty) {
+        buffer.writeln('-- === SPEC ===');
+        buffer.writeln(normalizeDdl(specSource));
+        buffer.writeln();
+      }
+      if (bodySource != null && bodySource.trim().isNotEmpty) {
+        buffer.writeln('-- === BODY ===');
+        buffer.writeln(normalizeDdl(bodySource));
+        buffer.writeln();
+      }
+    } else {
+      buffer.writeln(normalizeDdl(specSource));
+      buffer.writeln();
+    }
+
+    return buffer.toString();
+  }
+
+  /// Exporta el DDL completo (con SPEC y BODY si aplica) al disco como backup .sql.
+  /// Devuelve la ruta donde se guardó, o null si el usuario canceló el diálogo.
+  static Future<String?> exportarDdlCompleto({
+    required String objectName,
+    required String objectType,
+    required String ambiente,
+    required String specSource,
+    String? bodySource,
+  }) async {
+    final script = buildFullSchemaScript(
+      objectName: objectName,
+      objectType: objectType,
+      ambiente: ambiente,
+      specSource: specSource,
+      bodySource: bodySource,
+    );
+
+    final path = await FilePicker.saveFile(
+      dialogTitle: 'Guardar backup previo — $objectName ($ambiente)',
+      fileName: '${objectName}_${objectType}_${ambiente.toUpperCase()}_backup.sql',
+      type: FileType.custom,
+      allowedExtensions: ['sql'],
+    );
+    if (path == null) return null;
+
+    await File(path).writeAsString(script, flush: true);
+    AppLog.instance.transaction(
+      'Backup completo $objectName ($objectType)',
+      source: 'Backup',
+      datos: {'Ambiente': ambiente, 'Archivo': path},
+    );
+    return path;
+  }
 
   // ── Abrir el explorador de archivos ─────────────────────────────────────
 

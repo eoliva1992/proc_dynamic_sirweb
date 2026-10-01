@@ -49,22 +49,17 @@ class _TransferDialogState extends State<TransferDialog> {
     nav.pop();
     // Let the pop animation settle before pushing the next route
     await Future<void>.delayed(Duration.zero);
+    if (!rootCtx.mounted) return;
     if (single) {
-      await widget.onBeforePush?.call();
-      await nav.push(
-        PageRouteBuilder<void>(
-          pageBuilder: (_, __, ___) => TransferDiffPage(
-            sourceProc: widget.sourceProc,
-            sourceCode: widget.sourceCode,
-            sourceAmbiente: widget.sourceAmbiente,
-            targetAmbiente: targetAmbiente,
-            cdUsuario: widget.cdUsuario,
-          ),
-          transitionDuration: Duration.zero,
-          reverseTransitionDuration: Duration.zero,
-        ),
+      showTransferDiff(
+        rootCtx,
+        sourceProc: widget.sourceProc,
+        sourceCode: widget.sourceCode,
+        sourceAmbiente: widget.sourceAmbiente,
+        targetAmbiente: targetAmbiente,
+        cdUsuario: widget.cdUsuario,
+        onTransferred: widget.onAfterReturn,
       );
-      widget.onAfterReturn?.call();
     } else {
       await showDialog<void>(
         context: rootCtx,

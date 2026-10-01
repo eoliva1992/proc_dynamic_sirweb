@@ -1,58 +1,55 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show LogicalKeyboardKey;
-import 'package:flutter_monaco/flutter_monaco.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../models/procedimiento.dart';
 import '../services/backup_service.dart';
 import '../services/sirweb_service.dart';
 import '../services/transfer_service.dart';
-import '../widgets/_editor_themes.dart';
 import '../widgets/ambiente_selector.dart';
 import '../widgets/app_toast.dart';
 import '../widgets/constellation_background.dart';
+import '../widgets/floating_window.dart';
+import '../widgets/native_diff_viewer.dart';
 
-typedef _Hunk = ({int origStart, int origEnd, int modStart, int modEnd});
-
-// LCS-based line diff; returns contiguous change blocks between orig and mod
-List<_Hunk> _computeHunks(String orig, String mod) {
-  final a = orig.split('\n');
-  final b = mod.split('\n');
-  final n = a.length;
-  final m = b.length;
-  final dp = List.generate(n + 1, (_) => List.filled(m + 1, 0));
-  for (var i = n - 1; i >= 0; i--) {
-    for (var j = m - 1; j >= 0; j--) {
-      dp[i][j] = a[i] == b[j]
-          ? dp[i + 1][j + 1] + 1
-          : (dp[i + 1][j] >= dp[i][j + 1] ? dp[i + 1][j] : dp[i][j + 1]);
-    }
-  }
-  final matches = <(int, int)>[];
-  var i = 0, j = 0;
-  while (i < n && j < m) {
-    if (a[i] == b[j]) {
-      matches.add((i, j));
-      i++;
-      j++;
-    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-      i++;
-    } else {
-      j++;
-    }
-  }
-  final hunks = <_Hunk>[];
-  var po = -1, pm = -1;
-  for (final (mi, mj) in [...matches, (n, m)]) {
-    if (mi > po + 1 || mj > pm + 1) {
-      hunks.add((origStart: po + 1, origEnd: mi, modStart: pm + 1, modEnd: mj));
-    }
-    po = mi;
-    pm = mj;
-  }
-  return hunks;
+/// Abre una ventana flotante con el diff de transferencia entre dos ambientes.
+///
+/// Comparte los mismos controles de edición, navegación y visualización que
+/// `ProcedureDiffWindow` y `SchemaObjectDiffPage`:
+/// - Navegación entre hunks (`Alt+↑` / `Alt+↓`)
+/// - Aplicar cambio actual: origen → destino (`Alt+→`) o destino → origen (`Alt+←`)
+/// - Copiar TODO: origen → destino (`Alt+Shift+→`) o destino → origen (`Alt+Shift+←`)
+/// - Aplicar líneas individuales mediante botones directos en el gutter
+/// - Edición directa en línea (`editableSide` / `onEditLine`)
+/// - Búsqueda de texto con conteo y navegación interactiva
+/// - Deshacer (`Ctrl+Z`) con historial
+/// - Acciones de transferencia: Backup destino, Guardar origen, Guardar destino y Transferir
+/// - Ventana flotante arrastrable, redimensionable y minimizable.
+VoidCallback showTransferDiff(
+  BuildContext context, {
+  required Procedimiento sourceProc,
+  required String sourceCode,
+  required String sourceAmbiente,
+  required String targetAmbiente,
+  required String cdUsuario,
+  VoidCallback? onTransferred,
+}) {
+  return showFloatingWindow(
+    context,
+    (close) => TransferDiffWindow(
+      sourceProc: sourceProc,
+      sourceCode: sourceCode,
+      sourceAmbiente: sourceAmbiente,
+      targetAmbiente: targetAmbiente,
+      cdUsuario: cdUsuario,
+      onTransferred: onTransferred,
+      onClose: close,
+    ),
+  );
 }
 
-class TransferDiffPage extends StatefulWidget {
+class TransferDiffPage extends StatelessWidget {
   final Procedimiento sourceProc;
   final String sourceCode;
   final String sourceAmbiente;
@@ -69,57 +66,147 @@ class TransferDiffPage extends StatefulWidget {
   });
 
   @override
-  State<TransferDiffPage> createState() => _TransferDiffPageState();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: TransferDiffWindow(
+        sourceProc: sourceProc,
+        sourceCode: sourceCode,
+        sourceAmbiente: sourceAmbiente,
+        targetAmbiente: targetAmbiente,
+        cdUsuario: cdUsuario,
+        onClose: () => Navigator.of(context).maybePop(),
+      ),
+    );
+  }
 }
 
-class _TransferDiffPageState extends State<TransferDiffPage> {
+class TransferDiffWindow extends StatefulWidget {
+  final Procedimiento sourceProc;
+  final String sourceCode;
+  final String sourceAmbiente;
+  final String targetAmbiente;
+  final String cdUsuario;
+  final VoidCallback? onTransferred;
+  final VoidCallback? onClose;
+
+  const TransferDiffWindow({
+    super.key,
+    required this.sourceProc,
+    required this.sourceCode,
+    required this.sourceAmbiente,
+    required this.targetAmbiente,
+    required this.cdUsuario,
+    this.onTransferred,
+    this.onClose,
+  });
+
+  @override
+  State<TransferDiffWindow> createState() => _TransferDiffWindowState();
+}
+
+class _TransferDiffWindowState extends State<TransferDiffWindow> {
+  static const _kPrefSideBySide = 'diff_side_by_side';
+  static const _kPrefShowAllLines = 'diff_show_all_lines';
+
+  static const double _kMinW = 750;
+  static const double _kHeaderH = 44;
+
+  bool _sideBySide = false;
+  bool _showAllLines = true;
+
+  double? _winW;
+  double? _winH;
+  Offset _position = Offset.zero;
+  bool _maximized = false;
+  bool _minimized = false;
+  int? _slot;
+  Duration _anim = Duration.zero;
+
+  final _diffCtrl = NativeDiffController();
+
+  // ── Textos mutables normalizados ──────────────────────────────────────────
+  late String _currentOriginal; // ORIGEN
+  late String _targetCode; // DESTINO
   bool _loadingTarget = true;
-  String _targetCode = '';
   bool _targetExists = false;
   bool _transferring = false;
   bool _savingSource = false;
   bool _savingTarget = false;
-  bool _sideBySide = true;
-  MonacoDiffController? _ctrl;
-  // El editor diff vive en un webview: una vez destruido, cualquier llamada
-  // rebota con `MonacoDisposedError`. Ver [_withCtrl].
-  bool _disposed = false;
 
-  // Tracks the current ORIGEN (left) text after programmatic changes
-  late String _currentOriginal;
+  // Historial de deshacer
   final _history = <({String original, String modified})>[];
+
+  // Edición directa
+  DiffEditSide _editSide = DiffEditSide.none;
+
+  // Búsqueda
+  final _searchCtrl = TextEditingController();
+  final _searchFocusNode = FocusNode();
+  String _searchQuery = '';
+  int _searchIndex = 0;
+
+  static String _normalize(String s) =>
+      s.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+
+  String get _language =>
+      widget.sourceProc.inConfiguracion == 'J' ? 'javascript' : 'sql';
+
+  /// Conteo de líneas agregadas/eliminadas.
+  ({int added, int removed}) get _stats {
+    if (_currentOriginal == _targetCode) return (added: 0, removed: 0);
+    var added = 0, removed = 0;
+    for (final h in computeHunks(_currentOriginal, _targetCode)) {
+      removed += h.origEnd - h.origStart;
+      added += h.modEnd - h.modStart;
+    }
+    return (added: added, removed: removed);
+  }
 
   @override
   void initState() {
     super.initState();
-    _currentOriginal = widget.sourceCode;
+    _currentOriginal = _normalize(widget.sourceCode);
+    _targetCode = '';
+    _loadPrefs();
     unawaited(_loadTarget());
   }
 
   @override
   void dispose() {
-    _disposed = true;
-    _ctrl = null;
+    if (_slot != null) {
+      FloatingWindowSlots.release(_slot!);
+    }
+    _diffCtrl.dispose();
+    _searchCtrl.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
-  /// Ejecuta [action] contra el diff editor sólo si sigue vivo, absorbiendo
-  /// el rebote por editor ya destruido (la página se cerró mid-await).
-  Future<T?> _withCtrl<T>(
-    Future<T> Function(MonacoDiffController ctrl) action,
-  ) async {
-    final ctrl = _ctrl;
-    if (ctrl == null || _disposed || !mounted) return null;
+  // ── Carga y persistencia ──────────────────────────────────────────────────
+
+  Future<void> _loadPrefs() async {
     try {
-      return await action(ctrl);
-    } catch (e) {
-      final msg = e.toString();
-      if (msg.contains('MonacoDisposedError') ||
-          msg.contains('has been disposed')) {
-        _ctrl = null;
-        return null;
-      }
-      rethrow;
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      final sideBySide = prefs.getBool(_kPrefSideBySide);
+      final showAllLines = prefs.getBool(_kPrefShowAllLines);
+      if (sideBySide == null && showAllLines == null) return;
+      setState(() {
+        _sideBySide = sideBySide ?? _sideBySide;
+        _showAllLines = showAllLines ?? _showAllLines;
+      });
+    } catch (_) {
+      // Sin storage disponible
+    }
+  }
+
+  Future<void> _savePrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_kPrefSideBySide, _sideBySide);
+      await prefs.setBool(_kPrefShowAllLines, _showAllLines);
+    } catch (_) {
+      // Best effort
     }
   }
 
@@ -131,7 +218,7 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
       );
       if (mounted) {
         setState(() {
-          _targetCode = proc.deTexto;
+          _targetCode = _normalize(proc.deTexto);
           _targetExists = true;
           _loadingTarget = false;
         });
@@ -146,6 +233,317 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
       }
     }
   }
+
+  void _toggleShowAllLines() {
+    setState(() => _showAllLines = !_showAllLines);
+    _savePrefs();
+  }
+
+  void _toggleSideBySide() {
+    setState(() => _sideBySide = !_sideBySide);
+    _savePrefs();
+  }
+
+  void _nextChange() => _diffCtrl.nextChange();
+  void _prevChange() => _diffCtrl.previousChange();
+
+  void _toggleMaximized() {
+    setState(() {
+      _anim = const Duration(milliseconds: 200);
+      if (_maximized) {
+        _maximized = false;
+        _winW = null;
+        _winH = null;
+      } else {
+        _maximized = true;
+        if (_minimized) {
+          FloatingWindowSlots.release(_slot!);
+          _slot = null;
+          _minimized = false;
+        }
+        _position = Offset.zero;
+      }
+    });
+  }
+
+  void _toggleMinimized() {
+    setState(() {
+      _anim = const Duration(milliseconds: 200);
+      _minimized = !_minimized;
+      if (_minimized) {
+        _maximized = false;
+        _slot = FloatingWindowSlots.take();
+      } else {
+        FloatingWindowSlots.release(_slot!);
+        _slot = null;
+      }
+    });
+  }
+
+  void _close() {
+    if (widget.onClose != null) {
+      widget.onClose!();
+    } else {
+      Navigator.of(context).maybePop();
+    }
+  }
+
+  // ── Acciones de Edición / Hunks ───────────────────────────────────────────
+
+  void _applyHunkToTarget(int idx) {
+    final oFrag = _currentOriginal;
+    final mFrag = _targetCode;
+    final hunks = computeHunks(oFrag, mFrag);
+    if (idx < 0 || idx >= hunks.length) return;
+    final h = hunks[idx];
+    final oL = oFrag.split('\n');
+    final dL = mFrag.split('\n');
+    final newFrag = [
+      ...dL.sublist(0, h.modStart),
+      ...oL.sublist(h.origStart, h.origEnd),
+      ...dL.sublist(h.modEnd),
+    ].join('\n');
+    setState(() {
+      _history.add((original: _currentOriginal, modified: _targetCode));
+      _targetCode = newFrag;
+    });
+  }
+
+  void _applyHunkToSource(int idx) {
+    final oFrag = _currentOriginal;
+    final mFrag = _targetCode;
+    final hunks = computeHunks(oFrag, mFrag);
+    if (idx < 0 || idx >= hunks.length) return;
+    final h = hunks[idx];
+    final oL = oFrag.split('\n');
+    final dL = mFrag.split('\n');
+    final newFrag = [
+      ...oL.sublist(0, h.origStart),
+      ...dL.sublist(h.modStart, h.modEnd),
+      ...oL.sublist(h.origEnd),
+    ].join('\n');
+    setState(() {
+      _history.add((original: _currentOriginal, modified: _targetCode));
+      _currentOriginal = newFrag;
+    });
+  }
+
+  void _applyCurrentHunkToTarget() => _applyHunkToTarget(_diffCtrl.currentHunk);
+  void _applyCurrentHunkToSource() => _applyHunkToSource(_diffCtrl.currentHunk);
+
+  void _applyAllToTarget() {
+    setState(() {
+      _history.add((original: _currentOriginal, modified: _targetCode));
+      _targetCode = _currentOriginal;
+    });
+  }
+
+  void _applyAllToSource() {
+    setState(() {
+      _history.add((original: _currentOriginal, modified: _targetCode));
+      _currentOriginal = _targetCode;
+    });
+  }
+
+  Future<void> _confirmReplace({required bool towardsTarget}) async {
+    final direction = towardsTarget ? 'ORIGEN → DESTINO' : 'DESTINO → ORIGEN';
+    final destination = towardsTarget
+        ? 'el DESTINO (${widget.targetAmbiente})'
+        : 'el ORIGEN (${widget.sourceAmbiente})';
+    final source = towardsTarget
+        ? 'el ORIGEN (${widget.sourceAmbiente})'
+        : 'el DESTINO (${widget.targetAmbiente})';
+
+    final confirmed = await showFloatingDialog<bool>(
+      context,
+      (dialogContext, close) => AlertDialog(
+        title: const Text('Confirmar reemplazo'),
+        content: Text(
+          'Se reemplazará todo el contenido de $destination con $source ($direction).\n\n'
+          'El cambio podrá deshacerse con Ctrl+Z.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => close(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => close(true),
+            child: const Text('Reemplazar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    if (towardsTarget) {
+      _applyAllToTarget();
+    } else {
+      _applyAllToSource();
+    }
+  }
+
+  // ── Aplicar por línea en Gutter ──────────────────────────────────────────
+
+  void _applyLineToTarget(int hunkIdx, int hunkRow) {
+    final oFrag = _currentOriginal;
+    final mFrag = _targetCode;
+    final hunks = computeHunks(oFrag, mFrag);
+    if (hunkIdx >= hunks.length) return;
+    final h = hunks[hunkIdx];
+    final oC = h.origEnd - h.origStart;
+    final mC = h.modEnd - h.modStart;
+    final hasO = hunkRow < oC;
+    final hasM = hunkRow < mC;
+    final oL = oFrag.split('\n');
+    final dL = List<String>.from(mFrag.split('\n'));
+
+    if (hasO && hasM) {
+      dL[h.modStart + hunkRow] = oL[h.origStart + hunkRow];
+    } else if (hasO && !hasM) {
+      final at = (h.modEnd + (hunkRow - mC)).clamp(0, dL.length);
+      dL.insert(at, oL[h.origStart + hunkRow]);
+    } else if (!hasO && hasM) {
+      final ri = h.modStart + hunkRow;
+      if (ri >= 0 && ri < dL.length) dL.removeAt(ri);
+    }
+
+    setState(() {
+      _history.add((original: _currentOriginal, modified: _targetCode));
+      _targetCode = dL.join('\n');
+    });
+  }
+
+  void _applyLineToSource(int hunkIdx, int hunkRow) {
+    final oFrag = _currentOriginal;
+    final mFrag = _targetCode;
+    final hunks = computeHunks(oFrag, mFrag);
+    if (hunkIdx >= hunks.length) return;
+    final h = hunks[hunkIdx];
+    final oC = h.origEnd - h.origStart;
+    final mC = h.modEnd - h.modStart;
+    final hasO = hunkRow < oC;
+    final hasM = hunkRow < mC;
+    final oL = List<String>.from(oFrag.split('\n'));
+    final dL = mFrag.split('\n');
+
+    if (hasO && hasM) {
+      oL[h.origStart + hunkRow] = dL[h.modStart + hunkRow];
+    } else if (hasO && !hasM) {
+      final ri = h.origStart + hunkRow;
+      if (ri >= 0 && ri < oL.length) oL.removeAt(ri);
+    } else if (!hasO && hasM) {
+      final at = (h.origEnd + (hunkRow - oC)).clamp(0, oL.length);
+      oL.insert(at, dL[h.modStart + hunkRow]);
+    }
+
+    setState(() {
+      _history.add((original: _currentOriginal, modified: _targetCode));
+      _currentOriginal = oL.join('\n');
+    });
+  }
+
+  // ── Undo ─────────────────────────────────────────────────────────────────
+
+  void _undo() {
+    if (_history.isEmpty) return;
+    final prev = _history.removeLast();
+    setState(() {
+      _currentOriginal = prev.original;
+      _targetCode = prev.modified;
+    });
+  }
+
+  // ── Edición en línea ─────────────────────────────────────────────────────
+
+  void _setEditSide(bool isSource) {
+    setState(() {
+      _editSide = isSource ? DiffEditSide.source : DiffEditSide.target;
+    });
+  }
+
+  void _stopEditing() => setState(() => _editSide = DiffEditSide.none);
+
+  void _editLine(bool isSource, int lineNumber, String value) {
+    final lines = (isSource ? _currentOriginal : _targetCode).split('\n');
+    final lineIndex = lineNumber - 1;
+    if (lineIndex < 0 ||
+        lineIndex >= lines.length ||
+        lines[lineIndex] == value) {
+      return;
+    }
+    setState(() {
+      _history.add((original: _currentOriginal, modified: _targetCode));
+      lines[lineIndex] = value;
+      if (isSource) {
+        _currentOriginal = lines.join('\n');
+      } else {
+        _targetCode = lines.join('\n');
+      }
+    });
+  }
+
+  // ── Búsqueda ─────────────────────────────────────────────────────────────
+
+  List<({bool isSource, int line})> get _searchMatches {
+    final q = _searchQuery.trim().toUpperCase();
+    if (q.isEmpty) return const [];
+    final matches = <({bool isSource, int line})>[];
+    for (final entry in _currentOriginal.split('\n').asMap().entries) {
+      if (entry.value.toUpperCase().contains(q)) {
+        matches.add((isSource: true, line: entry.key + 1));
+      }
+    }
+    for (final entry in _targetCode.split('\n').asMap().entries) {
+      if (entry.value.toUpperCase().contains(q)) {
+        matches.add((isSource: false, line: entry.key + 1));
+      }
+    }
+    return matches;
+  }
+
+  void _setSearchQuery(String value) {
+    setState(() {
+      _searchQuery = value;
+      _searchIndex = 0;
+    });
+    if (value.trim().isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _searchQuery != value) return;
+        final matches = _searchMatches;
+        if (matches.isNotEmpty) {
+          _jumpToMatch(matches[0]);
+        }
+      });
+    }
+  }
+
+  void _moveSearch(int delta) {
+    final matches = _searchMatches;
+    if (matches.isEmpty) return;
+    setState(() {
+      _searchIndex = (_searchIndex + delta) % matches.length;
+      if (_searchIndex < 0) _searchIndex += matches.length;
+    });
+    _jumpToMatch(matches[_searchIndex]);
+  }
+
+  void _jumpToMatch(({bool isSource, int line}) match) {
+    _diffCtrl.scrollToOrigLine(match.line);
+  }
+
+  void _copy(String text, String label) {
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+        content: Text('$label copiado al portapapeles'),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  // ── Operaciones de Transferencia / Backup ─────────────────────────────────
 
   Future<void> _backup() async {
     if (!_targetExists) {
@@ -174,7 +572,7 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
     setState(() => _savingSource = true);
     final result = await TransferService.transfer(
       cdProcedimiento: widget.sourceProc.cdProcedimiento,
-      sourceCode: widget.sourceCode,
+      sourceCode: _currentOriginal,
       inConfiguracion: widget.sourceProc.inConfiguracion,
       cdUsuario: widget.cdUsuario,
       targetAmbiente: widget.sourceAmbiente,
@@ -188,96 +586,11 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
     }
   }
 
-  // Apply the first remaining hunk from ORIGEN to DESTINO
-  Future<void> _applyOneToTarget() async {
-    final destino = await _withCtrl((ctrl) => ctrl.getModifiedText());
-    if (destino == null) return;
-    final hunks = _computeHunks(_currentOriginal, destino);
-    if (hunks.isEmpty) return;
-    final h = hunks.first;
-    final oLines = _currentOriginal.split('\n');
-    final dLines = destino.split('\n');
-    final newDest = [
-      ...dLines.sublist(0, h.modStart),
-      ...oLines.sublist(h.origStart, h.origEnd),
-      ...dLines.sublist(h.modEnd),
-    ].join('\n');
-    setState(
-      () => _history.add((original: _currentOriginal, modified: destino)),
-    );
-    await _withCtrl(
-      (ctrl) => ctrl.setTexts(original: _currentOriginal, modified: newDest),
-    );
-  }
-
-  // Apply the first remaining hunk from DESTINO to ORIGEN
-  Future<void> _applyOneToSource() async {
-    final destino = await _withCtrl((ctrl) => ctrl.getModifiedText());
-    if (destino == null) return;
-    final hunks = _computeHunks(_currentOriginal, destino);
-    if (hunks.isEmpty) return;
-    final h = hunks.first;
-    final oLines = _currentOriginal.split('\n');
-    final dLines = destino.split('\n');
-    final newOrig = [
-      ...oLines.sublist(0, h.origStart),
-      ...dLines.sublist(h.modStart, h.modEnd),
-      ...oLines.sublist(h.origEnd),
-    ].join('\n');
-    setState(() {
-      _history.add((original: _currentOriginal, modified: destino));
-      _currentOriginal = newOrig;
-    });
-    await _withCtrl(
-      (ctrl) => ctrl.setTexts(original: newOrig, modified: destino),
-    );
-  }
-
-  // Overwrites DESTINO (right) with current ORIGEN (left) content
-  Future<void> _applyAllToTarget() async {
-    final currentModified = await _withCtrl((ctrl) => ctrl.getModifiedText());
-    if (currentModified == null) return;
-    setState(
-      () =>
-          _history.add((original: _currentOriginal, modified: currentModified)),
-    );
-    await _withCtrl(
-      (ctrl) =>
-          ctrl.setTexts(original: _currentOriginal, modified: _currentOriginal),
-    );
-  }
-
-  // Overwrites ORIGEN (left) with current DESTINO (right) content
-  Future<void> _applyAllToSource() async {
-    final code = await _withCtrl((ctrl) => ctrl.getModifiedText());
-    if (code == null) return;
-    setState(() {
-      _history.add((original: _currentOriginal, modified: code));
-      _currentOriginal = code;
-    });
-    await _withCtrl((ctrl) => ctrl.setTexts(original: code, modified: code));
-  }
-
-  Future<void> _undo() async {
-    if (_history.isEmpty) return;
-    final prev = _history.last;
-    setState(() {
-      _history.removeLast();
-      _currentOriginal = prev.original;
-    });
-    await _withCtrl(
-      (ctrl) => ctrl.setTexts(original: prev.original, modified: prev.modified),
-    );
-  }
-
   Future<void> _saveToTarget() async {
-    final modified = await _withCtrl((ctrl) => ctrl.getModifiedText());
-    final codeToSave = modified ?? _targetCode;
-    if (!mounted) return;
     setState(() => _savingTarget = true);
     final result = await TransferService.transfer(
       cdProcedimiento: widget.sourceProc.cdProcedimiento,
-      sourceCode: codeToSave,
+      sourceCode: _targetCode,
       inConfiguracion: widget.sourceProc.inConfiguracion,
       cdUsuario: widget.cdUsuario,
       targetAmbiente: widget.targetAmbiente,
@@ -285,6 +598,7 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
     if (!mounted) return;
     setState(() => _savingTarget = false);
     if (result.success) {
+      _targetExists = true;
       AppToast.success(result.message);
     } else {
       AppToast.error(result.message);
@@ -292,16 +606,10 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
   }
 
   Future<void> _confirmAndTransfer() async {
-    // Read current content from the editable modified pane (DESTINO right side after cherry-picking)
-    final modified = await _withCtrl((ctrl) => ctrl.getModifiedText());
-    final codeToTransfer = modified ?? _targetCode;
-
-    if (!mounted) return;
-
     final tgtColor = AmbienteSelector.colorForAmbiente(widget.targetAmbiente);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
+    final confirmed = await showFloatingDialog<bool>(
+      context,
+      (dialogContext, close) => AlertDialog(
         titlePadding: EdgeInsets.zero,
         title: ConstellationDialogTitle(
           lineColor: tgtColor.withValues(alpha: 0.35),
@@ -332,12 +640,12 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
+            onPressed: () => close(false),
             child: const Text('Cancelar'),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: tgtColor),
-            onPressed: () => Navigator.of(ctx).pop(true),
+            onPressed: () => close(true),
             child: Text('Transferir a ${widget.targetAmbiente}'),
           ),
         ],
@@ -348,7 +656,7 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
     setState(() => _transferring = true);
     final result = await TransferService.transfer(
       cdProcedimiento: widget.sourceProc.cdProcedimiento,
-      sourceCode: codeToTransfer,
+      sourceCode: _targetCode,
       inConfiguracion: widget.sourceProc.inConfiguracion,
       cdUsuario: widget.cdUsuario,
       targetAmbiente: widget.targetAmbiente,
@@ -357,586 +665,1224 @@ class _TransferDiffPageState extends State<TransferDiffPage> {
     setState(() => _transferring = false);
 
     if (result.success) {
+      _targetExists = true;
       AppToast.success(result.message);
-      Navigator.of(context).pop();
+      widget.onTransferred?.call();
+      _close();
     } else {
       AppToast.error(result.message);
     }
   }
 
-  Future<void> _toggleLayout() async {
-    final next = !_sideBySide;
-    setState(() => _sideBySide = next);
-    await _withCtrl(
-      (ctrl) =>
-          ctrl.updateDiffOptions(MonacoDiffOptions(renderSideBySide: next)),
-    );
-  }
-
-  String get _language =>
-      widget.sourceProc.inConfiguracion == 'J' ? 'javascript' : 'sql';
+  // ── Layout y Render ───────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final size = MediaQuery.sizeOf(context);
+
     final srcColor = AmbienteSelector.colorForAmbiente(widget.sourceAmbiente);
     final tgtColor = AmbienteSelector.colorForAmbiente(widget.targetAmbiente);
 
-    return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 0,
-        flexibleSpace: const ConstellationAppBarBackground(),
-        title: Row(
-          children: [
-            const SizedBox(width: 4),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.orange.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: Colors.orange.shade700, width: 0.8),
+    if (_maximized) {
+      _winW = (size.width - 48).clamp(320.0, size.width);
+      _winH = (size.height - 48).clamp(280.0, size.height);
+    } else {
+      _winW ??= (size.width * 0.88).clamp(_kMinW, 1400.0);
+      _winH ??= (size.height * 0.88).clamp(420.0, 950.0);
+    }
+    if (_winW! > size.width) _winW = size.width;
+    if (_winH! > size.height) _winH = size.height;
+
+    final double w, h, left, top;
+    if (_minimized) {
+      w = FloatingWindowSlots.barW;
+      h = FloatingWindowSlots.barH;
+      final (l, t) = FloatingWindowSlots.offsetFor(_slot ?? 0, size);
+      left = l;
+      top = t;
+    } else {
+      w = _winW!;
+      h = _winH!;
+      left = ((size.width - w) / 2 + _position.dx).clamp(
+        0.0,
+        (size.width - w).clamp(0.0, double.infinity),
+      );
+      top = ((size.height - h) / 2 + _position.dy).clamp(
+        0.0,
+        (size.height - h).clamp(0.0, double.infinity),
+      );
+    }
+
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.arrowUp, alt: true):
+            _prevChange,
+        const SingleActivator(LogicalKeyboardKey.arrowDown, alt: true):
+            _nextChange,
+        const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true):
+            _applyCurrentHunkToTarget,
+        const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
+            _applyCurrentHunkToSource,
+        const SingleActivator(
+          LogicalKeyboardKey.arrowRight,
+          alt: true,
+          shift: true,
+        ): _applyAllToTarget,
+        const SingleActivator(
+          LogicalKeyboardKey.arrowLeft,
+          alt: true,
+          shift: true,
+        ): _applyAllToSource,
+        const SingleActivator(LogicalKeyboardKey.keyZ, control: true): _undo,
+        const SingleActivator(LogicalKeyboardKey.f11): _toggleMaximized,
+      },
+      child: Stack(
+        children: [
+          // Barrier para click-outside cuando no está maximizado ni minimizado
+          if (!_maximized && !_minimized)
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: () {
+                  // No cierra abruptamente para evitar perder ediciones en transferencia
+                },
               ),
-              child: Text(
-                'TRANSFERENCIA',
-                style: TextStyle(
-                  color: Colors.orange.shade700,
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5,
+            ),
+
+          AnimatedPositioned(
+            duration: _anim,
+            curve: Curves.easeOutCubic,
+            left: left,
+            top: top,
+            width: w,
+            height: h,
+            onEnd: () => setState(() => _anim = Duration.zero),
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF1E222B)
+                      : const Color(0xFFFAFBFC),
+                  borderRadius: _maximized
+                      ? BorderRadius.zero
+                      : BorderRadius.circular(10),
+                  border: Border.all(
+                    color: cs.outlineVariant.withValues(
+                      alpha: isDark ? 0.4 : 0.8,
+                    ),
+                    width: 1,
+                  ),
+                  boxShadow: _minimized
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.18),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3),
+                          ),
+                        ]
+                      : [
+                          BoxShadow(
+                            color: Colors.black.withValues(
+                              alpha: isDark ? 0.45 : 0.22,
+                            ),
+                            blurRadius: 28,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: OverflowBox(
+                  alignment: Alignment.topLeft,
+                  minWidth: 0,
+                  maxWidth: double.infinity,
+                  minHeight: 0,
+                  maxHeight: double.infinity,
+                  child: SizedBox(
+                    width: _winW,
+                    height: _winH,
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: Column(
+                            children: [
+                              const SizedBox(height: _kHeaderH),
+                              _buildToolbar(isDark, cs, srcColor, tgtColor),
+                              Expanded(
+                                child: _loadingTarget
+                                    ? Center(
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: tgtColor,
+                                            ),
+                                            const SizedBox(height: 12),
+                                            Text(
+                                              'Cargando versión de ${widget.targetAmbiente}…',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: cs.onSurfaceVariant,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      )
+                                    : NativeDiffViewer(
+                                        origText: _currentOriginal,
+                                        modText: _targetCode,
+                                        sideBySide: _sideBySide,
+                                        showAllLines: _showAllLines,
+                                        controller: _diffCtrl,
+                                        onApplyLineToTarget: _applyLineToTarget,
+                                        onApplyLineToSource: _applyLineToSource,
+                                        searchQuery: _searchQuery,
+                                        editableSide: _editSide,
+                                        onEditLine: _editLine,
+                                      ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Positioned(
+                          left: 0,
+                          top: 0,
+                          width: w,
+                          child: _buildHeader(isDark, cs, srcColor, tgtColor),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
-            const SizedBox(width: 8),
-            Text(
-              widget.sourceProc.cdProcedimiento,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+
+          // Resize handles
+          if (!_maximized && !_minimized) ...[
+            Positioned(
+              left: left + w - 5,
+              top: top + 44,
+              width: 10,
+              height: (h - 54).clamp(0.0, double.infinity),
+              child: MouseRegion(
+                cursor: SystemMouseCursors.resizeLeftRight,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onPanUpdate: (d) => setState(() {
+                    _anim = Duration.zero;
+                    _winW = (_winW! + d.delta.dx).clamp(_kMinW, size.width);
+                  }),
+                ),
+              ),
             ),
-            const SizedBox(width: 8),
-            _badge(widget.sourceAmbiente, srcColor, 'ORIGEN'),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 6),
-              child: Icon(Icons.compare_arrows, size: 14),
+            Positioned(
+              left: left + 10,
+              top: top + h - 5,
+              width: (w - 20).clamp(0.0, double.infinity),
+              height: 10,
+              child: MouseRegion(
+                cursor: SystemMouseCursors.resizeUpDown,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onPanUpdate: (d) => setState(() {
+                    _anim = Duration.zero;
+                    _winH = (_winH! + d.delta.dy).clamp(320.0, size.height);
+                  }),
+                ),
+              ),
             ),
-            _badge(widget.targetAmbiente, tgtColor, 'DESTINO'),
+            Positioned(
+              left: left + w - 16,
+              top: top + h - 16,
+              width: 16,
+              height: 16,
+              child: MouseRegion(
+                cursor: SystemMouseCursors.resizeDownRight,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onPanUpdate: (d) => setState(() {
+                    _anim = Duration.zero;
+                    _winW = (_winW! + d.delta.dx).clamp(_kMinW, size.width);
+                    _winH = (_winH! + d.delta.dy).clamp(320.0, size.height);
+                  }),
+                  child: CustomPaint(
+                    painter: WindowGripPainter(
+                      cs.onSurfaceVariant.withValues(alpha: 0.3),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ],
-        ),
-        actions: [
-          // Navigate between changes
-          Tooltip(
-            message: 'Cambio anterior',
-            child: IconButton(
-              icon: const Icon(Icons.arrow_upward, size: 16),
-              onPressed: _loadingTarget
-                  ? null
-                  : () => _ctrl?.revealPreviousChange(),
-            ),
-          ),
-          Tooltip(
-            message: 'Siguiente cambio',
-            child: IconButton(
-              icon: const Icon(Icons.arrow_downward, size: 16),
-              onPressed: _loadingTarget
-                  ? null
-                  : () => _ctrl?.revealNextChange(),
-            ),
-          ),
-          const SizedBox(width: 4),
-          TextButton.icon(
-            onPressed: _loadingTarget ? null : _backup,
-            icon: const Icon(Icons.save_alt, size: 14),
-            label: const Text('Backup destino', style: TextStyle(fontSize: 12)),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
-            child: TextButton.icon(
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                minimumSize: Size.zero,
-              ),
-              onPressed: (_loadingTarget || _savingSource)
-                  ? null
-                  : _saveToSource,
-              icon: _savingSource
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 1.5),
-                    )
-                  : const Icon(Icons.save_outlined, size: 14),
-              label: Text(
-                'Guardar en ${widget.sourceAmbiente}',
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
-            child: TextButton.icon(
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                minimumSize: Size.zero,
-                foregroundColor: tgtColor,
-              ),
-              onPressed: (_loadingTarget || _savingTarget)
-                  ? null
-                  : _saveToTarget,
-              icon: _savingTarget
-                  ? SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 1.5,
-                        color: tgtColor,
-                      ),
-                    )
-                  : const Icon(Icons.save_outlined, size: 14),
-              label: Text(
-                'Guardar en ${widget.targetAmbiente}',
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-          ),
-          TextButton.icon(
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              minimumSize: const Size(0, 28),
-            ),
-            icon: Icon(
-              _sideBySide
-                  ? Icons.view_agenda_outlined
-                  : Icons.view_sidebar_outlined,
-              size: 14,
-            ),
-            label: Text(
-              _sideBySide ? 'Vista dividida' : 'Vista lineal',
-              style: const TextStyle(fontSize: 12),
-            ),
-            onPressed: _loadingTarget ? null : _toggleLayout,
-          ),
-          const SizedBox(width: 4),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-            child: FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: tgtColor,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                minimumSize: Size.zero,
-              ),
-              onPressed: (_loadingTarget || _transferring)
-                  ? null
-                  : _confirmAndTransfer,
-              icon: _transferring
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 1.5,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.send_rounded, size: 14),
-              label: Text(
-                'Transferir a ${widget.targetAmbiente}',
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-          ),
         ],
       ),
-      body: _loadingTarget
-          ? const Center(
-              child: CircularProgressIndicator(color: Color(0xFF0078D4)),
-            )
-          : CallbackShortcuts(
-              bindings: {
-                SingleActivator(LogicalKeyboardKey.keyZ, control: true):
-                    _history.isEmpty ? () {} : _undo,
-                SingleActivator(
-                  LogicalKeyboardKey.arrowUp,
-                  alt: true,
-                ): _loadingTarget
-                    ? () {}
-                    : () => _ctrl?.revealPreviousChange(),
-                SingleActivator(LogicalKeyboardKey.arrowDown, alt: true):
-                    _loadingTarget ? () {} : () => _ctrl?.revealNextChange(),
-                SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
-                    _loadingTarget ? () {} : _applyOneToSource,
-                SingleActivator(LogicalKeyboardKey.arrowRight, alt: true):
-                    _loadingTarget ? () {} : _applyOneToTarget,
-                SingleActivator(
-                  LogicalKeyboardKey.arrowLeft,
-                  alt: true,
-                  shift: true,
-                ): _loadingTarget
-                    ? () {}
-                    : _applyAllToSource,
-                SingleActivator(
-                  LogicalKeyboardKey.arrowRight,
-                  alt: true,
-                  shift: true,
-                ): _loadingTarget
-                    ? () {}
-                    : _applyAllToTarget,
-              },
-              child: Focus(
-                autofocus: false,
-                child: _buildDiff(isDark, cs, srcColor, tgtColor),
-              ),
-            ),
     );
   }
 
-  Widget _buildDiff(
+  // ── Encabezado / Título de Ventana Flotante ────────────────────────────────
+
+  Widget _buildHeader(
     bool isDark,
     ColorScheme cs,
     Color srcColor,
     Color tgtColor,
   ) {
-    return Column(
-      children: [
-        // Column headers — make it unambiguous which side is which
-        Container(
-          color: isDark ? cs.surfaceContainerHighest : cs.surfaceContainerLow,
-          child: Row(
-            children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    border: Border(
-                      left: BorderSide(color: srcColor, width: 3),
-                      right: BorderSide(color: cs.outlineVariant),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: srcColor.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: srcColor, width: 0.8),
-                        ),
-                        child: Text(
-                          'ORIGEN — ${widget.sourceAmbiente}',
-                          style: TextStyle(
-                            color: srcColor,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Código fuente (editable)',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: cs.onSurfaceVariant,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+    final divColor = cs.outlineVariant;
+
+    return MouseRegion(
+      cursor: (_maximized || _minimized)
+          ? SystemMouseCursors.basic
+          : SystemMouseCursors.grab,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onPanUpdate: (_maximized || _minimized)
+            ? null
+            : (d) => setState(() {
+                _anim = Duration.zero;
+                _position += d.delta;
+              }),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 620;
+            return ConstellationHeader(
+              height: _kHeaderH,
+              lineColor: isDark
+                  ? Colors.orange.withValues(alpha: 0.25)
+                  : Colors.orange.withValues(alpha: 0.15),
+              padding: const EdgeInsets.fromLTRB(10, 0, 0, 0),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xFF161B22)
+                    : const Color(0xFFF6F8FA),
+                border: _minimized
+                    ? null
+                    : Border(bottom: BorderSide(color: divColor)),
               ),
-              // Navigation + per-hunk + all + undo
-              Container(
-                width: 140,
-                decoration: BoxDecoration(
-                  border: Border.symmetric(
-                    vertical: BorderSide(color: cs.outlineVariant),
-                  ),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        Tooltip(
-                          message: 'Cambio anterior  (Alt+↑)',
-                          child: IconButton(
-                            icon: Icon(
-                              Icons.arrow_upward,
-                              size: 12,
-                              color: cs.onSurfaceVariant,
-                            ),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 18,
-                              minHeight: 24,
-                            ),
-                            onPressed: _loadingTarget
-                                ? null
-                                : () => _ctrl?.revealPreviousChange(),
-                          ),
-                        ),
-                        Tooltip(
-                          message:
-                              'Aplicar 1 cambio: DESTINO → ORIGEN  (Alt+←)',
-                          child: IconButton(
-                            icon: Icon(
-                              Icons.chevron_left,
-                              size: 18,
-                              color: srcColor,
-                            ),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 18,
-                              minHeight: 24,
-                            ),
-                            onPressed: _loadingTarget
-                                ? null
-                                : _applyOneToSource,
-                          ),
-                        ),
-                        Tooltip(
-                          message:
-                              'Copiar TODO: DESTINO → ORIGEN  (Alt+Shift+←)',
-                          child: IconButton(
-                            icon: Icon(
-                              Icons.keyboard_double_arrow_left,
-                              size: 14,
-                              color: srcColor,
-                            ),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 18,
-                              minHeight: 24,
-                            ),
-                            onPressed: _loadingTarget
-                                ? null
-                                : _applyAllToSource,
-                          ),
-                        ),
-                        Tooltip(
-                          message: _history.isEmpty
-                              ? 'Nada que deshacer'
-                              : 'Deshacer última copia (${_history.length})  Ctrl+Z',
-                          child: Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              IconButton(
-                                icon: Icon(
-                                  Icons.undo,
-                                  size: 12,
-                                  color: _history.isEmpty
-                                      ? cs.onSurfaceVariant.withValues(
-                                          alpha: 0.3,
-                                        )
-                                      : Colors.amber.shade600,
-                                ),
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(
-                                  minWidth: 18,
-                                  minHeight: 24,
-                                ),
-                                onPressed: (_loadingTarget || _history.isEmpty)
-                                    ? null
-                                    : _undo,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onDoubleTap: _minimized
+                          ? _toggleMinimized
+                          : _toggleMaximized,
+                      child: Row(
+                        children: [
+                          if (!compact && !_minimized) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
                               ),
-                              if (_history.isNotEmpty)
-                                Positioned(
-                                  top: 2,
-                                  right: 0,
-                                  child: Container(
-                                    width: 10,
-                                    height: 10,
-                                    decoration: BoxDecoration(
-                                      color: Colors.amber.shade600,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: Center(
-                                      child: Text(
-                                        '${_history.length}',
-                                        style: const TextStyle(
-                                          fontSize: 6,
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(
+                                  color: Colors.orange.shade700,
+                                  width: 0.8,
                                 ),
-                            ],
+                              ),
+                              child: Text(
+                                'TRANSFERENCIA',
+                                style: TextStyle(
+                                  color: Colors.orange.shade700,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
+                          Flexible(
+                            child: Text(
+                              widget.sourceProc.cdProcedimiento,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                        ),
-                        Tooltip(
-                          message:
-                              'Copiar TODO: ORIGEN → DESTINO  (Alt+Shift+→)',
-                          child: IconButton(
-                            icon: Icon(
-                              Icons.keyboard_double_arrow_right,
-                              size: 14,
-                              color: tgtColor,
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1,
                             ),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 18,
-                              minHeight: 24,
+                            decoration: BoxDecoration(
+                              color: cs.surfaceContainerHigh,
+                              borderRadius: BorderRadius.circular(3),
                             ),
-                            onPressed: _loadingTarget
-                                ? null
-                                : _applyAllToTarget,
+                            child: Text(
+                              _language.toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: cs.onSurfaceVariant,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                           ),
-                        ),
-                        Tooltip(
-                          message:
-                              'Aplicar 1 cambio: ORIGEN → DESTINO  (Alt+→)',
-                          child: IconButton(
-                            icon: Icon(
-                              Icons.chevron_right,
-                              size: 18,
-                              color: tgtColor,
-                            ),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 18,
-                              minHeight: 24,
-                            ),
-                            onPressed: _loadingTarget
-                                ? null
-                                : _applyOneToTarget,
+                          const SizedBox(width: 8),
+                          _badge(widget.sourceAmbiente, srcColor, 'ORIGEN'),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4),
+                            child: Icon(Icons.arrow_forward_rounded, size: 13),
                           ),
+                          _badge(widget.targetAmbiente, tgtColor, 'DESTINO'),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // Botón de acción rápida: Transferir a destino
+                  if (!_minimized) ...[
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: tgtColor,
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
                         ),
-                        Tooltip(
-                          message: 'Siguiente cambio  (Alt+↓)',
-                          child: IconButton(
-                            icon: Icon(
-                              Icons.arrow_downward,
-                              size: 12,
+                        textStyle: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      onPressed: (_loadingTarget || _transferring)
+                          ? null
+                          : _confirmAndTransfer,
+                      icon: _transferring
+                          ? const SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.send_rounded, size: 13),
+                      label: Text('Transferir a ${widget.targetAmbiente}'),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+
+                  WindowButton.titleBar(
+                    icon: _minimized
+                        ? Icons.expand_less_rounded
+                        : Icons.remove_rounded,
+                    tooltip: _minimized ? 'Restaurar' : 'Minimizar',
+                    onTap: _toggleMinimized,
+                  ),
+                  WindowButton.titleBar(
+                    icon: _maximized
+                        ? Icons.close_fullscreen_rounded
+                        : Icons.open_in_full_rounded,
+                    tooltip: _maximized ? 'Restaurar tamaño' : 'Maximizar',
+                    onTap: _toggleMaximized,
+                  ),
+                  WindowButton.titleBar(
+                    icon: Icons.close_rounded,
+                    tooltip: 'Cerrar',
+                    onTap: _close,
+                    isClose: true,
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  // ── Toolbar con Controles de Edición ──────────────────────────────────────
+
+  Widget _buildToolbar(
+    bool isDark,
+    ColorScheme cs,
+    Color srcColor,
+    Color tgtColor,
+  ) {
+    final divColor = cs.outlineVariant;
+
+    return Container(
+      height: 42,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF151A21) : const Color(0xFFF8FAFC),
+        border: Border(bottom: BorderSide(color: divColor)),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          scrollDirection: Axis.horizontal,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minWidth: constraints.maxWidth - 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(width: 8),
+
+                // ── Lado izquierdo: ORIGEN ─────────────────────────────────
+                _roleBadge(
+                  role: 'ORIGEN',
+                  detail: widget.sourceAmbiente,
+                  color: srcColor,
+                ),
+                const SizedBox(width: 4),
+
+                // ←← copia todo DESTINO → ORIGEN
+                _tbBtn(
+                  tooltip: 'Copiar TODO: DESTINO → ORIGEN  (Alt+Shift+←)',
+                  icon: Icons.keyboard_double_arrow_left,
+                  color: srcColor,
+                  onTap: _applyAllToSource,
+                ),
+
+                // ← copia hunk actual DESTINO → ORIGEN
+                _tbBtn(
+                  tooltip: 'Aplicar cambio actual: DESTINO → ORIGEN  (Alt+←)',
+                  icon: Icons.chevron_left,
+                  color: srcColor,
+                  size: 20,
+                  onTap: _applyCurrentHunkToSource,
+                ),
+
+                // ── Navegación central ─────────────────────────────────────
+                _vSep(divColor),
+                _tbBtn(
+                  tooltip: 'Cambio anterior  (Alt+↑)',
+                  icon: Icons.keyboard_arrow_up,
+                  onTap: _prevChange,
+                ),
+
+                // Contador de hunks
+                ListenableBuilder(
+                  listenable: _diffCtrl,
+                  builder: (_, _) {
+                    final tot = _diffCtrl.totalHunks;
+                    final cur = _diffCtrl.currentHunk;
+                    return Container(
+                      constraints: const BoxConstraints(
+                        minWidth: 52,
+                        minHeight: 26,
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: cs.primary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: cs.primary.withValues(alpha: 0.22),
+                        ),
+                      ),
+                      child: tot == 0
+                          ? Text(
+                              '✓ Sin cambios',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.green.shade500,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            )
+                          : Text(
+                              '${cur + 1} / $tot',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: cs.onSurface,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                    );
+                  },
+                ),
+
+                _tbBtn(
+                  tooltip: 'Siguiente cambio  (Alt+↓)',
+                  icon: Icons.keyboard_arrow_down,
+                  onTap: _nextChange,
+                ),
+                _vSep(divColor),
+
+                // → copia hunk actual ORIGEN → DESTINO
+                _tbBtn(
+                  tooltip: 'Aplicar cambio actual: ORIGEN → DESTINO  (Alt+→)',
+                  icon: Icons.chevron_right,
+                  color: tgtColor,
+                  size: 20,
+                  onTap: _applyCurrentHunkToTarget,
+                ),
+
+                // →→ copia todo ORIGEN → DESTINO
+                _tbBtn(
+                  tooltip: 'Copiar TODO: ORIGEN → DESTINO  (Alt+Shift+→)',
+                  icon: Icons.keyboard_double_arrow_right,
+                  color: tgtColor,
+                  onTap: _applyAllToTarget,
+                ),
+
+                const SizedBox(width: 4),
+
+                // ── Lado derecho: DESTINO ──────────────────────────────────
+                _roleBadge(
+                  role: 'DESTINO',
+                  detail: widget.targetAmbiente,
+                  color: tgtColor,
+                ),
+
+                _vSep(divColor),
+                _replaceMenu(cs),
+
+                const SizedBox(width: 8),
+                _vSep(divColor),
+                _buildStatsWidget(),
+                _vSep(divColor),
+
+                // Solo diffs / Completo
+                Tooltip(
+                  message: _showAllLines
+                      ? 'Mostrar solo diffs'
+                      : 'Mostrar código completo',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(4),
+                    onTap: _toggleShowAllLines,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _showAllLines
+                                ? Icons.article_outlined
+                                : Icons.difference_outlined,
+                            size: 14,
+                            color: _showAllLines
+                                ? Colors.amber.shade600
+                                : cs.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _showAllLines ? 'Completo' : 'Solo diffs',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: _showAllLines
+                                  ? Colors.amber.shade600
+                                  : cs.onSurfaceVariant,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                _vSep(divColor),
+
+                // Vista Dividida / Unificada
+                Tooltip(
+                  message: _sideBySide
+                      ? 'Vista unificada'
+                      : 'Vista lado a lado',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(4),
+                    onTap: _toggleSideBySide,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _sideBySide
+                                ? Icons.view_agenda_outlined
+                                : Icons.view_sidebar_outlined,
+                            size: 14,
+                            color: cs.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _sideBySide ? 'Dividida' : 'Unificada',
+                            style: TextStyle(
+                              fontSize: 11,
                               color: cs.onSurfaceVariant,
                             ),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 18,
-                              minHeight: 24,
-                            ),
-                            onPressed: _loadingTarget
-                                ? null
-                                : () => _ctrl?.revealNextChange(),
                           ),
-                        ),
-                      ],
-                    ),
-                    Text(
-                      '< > = 1 cambio  ·  << >> = todos',
-                      style: TextStyle(
-                        fontSize: 8,
-                        color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+                        ],
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 6,
+                _vSep(divColor),
+
+                // Búsqueda
+                _buildSearchControl(cs),
+                _vSep(divColor),
+
+                // Editar Origen / Destino
+                _srcTgtMenu(
+                  cs,
+                  tooltip: 'Editar código (Origen / Destino)',
+                  icon: Icons.edit_outlined,
+                  srcIcon: Icons.edit_note_outlined,
+                  tgtIcon: Icons.edit_outlined,
+                  srcLabel: 'Editar Origen',
+                  tgtLabel: 'Editar Destino',
+                  onSelected: _setEditSide,
+                ),
+                if (_editSide != DiffEditSide.none) ...[
+                  Text(
+                    'Enter para confirmar',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: cs.onSurfaceVariant,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                  decoration: BoxDecoration(
-                    border: Border(left: BorderSide(color: tgtColor, width: 3)),
+                  const SizedBox(width: 4),
+                  Tooltip(
+                    message: 'Salir del modo edición',
+                    child: IconButton(
+                      onPressed: _stopEditing,
+                      icon: const Icon(Icons.check, size: 15),
+                      visualDensity: VisualDensity.compact,
+                    ),
                   ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: tgtColor.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: tgtColor, width: 0.8),
-                        ),
-                        child: Text(
-                          'DESTINO — ${widget.targetAmbiente}',
-                          style: TextStyle(
-                            color: tgtColor,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.5,
+                ],
+                _vSep(divColor),
+
+                // Undo
+                Tooltip(
+                  message: _history.isEmpty
+                      ? 'Nada que deshacer'
+                      : 'Deshacer  Ctrl+Z  (${_history.length} operaciones)',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(4),
+                    onTap: _history.isEmpty ? null : _undo,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.undo,
+                            size: 14,
+                            color: _history.isEmpty ? cs.outline : cs.primary,
                           ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Deshacer',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: _history.isEmpty ? cs.outline : cs.primary,
+                            ),
+                          ),
+                          if (_history.isNotEmpty) ...[
+                            const SizedBox(width: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: cs.primary.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '${_history.length}',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: cs.primary,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                _vSep(divColor),
+
+                // Copiar código
+                Tooltip(
+                  message: 'Copiar código (origen / destino)',
+                  child: PopupMenuButton<String>(
+                    tooltip: '',
+                    icon: Icon(
+                      Icons.copy_rounded,
+                      size: 15,
+                      color: cs.onSurfaceVariant,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 6,
+                    ),
+                    onSelected: (v) => v == 'orig'
+                        ? _copy(_currentOriginal, 'Código de origen')
+                        : _copy(_targetCode, 'Código de destino'),
+                    itemBuilder: (_) => [
+                      PopupMenuItem(
+                        value: 'orig',
+                        child: Text(
+                          'Copiar origen (${widget.sourceAmbiente})',
+                          style: const TextStyle(fontSize: 12),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _targetExists
-                            ? 'Estado actual (editable)'
-                            : 'No existe — se creará',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: cs.onSurfaceVariant,
-                          fontStyle: FontStyle.italic,
+                      PopupMenuItem(
+                        value: 'mod',
+                        child: Text(
+                          'Copiar destino (${widget.targetAmbiente})',
+                          style: const TextStyle(fontSize: 12),
                         ),
                       ),
                     ],
                   ),
                 ),
+
+                // Acciones de transferencia extras
+                _vSep(divColor),
+                Tooltip(
+                  message:
+                      'Guardar copia de seguridad del código actual en destino',
+                  child: TextButton.icon(
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                    ),
+                    onPressed: _loadingTarget ? null : _backup,
+                    icon: const Icon(Icons.save_alt, size: 14),
+                    label: const Text(
+                      'Backup destino',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                  ),
+                ),
+
+                Tooltip(
+                  message: 'Guardar cambios directamente en el ambiente origen',
+                  child: TextButton.icon(
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                    ),
+                    onPressed: (_loadingTarget || _savingSource)
+                        ? null
+                        : _saveToSource,
+                    icon: _savingSource
+                        ? const SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(strokeWidth: 1.5),
+                          )
+                        : const Icon(Icons.save_outlined, size: 14),
+                    label: Text(
+                      'Guardar en ${widget.sourceAmbiente}',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                  ),
+                ),
+
+                Tooltip(
+                  message:
+                      'Guardar cambios directamente en el ambiente destino',
+                  child: TextButton.icon(
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      foregroundColor: tgtColor,
+                    ),
+                    onPressed: (_loadingTarget || _savingTarget)
+                        ? null
+                        : _saveToTarget,
+                    icon: _savingTarget
+                        ? SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.5,
+                              color: tgtColor,
+                            ),
+                          )
+                        : const Icon(Icons.save_outlined, size: 14),
+                    label: Text(
+                      'Guardar en ${widget.targetAmbiente}',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(width: 8),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Sub-componentes ───────────────────────────────────────────────────────
+
+  Widget _roleBadge({
+    required String role,
+    required String detail,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(color: color.withValues(alpha: 0.4), width: 0.8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            role,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '($detail)',
+            style: TextStyle(fontSize: 9, color: color.withValues(alpha: 0.8)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _replaceMenu(ColorScheme cs) {
+    return MenuAnchor(
+      alignmentOffset: const Offset(0, 4),
+      menuChildren: [
+        MenuItemButton(
+          onPressed: () => _confirmReplace(towardsTarget: true),
+          leadingIcon: const Icon(Icons.keyboard_double_arrow_right, size: 15),
+          child: const Text('Completo: Origen → Destino'),
+        ),
+        MenuItemButton(
+          onPressed: () => _confirmReplace(towardsTarget: false),
+          leadingIcon: const Icon(Icons.keyboard_double_arrow_left, size: 15),
+          child: const Text('Completo: Destino → Origen'),
+        ),
+      ],
+      builder: (context, controller, _) => Tooltip(
+        message: 'Reemplazar contenido completo',
+        waitDuration: const Duration(milliseconds: 400),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(4),
+          onTap: () =>
+              controller.isOpen ? controller.close() : controller.open(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Icon(Icons.find_replace_rounded, size: 15, color: cs.error),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _srcTgtMenu(
+    ColorScheme cs, {
+    required String tooltip,
+    required IconData icon,
+    required IconData srcIcon,
+    required IconData tgtIcon,
+    required String srcLabel,
+    required String tgtLabel,
+    required void Function(bool isSource) onSelected,
+  }) {
+    return MenuAnchor(
+      alignmentOffset: const Offset(0, 4),
+      menuChildren: [
+        MenuItemButton(
+          onPressed: () => onSelected(true),
+          leadingIcon: Icon(srcIcon, size: 15, color: Colors.blue.shade700),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                srcLabel,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                'ORIGEN (${widget.sourceAmbiente})',
+                style: TextStyle(fontSize: 10, color: Colors.blue.shade700),
               ),
             ],
           ),
         ),
-        Expanded(
-          child: MonacoDiffEditor(
-            // original = left = ORIGEN code
-            original: widget.sourceCode,
-            // modified = right = DESTINO current code (editable, cherry-pick target)
-            modified: _targetCode,
-            language: MonacoLanguage(_language),
-            diffOptions: MonacoDiffOptions(
-              renderSideBySide: _sideBySide,
-              ignoreTrimWhitespace: false,
-              originalEditable: true,
-              renderMarginRevertIcon: true,
-            ),
-            options: EditorOptions(
-              theme: editorThemeStore.monacoTheme,
-              fontSize: 13,
-              minimap: const MonacoMinimapOptions(enabled: false),
-              lineNumbers: MonacoLineNumbers.on,
-              wordWrap: MonacoWordWrap.off,
-              readOnly: false,
-            ),
-            onReady: (ctrl) => _ctrl = ctrl,
+        MenuItemButton(
+          onPressed: () => onSelected(false),
+          leadingIcon: Icon(tgtIcon, size: 15, color: Colors.teal.shade700),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                tgtLabel,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                'DESTINO (${widget.targetAmbiente})',
+                style: TextStyle(fontSize: 10, color: Colors.teal.shade700),
+              ),
+            ],
           ),
+        ),
+      ],
+      builder: (context, controller, _) => Tooltip(
+        message: tooltip,
+        waitDuration: const Duration(milliseconds: 400),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(4),
+          onTap: () =>
+              controller.isOpen ? controller.close() : controller.open(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  size: 14,
+                  color: _editSide == DiffEditSide.none
+                      ? cs.onSurfaceVariant
+                      : _editSide == DiffEditSide.source
+                      ? Colors.blue.shade700
+                      : Colors.teal.shade700,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _editSide == DiffEditSide.none
+                      ? 'Editar'
+                      : _editSide == DiffEditSide.source
+                      ? 'Editando Origen'
+                      : 'Editando Destino',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: _editSide == DiffEditSide.none
+                        ? cs.onSurfaceVariant
+                        : _editSide == DiffEditSide.source
+                        ? Colors.blue.shade700
+                        : Colors.teal.shade700,
+                    fontWeight: _editSide == DiffEditSide.none
+                        ? FontWeight.normal
+                        : FontWeight.w600,
+                  ),
+                ),
+                Icon(
+                  Icons.arrow_drop_down,
+                  size: 14,
+                  color: cs.onSurfaceVariant,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchControl(ColorScheme cs) {
+    final matches = _searchMatches;
+    final count = matches.length;
+    final position = count == 0 ? 0 : _searchIndex + 1;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 170,
+          height: 30,
+          child: TextField(
+            controller: _searchCtrl,
+            focusNode: _searchFocusNode,
+            onChanged: _setSearchQuery,
+            onEditingComplete: () {
+              _moveSearch(1);
+              _searchFocusNode.requestFocus();
+            },
+            style: const TextStyle(fontSize: 11),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: 'Buscar en diff…',
+              hintStyle: TextStyle(
+                fontSize: 11,
+                color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+              ),
+              prefixIcon: const Icon(Icons.search, size: 14),
+              prefixIconConstraints: const BoxConstraints(
+                minWidth: 26,
+                minHeight: 26,
+              ),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.close, size: 12),
+                      splashRadius: 10,
+                      onPressed: () => _setSearchQuery(''),
+                    )
+                  : null,
+              suffixIconConstraints: const BoxConstraints(
+                minWidth: 20,
+                minHeight: 20,
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 6,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+                borderSide: BorderSide(color: cs.outlineVariant),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+                borderSide: BorderSide(color: cs.primary),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Container(
+          constraints: const BoxConstraints(minWidth: 44),
+          alignment: Alignment.center,
+          child: Text(
+            count == 0 ? '0/0' : '$position/$count',
+            style: TextStyle(
+              fontSize: 10,
+              color: count == 0 ? cs.outline : cs.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        _tbBtn(
+          tooltip: 'Coincidencia anterior  (Shift+Enter)',
+          icon: Icons.keyboard_arrow_up,
+          size: 16,
+          onTap: count == 0 ? null : () => _moveSearch(-1),
+        ),
+        _tbBtn(
+          tooltip: 'Siguiente coincidencia  (Enter)',
+          icon: Icons.keyboard_arrow_down,
+          size: 16,
+          onTap: count == 0 ? null : () => _moveSearch(1),
         ),
       ],
     );
   }
 
-  Widget _badge(String label, Color color, String role) => Column(
-    mainAxisSize: MainAxisSize.min,
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: color, width: 0.8),
+  Widget _buildStatsWidget() {
+    final s = _stats;
+    if (s.added == 0 && s.removed == 0) {
+      return Text(
+        'sin cambios',
+        style: TextStyle(
+          fontSize: 11,
+          color: Colors.green.shade600,
+          fontWeight: FontWeight.w500,
         ),
-        child: Text(
-          '$role: $label',
-          style: TextStyle(
-            color: color,
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
+      );
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (s.added > 0)
+          Text(
+            '+${s.added}',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.green.shade600,
+              fontWeight: FontWeight.w600,
+            ),
           ),
+        if (s.added > 0 && s.removed > 0) const SizedBox(width: 4),
+        if (s.removed > 0)
+          Text(
+            '-${s.removed}',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.red.shade600,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _tbBtn({
+    required String tooltip,
+    required IconData icon,
+    VoidCallback? onTap,
+    Color? color,
+    double size = 18,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      waitDuration: const Duration(milliseconds: 350),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(4),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+          child: Icon(icon, size: size, color: color),
         ),
       ),
-    ],
+    );
+  }
+
+  Widget _badge(String label, Color color, String role) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(4),
+      border: Border.all(color: color.withValues(alpha: 0.5), width: 0.8),
+    ),
+    child: Text(
+      '$role: $label',
+      style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
+    ),
+  );
+
+  Widget _vSep(Color color) => Container(
+    margin: const EdgeInsets.symmetric(horizontal: 4),
+    width: 1,
+    height: 18,
+    color: color,
   );
 }

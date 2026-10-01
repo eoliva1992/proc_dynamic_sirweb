@@ -55,12 +55,17 @@ VoidCallback showFloatingWindow(
   }
 
   late OverlayEntry entry;
+  late final OverlayEntry innerEntry;
   var removed = false;
   final animKey = GlobalKey<_FloatingWindowAnimatorState>();
 
   void remove() {
     if (removed) return;
     removed = true;
+    try {
+      innerEntry.remove();
+      innerEntry.dispose();
+    } catch (_) {}
     entry.remove();
   }
 
@@ -82,22 +87,23 @@ VoidCallback showFloatingWindow(
   // Así los menús contextuales, popups y dropdowns abiertos desde ella
   // se dibujan en este Overlay interno y quedan GARANTIZADAMENTE por delante
   // del marco y contenido de la ventana flotante.
-  entry = OverlayEntry(
-    builder: (_) => Overlay(
-      initialEntries: [
-        OverlayEntry(
-          builder: (_) => animated
-              ? _FloatingWindowAnimator(
-                  key: animKey,
-                  barrierColor: barrierColor,
-                  onBarrierTap: barrierDismissible ? close : null,
-                  child: builder(close),
-                )
-              : builder(close),
-        ),
-      ],
-    ),
+  // La entry interna se crea UNA sola vez (no dentro del builder de `entry`):
+  // si se reconstruyera en cada rebuild (p.ej. por cambios de MediaQuery al
+  // redimensionar), el Overlay local ignora la nueva lista `initialEntries`
+  // tras su primer build, pero la entry vieja podía quedar referenciada en
+  // dos lugares a la vez y disparar el error "Duplicate GlobalKeys" sobre
+  // `_OverlayEntryWidgetState` al cerrar la ventana.
+  innerEntry = OverlayEntry(
+    builder: (_) => animated
+        ? _FloatingWindowAnimator(
+            key: animKey,
+            barrierColor: barrierColor,
+            onBarrierTap: barrierDismissible ? close : null,
+            child: builder(close),
+          )
+        : builder(close),
   );
+  entry = OverlayEntry(builder: (_) => Overlay(initialEntries: [innerEntry]));
   overlay.insert(entry);
   return close;
 }
@@ -204,32 +210,49 @@ Future<T?> showFloatingDialog<T>(
   Color barrierColor = const Color(0x8A000000),
   bool barrierDismissible = true,
 }) {
+  final overlay = _resolveOverlay(context);
+  if (overlay == null) {
+    throw FlutterError(
+      'No se encontró un Overlay para montar el diálogo flotante. '
+      'Verificá que la app tenga un MaterialApp/Navigator activo.',
+    );
+  }
+
   final completer = Completer<T?>();
-  late final VoidCallback closeWindow;
+  late final OverlayEntry entry;
   var closed = false;
 
   void finish([T? result]) {
-    if (!completer.isCompleted) completer.complete(result);
     if (closed) return;
     closed = true;
-    closeWindow();
+    entry.remove();
+    entry.dispose();
+    if (!completer.isCompleted) completer.complete(result);
   }
 
-  closeWindow = showFloatingWindow(
-    context,
-    (_) => _FloatingDialogLayer<T>(
-      // Descarte por barrera: la entry se remueve sin pasar por `finish`.
-      onDisposed: () {
-        if (!completer.isCompleted) completer.complete(null);
-      },
-      onEscape: barrierDismissible ? finish : null,
-      builder: builder,
-      close: finish,
+  entry = OverlayEntry(
+    builder: (_) => Stack(
+      children: [
+        Positioned.fill(
+          child: GestureDetector(
+            onTap: barrierDismissible ? () => finish(null) : null,
+            behavior: HitTestBehavior.opaque,
+            child: ColoredBox(color: barrierColor),
+          ),
+        ),
+        _FloatingDialogLayer<T>(
+          onDisposed: () {
+            if (!completer.isCompleted) completer.complete(null);
+          },
+          onEscape: barrierDismissible ? () => finish(null) : null,
+          builder: builder,
+          close: finish,
+        ),
+      ],
     ),
-    barrierColor: barrierColor,
-    barrierDismissible: barrierDismissible,
   );
 
+  overlay.insert(entry);
   return completer.future;
 }
 

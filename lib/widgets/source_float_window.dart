@@ -23,6 +23,8 @@ void openSourceWindow(
   required String name,
   required String objectType,
   required String ambiente,
+  int? initialLine,
+  String? initialSearchTerm,
 }) {
   // Camino principal: tab en la ventana principal.
   // openTabOf resuelve primero por árbol y, si el contexto no es descendiente
@@ -30,7 +32,13 @@ void openSourceWindow(
   // recurre al handler global registrado por la pantalla principal.
   final openTab = SourceTabController.openTabOf(context);
   if (openTab != null) {
-    openTab(name: name, objectType: objectType, ambiente: ambiente);
+    openTab(
+      name: name,
+      objectType: objectType,
+      ambiente: ambiente,
+      initialLine: initialLine,
+      initialSearchTerm: initialSearchTerm,
+    );
     return;
   }
 
