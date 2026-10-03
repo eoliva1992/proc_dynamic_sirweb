@@ -93,6 +93,9 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
     _ambiente = widget.ambiente;
     _searchCtrl.addListener(_onSearchChanged);
     SchemaService.instance.status.addListener(_onSchemaStatus);
+    SchemaRecentsService.instance.recentsVersion.addListener(
+      _onRecentsVersionChanged,
+    );
     _loadMeta();
     _loadSaved();
   }
@@ -108,7 +111,14 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
     _searchCtrl.dispose();
     _debounce?.cancel();
     SchemaService.instance.status.removeListener(_onSchemaStatus);
+    SchemaRecentsService.instance.recentsVersion.removeListener(
+      _onRecentsVersionChanged,
+    );
     super.dispose();
+  }
+
+  void _onRecentsVersionChanged() {
+    if (mounted) _loadSaved();
   }
 
   void _onSearchChanged() {

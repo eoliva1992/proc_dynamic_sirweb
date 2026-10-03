@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SchemaObjectRef {
@@ -39,6 +40,13 @@ class SchemaRecentsService {
   static const _kFavorites = 'schema_favorites_v2';
   static const _maxRecents = 20;
 
+  /// Notificador que se dispara al modificar la lista de recientes (agregar, quitar o limpiar).
+  final ValueNotifier<int> recentsVersion = ValueNotifier<int>(0);
+
+  void _notifyRecentsChanged() {
+    recentsVersion.value++;
+  }
+
   Future<void> addRecent(SchemaObjectRef ref) async {
     final prefs = await SharedPreferences.getInstance();
     final list = _load(prefs, _kRecents);
@@ -48,6 +56,7 @@ class SchemaRecentsService {
       list.removeLast();
     }
     await _save(prefs, _kRecents, list);
+    _notifyRecentsChanged();
   }
 
   Future<List<SchemaObjectRef>> getRecents({String? ambiente}) async {
@@ -62,6 +71,7 @@ class SchemaRecentsService {
     final list = _load(prefs, _kRecents);
     list.removeWhere((r) => r.name == ref.name && r.ambiente == ref.ambiente);
     await _save(prefs, _kRecents, list);
+    _notifyRecentsChanged();
   }
 
   Future<void> clearRecents({String? ambiente}) async {
@@ -73,6 +83,7 @@ class SchemaRecentsService {
       all.removeWhere((r) => r.ambiente == ambiente);
       await _save(prefs, _kRecents, all);
     }
+    _notifyRecentsChanged();
   }
 
   Future<void> addFavorite(SchemaObjectRef ref) async {

@@ -6,8 +6,12 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_monaco/flutter_monaco.dart' as fm;
+import '../models/bulk_backup_item.dart';
 import '../services/app_log.dart';
 import '../services/backup_service.dart';
+import '../services/batch_transfer_service.dart'
+    show deployOpenSchemaObjectSource;
+import '../services/bulk_backup_service.dart';
 import '../services/schema_service.dart';
 import '../screens/schema_object_diff_page.dart';
 import '_editor_plsql_checker.dart';
@@ -15,6 +19,7 @@ import '_editor_plsql_completions.dart';
 import '_editor_themes.dart';
 import 'ambiente_selector.dart';
 import 'app_toast.dart';
+import 'floating_window.dart' show showFloatingDialog;
 import 'code_editor_panel.dart'
     show
         showInfoEventoWindow,
@@ -55,6 +60,17 @@ const kTypeIcons = {
 const _kTiposInvocables = {'PROCEDURE', 'FUNCTION', 'PACKAGE'};
 
 enum _ViewerCompileStatus { idle, compiling, ok, error }
+
+enum _TransferStepStatus { pending, running, success, error }
+
+/// Un paso visible en el panel de progreso de la transferencia (respaldo,
+/// compilación en origen o despliegue a un destino puntual).
+class _TransferStep {
+  _TransferStep(this.label);
+  final String label;
+  _TransferStepStatus status = _TransferStepStatus.pending;
+  String? detail;
+}
 
 enum _CtxMenuAction {
   gotoDef,
@@ -270,6 +286,12 @@ class ObjectSourcePage extends StatefulWidget {
   /// Si es null, el ambiente se muestra como badge estático (modo ventana separada).
   final ValueChanged<String>? onAmbienteChanged;
 
+  /// Notifica si el fuente actual difiere del contenido cargado o compilado.
+  final ValueChanged<bool>? onDirtyChanged;
+
+  /// Fuente precargado opcional para pruebas o inicialización directa sin llamadas de red.
+  final ({String spec, String? body})? initialData;
+
   const ObjectSourcePage({
     super.key,
     required this.name,
@@ -279,6 +301,8 @@ class ObjectSourcePage extends StatefulWidget {
     this.initialLine,
     this.initialSearchTerm,
     this.onAmbienteChanged,
+    this.onDirtyChanged,
+    this.initialData,
   });
 
   @override
@@ -299,8 +323,16 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
   fm.MonacoController? _specCtrl;
   String _specText = '';
   String _bodyText = '';
+  String _originalSpecText = '';
+  String _originalBodyText = '';
+  bool _isDirty = false;
+  final List<({bool isBody, String text})> _undoStack = [];
+  final List<({bool isBody, String text})> _redoStack = [];
+  String? _pendingHistorySpecText;
+  String? _pendingHistoryBodyText;
   int _specErrors = 0;
   int _bodyErrors = 0;
+  bool _transferring = false;
 
   _ViewerCompileStatus _compileStatus = _ViewerCompileStatus.idle;
   bool _minimap = true;
@@ -380,6 +412,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
   }
 
   Future<void> _loadObjectSource() async {
+    if (!await _confirmDiscardIfDirty()) return;
     _loadObjectStatus();
     final isTable = widget.objectType == 'TABLE';
     _tabCtrl?.dispose();
@@ -387,6 +420,9 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
     _initialLineNavigated = false;
     _specText = '';
     _bodyText = '';
+    _originalSpecText = '';
+    _originalBodyText = '';
+    _setDirty(false);
     _specErrors = 0;
     _bodyErrors = 0;
     _specIssues = [];
@@ -395,6 +431,25 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
     _bodyCompileIssues = [];
     _activeSubprogram = null;
     _compileStatus = _ViewerCompileStatus.idle;
+    if (widget.initialData != null) {
+      final data = widget.initialData!;
+      _data = data;
+      _setSourceBaseline(data);
+      _loading = false;
+      if (data.body != null &&
+          (widget.objectType == 'PACKAGE' ||
+              widget.objectType == 'PACKAGE BODY' ||
+              widget.objectType == 'TYPE')) {
+        final initialIndex =
+            (widget.initialLine != null && data.body!.isNotEmpty) ? 1 : 0;
+        _tabCtrl = TabController(
+          length: 2,
+          vsync: this,
+          initialIndex: initialIndex,
+        );
+      }
+      return;
+    }
     if (mounted) {
       setState(() {
         _loading = true;
@@ -432,6 +487,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
           setState(() {
             _data = data;
             _loading = false;
+            _setSourceBaseline(data);
             // Only PACKAGE/TYPE/PACKAGE BODY has a meaningful spec/body split
             if (data.body != null &&
                 (widget.objectType == 'PACKAGE' ||
@@ -474,6 +530,75 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
       'Fuente copiado al portapapeles',
       duration: const Duration(seconds: 2),
     );
+  }
+
+  bool get _sourceIsDirty =>
+      _specText != _originalSpecText || _bodyText != _originalBodyText;
+
+  String get _effectiveSpecSource =>
+      _data!.spec.isNotEmpty ? _data!.spec : (_data!.body ?? '');
+
+  void _setSourceBaseline(({String spec, String? body}) data) {
+    _originalSpecText = data.spec.isNotEmpty ? data.spec : (data.body ?? '');
+    _originalBodyText = data.body ?? '';
+    _bodyText = _originalBodyText;
+    _undoStack.clear();
+    _redoStack.clear();
+    _pendingHistorySpecText = null;
+    _pendingHistoryBodyText = null;
+    _setDirty(false);
+  }
+
+  void _refreshDirtyState() => _setDirty(_sourceIsDirty);
+
+  void _setDirty(bool value) {
+    if (_isDirty == value) return;
+    _isDirty = value;
+    widget.onDirtyChanged?.call(value);
+  }
+
+  Future<bool> _confirmDiscardIfDirty({String action = 'continuar'}) async {
+    if (!_isDirty) return true;
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        titlePadding: EdgeInsets.zero,
+        title: const ConstellationDialogTitle(
+          child: Text('Cambios sin guardar'),
+        ),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text('¿Descartar los cambios para $action?'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Seguir editando'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.orange.shade700,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Descartar'),
+          ),
+        ],
+      ),
+    );
+    if (discard == true) {
+      _setDirty(false);
+      return true;
+    }
+    return false;
+  }
+
+  Future<void> _refreshObjectSource() async {
+    await _loadObjectSource();
+  }
+
+  Future<void> _changeAmbiente(String ambiente) async {
+    if (!await _confirmDiscardIfDirty(action: 'cambiar el ambiente')) return;
+    widget.onAmbienteChanged?.call(ambiente);
   }
 
   Future<void> _compile() async {
@@ -544,6 +669,14 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
           _compileStatus = errors.isEmpty
               ? _ViewerCompileStatus.ok
               : _ViewerCompileStatus.error;
+          if (errors.isEmpty) {
+            if (isBody) {
+              _originalBodyText = text;
+            } else {
+              _originalSpecText = text;
+            }
+            _refreshDirtyState();
+          }
           if (errors.isNotEmpty) _showProblems = true;
         });
         AppLog.instance.compilation(
@@ -576,6 +709,110 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
     _specCtrl?.runJavaScript(
       'try{window.__fmOpenFind ? window.__fmOpenFind() : (window.editor && window.editor.getAction("actions.find").run());}catch(e){}',
     );
+  }
+
+  void _recordSourceText(String text, {required bool isBody}) {
+    if (!mounted) return;
+    final pendingText = isBody
+        ? _pendingHistoryBodyText
+        : _pendingHistorySpecText;
+    if (pendingText == text) {
+      if (isBody) {
+        _pendingHistoryBodyText = null;
+      } else {
+        _pendingHistorySpecText = null;
+      }
+      return;
+    }
+
+    final previous = isBody ? _bodyText : _specText;
+    if (text == previous) return;
+    final hadUndo = _undoStack.isNotEmpty;
+    final hadRedo = _redoStack.isNotEmpty;
+    final wasDirty = _isDirty;
+    _undoStack.add((isBody: isBody, text: previous));
+    if (_undoStack.length > 200) _undoStack.removeAt(0);
+    _redoStack.clear();
+
+    _refreshDirtyState();
+    var navigationChanged = false;
+    if (isBody) {
+      _bodyText = text;
+      final parsed = _parseSubprograms(text);
+      navigationChanged =
+          parsed.length != _subprograms.length ||
+          Iterable<int>.generate(
+            parsed.length,
+          ).any((i) => parsed[i] != _subprograms[i]);
+      if (navigationChanged) _subprograms = parsed;
+    } else {
+      _specText = text;
+      if (_tabCtrl != null) {
+        final parsed = _parseSubprograms(text);
+        navigationChanged =
+            parsed.length != _specSubprograms.length ||
+            Iterable<int>.generate(
+              parsed.length,
+            ).any((i) => parsed[i] != _specSubprograms[i]);
+        if (navigationChanged) _specSubprograms = parsed;
+      }
+    }
+    if (hadUndo != _undoStack.isNotEmpty ||
+        hadRedo != _redoStack.isNotEmpty ||
+        wasDirty != _isDirty ||
+        navigationChanged) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _applyHistoryEntry(
+    ({bool isBody, String text}) entry, {
+    required bool toRedo,
+  }) async {
+    final ctrl = _specCtrl;
+    if (ctrl == null) return;
+
+    final current = entry.isBody ? _bodyText : _specText;
+    final currentEntry = (isBody: entry.isBody, text: current);
+    if (toRedo) {
+      _redoStack.add(currentEntry);
+    } else {
+      _undoStack.add(currentEntry);
+    }
+    if (entry.isBody) {
+      _bodyText = entry.text;
+      _pendingHistoryBodyText = entry.text;
+    } else {
+      _specText = entry.text;
+      _pendingHistorySpecText = entry.text;
+    }
+    setState(() {
+      _refreshDirtyState();
+      if (entry.isBody) {
+        _subprograms = _parseSubprograms(entry.text);
+      } else if (_tabCtrl != null) {
+        _specSubprograms = _parseSubprograms(entry.text);
+      }
+    });
+
+    final document = entry.isBody && _tabCtrl != null
+        ? ctrl.documentByUri(Uri.parse('file:///source/body.sql'))
+        : _tabCtrl != null
+        ? ctrl.documentByUri(Uri.parse('file:///source/spec.sql'))
+        : ctrl.document;
+    await document.setText(entry.text);
+  }
+
+  Future<void> _undo() async {
+    if (_undoStack.isEmpty) return;
+    final entry = _undoStack.removeLast();
+    await _applyHistoryEntry(entry, toRedo: true);
+  }
+
+  Future<void> _redo() async {
+    if (_redoStack.isEmpty) return;
+    final entry = _redoStack.removeLast();
+    await _applyHistoryEntry(entry, toRedo: false);
   }
 
   void _openSnippetsManager() {
@@ -642,6 +879,562 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
       objectName: widget.name,
       objectType: widget.objectType,
       sourceAmbiente: widget.ambiente,
+    );
+  }
+
+  // ── Transferencia a otro ambiente ───────────────────────────────────────────
+
+  /// Compila en el ambiente actual únicamente las partes (SPEC/BODY) que
+  /// tengan cambios sin guardar; si no hay cambios, no hace nada. Cancela la
+  /// transferencia (devuelve `false`) ante cualquier error de compilación.
+  Future<bool> _compileForTransfer() async {
+    final specChanged = _specText != _originalSpecText;
+    final bodyChanged = _tabCtrl != null && _bodyText != _originalBodyText;
+    if (!specChanged && !bodyChanged) return true;
+
+    Future<bool> compilePart(String text, {required bool isBody}) async {
+      final objType = (isBody && widget.objectType == 'PACKAGE')
+          ? 'PACKAGE BODY'
+          : widget.objectType;
+      try {
+        final errors = await SchemaService.instance.compileObject(
+          text,
+          widget.name,
+          objType,
+          ambiente: widget.ambiente,
+        );
+        AppLog.instance.compilation(
+          objectName: widget.name,
+          objectType: widget.objectType,
+          ambiente: widget.ambiente,
+          part: widget.objectType == 'PACKAGE'
+              ? (isBody ? 'BODY' : 'SPEC')
+              : null,
+          errors: errors,
+          source: 'Transferencia',
+        );
+        if (errors.isNotEmpty) {
+          AppToast.error(
+            '${widget.name}: error de compilación en ${widget.ambiente} '
+            '— transferencia cancelada',
+            source: 'Transferencia',
+          );
+          return false;
+        }
+        if (isBody) {
+          _originalBodyText = text;
+        } else {
+          _originalSpecText = text;
+        }
+        return true;
+      } catch (e) {
+        AppToast.error(
+          'Error al compilar en ${widget.ambiente}: $e',
+          source: 'Transferencia',
+        );
+        return false;
+      }
+    }
+
+    if (specChanged && !await compilePart(_specText, isBody: false)) {
+      return false;
+    }
+    if (bodyChanged && !await compilePart(_bodyText, isBody: true)) {
+      return false;
+    }
+    if (mounted) _refreshDirtyState();
+    return true;
+  }
+
+  /// Busca si ya existe un objeto con el mismo nombre/tipo en [ambiente],
+  /// usando la metadata de schema en caché (puede refrescarse en background).
+  /// Si la verificación falla, se asume que no existe para no bloquear al
+  /// usuario — la confirmación de reemplazo es solo una ayuda, no una regla.
+  Future<bool> _objectExistsIn(String ambiente) async {
+    try {
+      final metadata = await SchemaService.instance.getMetadata(
+        ambiente: ambiente,
+      );
+      final upperName = widget.name.toUpperCase();
+      if (widget.objectType == 'VIEW') {
+        return metadata.views.contains(upperName);
+      }
+      return metadata.objects.any(
+        (o) => o.name == upperName && o.type == widget.objectType,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<({Set<String> destinos, bool backup})?> _pickTransferTarget(
+    List<String> destinos,
+  ) {
+    final selected = <String>{destinos.first};
+    var backup = false;
+    return showFloatingDialog<({Set<String> destinos, bool backup})>(
+      context,
+      (ctx, close) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          titlePadding: EdgeInsets.zero,
+          title: const ConstellationDialogTitle(
+            child: Text('Transferir a otro ambiente'),
+          ),
+          content: SizedBox(
+            width: 320,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Se transferirá "${widget.name}" (${widget.objectType}) '
+                  'desde ${widget.ambiente} a los ambientes elegidos.',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                for (final a in destinos)
+                  InkWell(
+                    onTap: () => setDlg(() {
+                      if (selected.contains(a)) {
+                        selected.remove(a);
+                      } else {
+                        selected.add(a);
+                      }
+                    }),
+                    borderRadius: BorderRadius.circular(6),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 6,
+                      ),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: Checkbox(
+                              value: selected.contains(a),
+                              onChanged: (v) => setDlg(() {
+                                if (v ?? false) {
+                                  selected.add(a);
+                                } else {
+                                  selected.remove(a);
+                                }
+                              }),
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Icon(
+                            AmbienteSelector.iconForAmbiente(a),
+                            size: 16,
+                            color: AmbienteSelector.colorForAmbiente(a),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(a),
+                        ],
+                      ),
+                    ),
+                  ),
+                const Divider(height: 20),
+                InkWell(
+                  onTap: () => setDlg(() => backup = !backup),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: Checkbox(
+                            value: backup,
+                            onChanged: (v) => setDlg(() => backup = v ?? false),
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(
+                            'Respaldar cada destino antes de transferir',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => close(), child: const Text('Cancelar')),
+            FilledButton(
+              onPressed: selected.isEmpty
+                  ? null
+                  : () => close((destinos: Set.of(selected), backup: backup)),
+              child: const Text('Continuar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<bool?> _confirmProdTransfer() {
+    return showFloatingDialog<bool>(
+      context,
+      (ctx, close) => AlertDialog(
+        titlePadding: EdgeInsets.zero,
+        title: const ConstellationDialogTitle(
+          child: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.red, size: 20),
+              SizedBox(width: 8),
+              Text('Transferir a Producción'),
+            ],
+          ),
+        ),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            'Vas a transferir "${widget.name}" al ambiente de Producción.\n'
+            'Esta acción puede afectar datos y procesos reales.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => close(false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => close(true),
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<bool?> _confirmReplaceInTargets(List<String> existentes) {
+    return showFloatingDialog<bool>(
+      context,
+      (ctx, close) => AlertDialog(
+        titlePadding: EdgeInsets.zero,
+        title: const ConstellationDialogTitle(
+          child: Text('El objeto ya existe'),
+        ),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            '"${widget.name}" ya existe en ${existentes.join(', ')}. '
+            '¿Confirmás reemplazarlo con la versión actual?',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => close(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => close(true),
+            child: const Text('Reemplazar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Respalda en disco el fuente que actualmente tiene cada ambiente en
+  /// [destinos] (si existe) antes de sobrescribirlo, todos bajo una misma
+  /// carpeta elegida una sola vez. Cancela toda la transferencia si el
+  /// usuario descarta el selector de carpeta o si falla alguna escritura.
+  Future<bool> _backupDestinationsBeforeTransfer(List<String> destinos) async {
+    final porRespaldar = <String, ({String spec, String? body})>{};
+    for (final destino in destinos) {
+      try {
+        final source = await SchemaService.instance.getObjectSource(
+          widget.name,
+          widget.objectType,
+          ambiente: destino,
+        );
+        if (source.spec.isNotEmpty ||
+            (source.body != null && source.body!.isNotEmpty)) {
+          porRespaldar[destino] = source;
+        }
+      } catch (_) {
+        // no existía en ese destino — nada que respaldar allí
+      }
+    }
+    if (porRespaldar.isEmpty) return true;
+
+    final basePath = await FilePicker.getDirectoryPath(
+      dialogTitle: 'Carpeta para los respaldos previos a la transferencia',
+    );
+    if (basePath == null) {
+      AppToast.warning('Respaldo cancelado — transferencia abortada');
+      return false;
+    }
+
+    final stamp = DateTime.now().toIso8601String().replaceAll(':', '-');
+    final item = BulkBackupItem(
+      name: widget.name,
+      type: widget.objectType,
+      source: BulkBackupSource.schema,
+    );
+    final fallos = <String>[];
+    for (final entry in porRespaldar.entries) {
+      final destino = entry.key;
+      final source = entry.value;
+      final safeTarget = destino.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+      final targetDir = Directory(
+        '$basePath/PRE_TRANSFER_${safeTarget}_$stamp',
+      );
+      final script = BulkBackupService.buildSchemaScript(
+        item: item,
+        ambiente: destino,
+        spec: source.spec,
+        body: source.body,
+      );
+      final writeResult = await BulkBackupService.writeAll(
+        directory: targetDir,
+        ambiente: destino,
+        items: [item],
+        scripts: {item.id: script},
+      );
+      for (final fail in writeResult.failures) {
+        fallos.add('$destino: ${fail.error}');
+      }
+    }
+
+    if (fallos.isNotEmpty) {
+      AppToast.error(
+        'No se pudo respaldar ${fallos.join(' · ')} — transferencia abortada',
+        source: 'Transferencia',
+      );
+      return false;
+    }
+    AppToast.success(
+      'Respaldo generado para ${porRespaldar.keys.join(', ')}',
+      source: 'Transferencia',
+    );
+    return true;
+  }
+
+  Future<void> _transferToAmbiente() async {
+    if (_transferring || _data == null || widget.objectType == 'TABLE') return;
+    final destinos = AmbienteSelector.ambientes
+        .where((a) => a != widget.ambiente)
+        .toList();
+    if (destinos.isEmpty) return;
+
+    final choice = await _pickTransferTarget(destinos);
+    if (choice == null || choice.destinos.isEmpty || !mounted) return;
+    final seleccionados = choice.destinos.toList();
+
+    if (seleccionados.contains('Prod')) {
+      final confirmed = await _confirmProdTransfer();
+      if (confirmed != true || !mounted) return;
+    }
+
+    final existentes = <String>[];
+    for (final destino in seleccionados) {
+      if (await _objectExistsIn(destino)) existentes.add(destino);
+    }
+    if (!mounted) return;
+    if (existentes.isNotEmpty) {
+      final replace = await _confirmReplaceInTargets(existentes);
+      if (replace != true || !mounted) return;
+    }
+
+    setState(() => _transferring = true);
+
+    // Panel de progreso: muestra en vivo cuándo termina el respaldo y cada
+    // despliegue, en vez de depender únicamente del toast final.
+    _TransferStep? backupStep;
+    final steps = <_TransferStep>[];
+    if (choice.backup) {
+      backupStep = _TransferStep('Respaldo de destino(s)');
+      steps.add(backupStep);
+    }
+    final compileStep = _TransferStep('Compilación en origen');
+    steps.add(compileStep);
+    final deploySteps = <String, _TransferStep>{
+      for (final d in seleccionados) d: _TransferStep('Transferir a $d'),
+    };
+    steps.addAll(deploySteps.values);
+
+    final progress = ValueNotifier<List<_TransferStep>>(List.of(steps));
+    void tick() {
+      if (mounted) progress.value = List.of(steps);
+    }
+
+    void Function()? closeProgress;
+    showFloatingDialog<void>(context, (ctx, close) {
+      closeProgress = close;
+      return ValueListenableBuilder<List<_TransferStep>>(
+        valueListenable: progress,
+        builder: (ctx, list, _) => AlertDialog(
+          titlePadding: EdgeInsets.zero,
+          title: ConstellationDialogTitle(
+            child: Text('Transfiriendo "${widget.name}"'),
+          ),
+          content: SizedBox(
+            width: 340,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [for (final step in list) _buildTransferStepRow(step)],
+            ),
+          ),
+        ),
+      );
+    }, barrierDismissible: false);
+
+    Future<bool> runStep(
+      _TransferStep step,
+      Future<bool> Function() action,
+    ) async {
+      step.status = _TransferStepStatus.running;
+      tick();
+      bool ok;
+      try {
+        ok = await action();
+      } catch (e) {
+        ok = false;
+        step.detail = '$e';
+      }
+      step.status = ok
+          ? _TransferStepStatus.success
+          : _TransferStepStatus.error;
+      tick();
+      return ok;
+    }
+
+    try {
+      var aborted = false;
+      if (backupStep != null) {
+        final ok = await runStep(
+          backupStep,
+          () => _backupDestinationsBeforeTransfer(seleccionados),
+        );
+        if (!ok) aborted = true;
+      }
+      if (!aborted) {
+        final ok = await runStep(compileStep, _compileForTransfer);
+        if (!ok) aborted = true;
+      }
+
+      var exitosos = 0;
+      final errores = <String>[];
+      if (!aborted) {
+        for (final destino in seleccionados) {
+          final step = deploySteps[destino]!;
+          final ok = await runStep(step, () async {
+            final outcome = await deployOpenSchemaObjectSource(
+              name: widget.name,
+              objectType: widget.objectType,
+              spec: _specText,
+              body: _tabCtrl != null ? _bodyText : null,
+              targetAmbiente: destino,
+            );
+            if (!outcome.success) step.detail = outcome.message;
+            return outcome.success;
+          });
+          if (ok) {
+            exitosos++;
+          } else {
+            errores.add('$destino: ${step.detail ?? 'error desconocido'}');
+          }
+        }
+      }
+
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (!mounted || aborted) return;
+      if (errores.isEmpty) {
+        AppToast.success(
+          '${widget.name} transferido a ${seleccionados.join(', ')}',
+          source: 'Transferencia',
+        );
+      } else if (exitosos == 0) {
+        AppToast.error(
+          '${widget.name}: ${errores.join(' · ')}',
+          source: 'Transferencia',
+        );
+      } else {
+        AppToast.warning(
+          '${widget.name}: $exitosos exitoso(s), ${errores.join(' · ')}',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        AppToast.error('Error al transferir: $e', source: 'Transferencia');
+      }
+    } finally {
+      closeProgress?.call();
+      if (mounted) setState(() => _transferring = false);
+    }
+  }
+
+  Widget _buildTransferStepRow(_TransferStep step) {
+    Widget leading;
+    switch (step.status) {
+      case _TransferStepStatus.pending:
+        leading = Icon(
+          Icons.radio_button_unchecked,
+          size: 16,
+          color: Colors.grey.shade500,
+        );
+        break;
+      case _TransferStepStatus.running:
+        leading = const SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        );
+        break;
+      case _TransferStepStatus.success:
+        leading = const Icon(
+          Icons.check_circle_rounded,
+          size: 16,
+          color: Colors.green,
+        );
+        break;
+      case _TransferStepStatus.error:
+        leading = const Icon(Icons.error_rounded, size: 16, color: Colors.red);
+        break;
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(width: 16, height: 16, child: Center(child: leading)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(step.label, style: const TextStyle(fontSize: 13)),
+                if (step.detail != null &&
+                    step.status == _TransferStepStatus.error)
+                  Text(
+                    step.detail!,
+                    style: TextStyle(fontSize: 11, color: Colors.red.shade400),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -898,7 +1691,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
                   if (widget.onAmbienteChanged != null)
                     AmbienteSelector(
                       value: widget.ambiente,
-                      onChanged: widget.onAmbienteChanged!,
+                      onChanged: _changeAmbiente,
                     )
                   else
                     Container(
@@ -950,7 +1743,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
                     message: 'Refrescar objeto',
                     child: InkWell(
                       borderRadius: BorderRadius.circular(4),
-                      onTap: _loading ? null : _loadObjectSource,
+                      onTap: _loading ? null : _refreshObjectSource,
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 6,
@@ -1069,7 +1862,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
                           child: CircularProgressIndicator(strokeWidth: 1.5),
                         )
                       : const Icon(Icons.refresh_rounded, size: 16),
-                  onPressed: _loading ? null : _loadObjectSource,
+                  onPressed: _loading ? null : _refreshObjectSource,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(
                     minWidth: 32,
@@ -1183,7 +1976,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
               ),
               const SizedBox(height: 12),
               TextButton.icon(
-                onPressed: _loading ? null : _loadObjectSource,
+                onPressed: _loading ? null : _refreshObjectSource,
                 icon: const Icon(Icons.refresh_rounded, size: 16),
                 label: const Text('Reintentar'),
               ),
@@ -1213,6 +2006,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
           _specCtrl = c;
           _specText = _data!.spec;
           _bodyText = _data!.body ?? '';
+          _refreshDirtyState();
           _subprograms = _parseSubprograms(_data!.body ?? '');
           _specSubprograms = _parseSubprograms(_data!.spec);
           if (_tabCtrl?.index == 0) {
@@ -1225,17 +2019,10 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
           }
         },
         onSpecTextChanged: (t) {
-          _specText = t;
-          _specSubprograms = _parseSubprograms(t);
+          _recordSourceText(t, isBody: false);
         },
         onBodyTextChanged: (t) {
-          _bodyText = t;
-          final parsed = _parseSubprograms(t);
-          if (parsed.length != _subprograms.length) {
-            setState(() => _subprograms = parsed);
-          } else {
-            _subprograms = parsed;
-          }
+          _recordSourceText(t, isBody: true);
         },
         onSpecErrorsChanged: (n) => setState(() => _specErrors = n),
         onBodyErrorsChanged: (n) => setState(() => _bodyErrors = n),
@@ -1255,7 +2042,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
 
     return _MonacoSourceTab(
       // For non-PACKAGE types, use body if spec is empty (some servers return body only)
-      source: _data!.spec.isNotEmpty ? _data!.spec : (_data!.body ?? ''),
+      source: _effectiveSpecSource,
       isDark: isDark,
       ambiente: widget.ambiente,
       isPlSql: widget.objectType != 'VIEW' && widget.objectType != 'TABLE',
@@ -1264,10 +2051,13 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
       fontSize: _fontSize,
       onControllerReady: (c) => setState(() {
         _specCtrl = c;
-        _specText = _data!.spec;
+        _specText = _effectiveSpecSource;
+        _refreshDirtyState();
         _navigateToInitialLineIfNeeded(c);
       }),
-      onTextChanged: (t) => _specText = t,
+      onTextChanged: (t) {
+        _recordSourceText(t, isBody: false);
+      },
       onErrorCountChanged: (n) => setState(() => _specErrors = n),
       onIssuesChanged: (issues) => setState(() => _specIssues = issues),
       onBackendChecking: (v) => setState(() => _backendChecking = v),
@@ -1337,6 +2127,16 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
           ),
           // ── Acciones ───────────────────────────────────────────────────────
           _ViewerIconBtn(
+            icon: Icons.undo_rounded,
+            tooltip: 'Deshacer (Ctrl+Z)',
+            onPressed: _undoStack.isNotEmpty ? _undo : null,
+          ),
+          _ViewerIconBtn(
+            icon: Icons.redo_rounded,
+            tooltip: 'Rehacer (Ctrl+Y)',
+            onPressed: _redoStack.isNotEmpty ? _redo : null,
+          ),
+          _ViewerIconBtn(
             icon: Icons.search_rounded,
             tooltip: 'Buscar (Ctrl+F)',
             onPressed: _triggerFind,
@@ -1357,6 +2157,14 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
               tooltip: 'Snippets de usuario',
               onPressed: _openSnippetsManager,
             ),
+            if (widget.objectType != 'TABLE')
+              _ViewerIconBtn(
+                icon: Icons.move_up_rounded,
+                tooltip: _transferring
+                    ? 'Transfiriendo…'
+                    : 'Transferir a otro ambiente',
+                onPressed: _transferring ? null : _transferToAmbiente,
+              ),
             SizedBox(
               height: 16,
               child: VerticalDivider(color: cs.outlineVariant, width: 10),

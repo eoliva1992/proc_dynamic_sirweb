@@ -1199,7 +1199,7 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
               // clics del mouse no se registren en el WebView2 embebido.
               extra: const {'fixedOverflowWidgets': true},
             ),
-            contentDebounce: const Duration(milliseconds: 600),
+            contentDebounce: const Duration(milliseconds: 100),
             onReady: _onReady,
             onContentChanged: (text) {
               if (_isBody) {

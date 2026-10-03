@@ -57,6 +57,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   int _activeTab = 0;
   int? _loadingTabIndex;
   bool _syncingActiveTab = false;
+  bool _closePromptOpen = false;
   bool _schemaSidebarOpen = false;
   double _sidebarWidth = 290.0;
   static const _minSidebarW = 180.0;
@@ -194,6 +195,37 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
 
   @override
   void onWindowClose() async {
+    if (_closePromptOpen) return;
+    final hasDirtyTabs = _tabs.any((tab) => tab.isDirty);
+    if (hasDirtyTabs) {
+      _closePromptOpen = true;
+      final discard = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          titlePadding: EdgeInsets.zero,
+          title: const ConstellationDialogTitle(
+            child: Text('Cambios sin guardar'),
+          ),
+          content: const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text('Hay cambios sin guardar. ¿Descartarlos y salir?'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Seguir editando'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.orange),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Descartar y salir'),
+            ),
+          ],
+        ),
+      );
+      _closePromptOpen = false;
+      if (discard != true || !mounted) return;
+    }
     // windowManager.destroy() calls PostQuitMessage(0) which terminates the
     // entire Win32 message loop — if desktop_multi_window sub-windows close
     // while that races, the whole process dies. exit(0) is sufficient and
@@ -420,6 +452,38 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   void _closeTab(int index) {
     if (_tabs.length <= 1) return;
     final tab = _tabs[index];
+    if (tab.isDirty && tab.inSourceViewMode) {
+      final source = tab.sourceViewer!;
+      showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          titlePadding: EdgeInsets.zero,
+          title: const ConstellationDialogTitle(
+            child: Text('Cambios sin guardar'),
+          ),
+          content: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text('${source.name} tiene cambios sin guardar.'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Seguir editando'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.orange.shade700,
+              ),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Descartar y cerrar'),
+            ),
+          ],
+        ),
+      ).then((discard) {
+        if (discard == true && mounted) _doCloseTab(index);
+      });
+      return;
+    }
     final inEditor = tab.procedimiento != null;
     if (tab.isDirty && inEditor) {
       showDialog<String>(
@@ -569,6 +633,43 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   }
 
   void _onTabAmbienteChanged(AppTab tab, String newAmbiente) {
+    if (tab.isDirty && tab.inSourceViewMode) {
+      final source = tab.sourceViewer!;
+      showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          titlePadding: EdgeInsets.zero,
+          title: const ConstellationDialogTitle(
+            child: Text('Cambios sin guardar'),
+          ),
+          content: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '${source.name} tiene cambios sin guardar. ¿Descartarlos y cambiar el ambiente?',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Seguir editando'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.orange.shade700,
+              ),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Descartar'),
+            ),
+          ],
+        ),
+      ).then((discard) {
+        if (discard == true && mounted) {
+          tab.isDirty = false;
+          _doTabAmbienteChanged(tab, newAmbiente);
+        }
+      });
+      return;
+    }
     if (tab.isDirty && tab.procedimiento != null) {
       showDialog<String>(
         context: context,
@@ -1063,6 +1164,11 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         ambiente: sv.ambiente,
         initialLine: sv.initialLine,
         initialSearchTerm: sv.initialSearchTerm,
+        onDirtyChanged: (dirty) {
+          if (tab.isDirty != dirty) {
+            setState(() => tab.isDirty = dirty);
+          }
+        },
         onAmbienteChanged: (newAmbiente) {
           setState(() {
             tab.sourceViewer = (

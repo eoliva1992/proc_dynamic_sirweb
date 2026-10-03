@@ -95,16 +95,20 @@ class _ViewerIconBtn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final enabled = onPressed != null;
+    final iconColor = enabled
+        ? cs.onSurfaceVariant
+        : cs.onSurfaceVariant.withValues(alpha: 0.38);
+
     return Tooltip(
       message: tooltip,
       waitDuration: const Duration(milliseconds: 400),
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(4),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
-          child: Icon(icon, size: 15, color: cs.onSurfaceVariant),
-        ),
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 15, color: iconColor),
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+        visualDensity: VisualDensity.compact,
       ),
     );
   }

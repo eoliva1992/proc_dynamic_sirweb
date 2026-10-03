@@ -36,13 +36,19 @@ void main() {
         objectName: 'SP_CALCULAR',
         objectType: 'PROCEDURE',
         ambiente: 'QA',
-        specSource: 'CREATE OR REPLACE PROCEDURE SP_CALCULAR AS BEGIN NULL; END;',
+        specSource:
+            'CREATE OR REPLACE PROCEDURE SP_CALCULAR AS BEGIN NULL; END;',
       );
 
       expect(script, contains('-- BACKUP SCHEMA OBJECT'));
       expect(script, contains('Objeto   : SP_CALCULAR'));
       expect(script, contains('Ambiente : QA'));
-      expect(script, contains('CREATE OR REPLACE PROCEDURE SP_CALCULAR AS BEGIN NULL; END;\n/'));
+      expect(
+        script,
+        contains(
+          'CREATE OR REPLACE PROCEDURE SP_CALCULAR AS BEGIN NULL; END;\n/',
+        ),
+      );
     });
 
     test('genera script con SPEC y BODY para PACKAGE', () {
@@ -50,8 +56,10 @@ void main() {
         objectName: 'PCK_PAGOS',
         objectType: 'PACKAGE',
         ambiente: 'Desa',
-        specSource: 'CREATE OR REPLACE PACKAGE PCK_PAGOS AS PROCEDURE DO_PAGO; END;',
-        bodySource: 'CREATE OR REPLACE PACKAGE BODY PCK_PAGOS AS PROCEDURE DO_PAGO IS BEGIN NULL; END; END;',
+        specSource:
+            'CREATE OR REPLACE PACKAGE PCK_PAGOS AS PROCEDURE DO_PAGO; END;',
+        bodySource:
+            'CREATE OR REPLACE PACKAGE BODY PCK_PAGOS AS PROCEDURE DO_PAGO IS BEGIN NULL; END; END;',
       );
 
       expect(script, contains('-- === SPEC ==='));

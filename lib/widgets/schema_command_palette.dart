@@ -13,6 +13,15 @@ import 'source_float_window.dart' show openSourceWindow;
 
 const _kTiposInvocables = {'PROCEDURE', 'FUNCTION', 'PACKAGE'};
 
+const _kSourceTypes = {
+  'PROCEDURE',
+  'FUNCTION',
+  'PACKAGE',
+  'TYPE',
+  'VIEW',
+  'TABLE',
+};
+
 const _kTypeColors = {
   'TABLE': Color(0xFF0078D4),
   'VIEW': Color(0xFF107C10),
@@ -297,6 +306,67 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
     }
   }
 
+  void _abrirFuente(_PaletteItem item) {
+    if (!mounted) return;
+    final navigator = Navigator.of(context);
+    navigator.pop();
+    SchemaRecentsService.instance.addRecent(
+      SchemaObjectRef(
+        name: item.name,
+        type: item.type,
+        owner: item.owner,
+        ambiente: widget.ambiente,
+      ),
+    );
+    final effectiveType = item.type.toUpperCase() == 'PACKAGE BODY'
+        ? 'PACKAGE'
+        : item.type;
+    final term = _query.trim();
+    openSourceWindow(
+      navigator.context,
+      name: item.name,
+      objectType: effectiveType,
+      ambiente: widget.ambiente,
+      initialLine: item.line,
+      initialSearchTerm: term.isNotEmpty ? term : null,
+    );
+  }
+
+  Future<void> _limpiarRecientes() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        titlePadding: EdgeInsets.zero,
+        title: const ConstellationDialogTitle(child: Text('Limpiar recientes')),
+        content: const Padding(
+          padding: EdgeInsets.only(top: 8),
+          child: Text(
+            '¿Eliminar todo el historial de recientes del ambiente actual?',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await SchemaRecentsService.instance.clearRecents(ambiente: widget.ambiente);
+    if (!mounted) return;
+    await _loadRecents();
+    if (mounted) {
+      setState(() {
+        _focusedIdx = 0;
+      });
+    }
+  }
+
   void _ejecutar(_PaletteItem item) {
     if (!mounted) return;
     final navigator = Navigator.of(context);
@@ -474,7 +544,27 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
     final rows = <Widget>[];
 
     if (_query.isEmpty && items.isNotEmpty) {
-      rows.add(_sectionLabel('RECIENTES', isDark));
+      rows.add(
+        _sectionLabel(
+          'RECIENTES',
+          isDark,
+          action: Tooltip(
+            message: 'Limpiar recientes',
+            child: InkWell(
+              onTap: _limpiarRecientes,
+              borderRadius: BorderRadius.circular(4),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Icon(
+                  Icons.delete_sweep_outlined,
+                  size: 14,
+                  color: isDark ? Colors.white38 : Colors.black45,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
     }
 
     final hasOnlySourceMatches =
@@ -552,15 +642,15 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
     );
   }
 
-  Widget _sectionLabel(String label, bool isDark) {
+  Widget _sectionLabel(String label, bool isDark, {Widget? action}) {
     final color = _kTypeColors[label];
     final icon = color != null ? _kTypeIcons[label] : null;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
       child: Row(
         children: [
-          if (icon != null) ...[
-            Icon(icon, size: 11, color: color!.withValues(alpha: 0.7)),
+          if (icon != null && color != null) ...[
+            Icon(icon, size: 11, color: color.withValues(alpha: 0.7)),
             const SizedBox(width: 5),
           ],
           Text(
@@ -579,6 +669,7 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
               color: isDark ? const Color(0xFF3A3A3A) : const Color(0xFFEEEEEE),
             ),
           ),
+          if (action != null) ...[const SizedBox(width: 6), action],
         ],
       ),
     );
@@ -686,6 +777,27 @@ class _SchemaCommandPaletteState extends State<_SchemaCommandPalette> {
                   color: isDark
                       ? Colors.white24
                       : Colors.black.withValues(alpha: 0.24),
+                ),
+                const SizedBox(width: 6),
+              ],
+              if (_kSourceTypes.contains(item.type)) ...[
+                Tooltip(
+                  message: 'Ver fuente',
+                  child: InkWell(
+                    onTap: () => _abrirFuente(item),
+                    borderRadius: BorderRadius.circular(4),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 2,
+                      ),
+                      child: Icon(
+                        Icons.description_outlined,
+                        size: 15,
+                        color: color,
+                      ),
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 6),
               ],

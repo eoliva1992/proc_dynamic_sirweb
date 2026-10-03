@@ -297,7 +297,8 @@ class _MainTabBarState extends State<_MainTabBar> {
     final isActive = index == _activeTab;
     final isHovered = _hoveredTabs.contains(index);
     final inEditor = tab.loading || tab.procedimiento != null;
-    final isDirty = tab.isDirty && tab.procedimiento != null;
+    final isDirty =
+        tab.isDirty && (tab.procedimiento != null || tab.inSourceViewMode);
 
     // Densidad adaptativa (Chrome-like): al encogerse, se ocultan elementos
     final showTypeLabel = tabW >= 175;

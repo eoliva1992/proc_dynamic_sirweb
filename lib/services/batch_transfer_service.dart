@@ -53,6 +53,71 @@ abstract class SchemaObjectTransferAdapter {
   });
 }
 
+/// Compila [spec]/[body] ya cargados (p.ej. el buffer abierto en un editor)
+/// contra [targetAmbiente], sin volver a leer la fuente desde Oracle. Usado
+/// tanto por el adaptador de transferencia por lote como por la transferencia
+/// directa desde el editor de fuente.
+Future<SchemaTransferOutcome> deployOpenSchemaObjectSource({
+  required String name,
+  required String objectType,
+  required String spec,
+  String? body,
+  required String targetAmbiente,
+}) async {
+  final svc = SchemaService.instance;
+  final isPackage = objectType == 'PACKAGE';
+
+  final errores = <({int line, int position, String text, String attribute})>[];
+  if (isPackage) {
+    if (spec.trim().isNotEmpty) {
+      errores.addAll(
+        await svc.compileObject(
+          spec,
+          name,
+          'PACKAGE',
+          ambiente: targetAmbiente,
+        ),
+      );
+    }
+    final bodyTexto = body ?? '';
+    if (errores.isEmpty && bodyTexto.trim().isNotEmpty) {
+      errores.addAll(
+        await svc.compileObject(
+          bodyTexto,
+          name,
+          'PACKAGE BODY',
+          ambiente: targetAmbiente,
+        ),
+      );
+    }
+  } else {
+    if (spec.trim().isEmpty) {
+      return (success: false, message: 'No hay fuente para transferir.');
+    }
+    errores.addAll(
+      await svc.compileObject(spec, name, objectType, ambiente: targetAmbiente),
+    );
+  }
+
+  AppLog.instance.compilation(
+    objectName: name,
+    objectType: objectType,
+    ambiente: targetAmbiente,
+    errors: errores,
+    source: 'Transferencia',
+  );
+  if (errores.isNotEmpty) {
+    final primero = errores.first;
+    return (
+      success: false,
+      message:
+          '${primero.attribute} línea ${primero.line}, col ${primero.position}: '
+          '${primero.text.trim()}',
+    );
+  }
+  return (success: true, message: 'Creado/actualizado en $targetAmbiente');
+}
+
 class SchemaServiceTransferAdapter implements SchemaObjectTransferAdapter {
   const SchemaServiceTransferAdapter();
 
@@ -66,7 +131,6 @@ class SchemaServiceTransferAdapter implements SchemaObjectTransferAdapter {
   }) async {
     final svc = SchemaService.instance;
     final objectType = item.type.toUpperCase();
-    final isPackage = objectType == 'PACKAGE';
 
     final source = await svc.getObjectSource(
       item.name,
@@ -74,64 +138,17 @@ class SchemaServiceTransferAdapter implements SchemaObjectTransferAdapter {
       ambiente: sourceAmbiente,
     );
 
-    final errores =
-        <({int line, int position, String text, String attribute})>[];
-    if (isPackage) {
-      if (source.spec.trim().isNotEmpty) {
-        errores.addAll(
-          await svc.compileObject(
-            source.spec,
-            item.name,
-            'PACKAGE',
-            ambiente: targetAmbiente,
-          ),
-        );
-      }
-      final body = source.body ?? '';
-      if (errores.isEmpty && body.trim().isNotEmpty) {
-        errores.addAll(
-          await svc.compileObject(
-            body,
-            item.name,
-            'PACKAGE BODY',
-            ambiente: targetAmbiente,
-          ),
-        );
-      }
-    } else {
-      final texto = source.spec;
-      if (texto.trim().isEmpty) {
-        return (success: false, message: 'No hay fuente para transferir.');
-      }
-      errores.addAll(
-        await svc.compileObject(
-          texto,
-          item.name,
-          objectType,
-          ambiente: targetAmbiente,
-        ),
-      );
-    }
-
-    AppLog.instance.compilation(
-      objectName: item.name,
+    final deployResult = await deployOpenSchemaObjectSource(
+      name: item.name,
       objectType: objectType,
-      ambiente: targetAmbiente,
-      errors: errores,
-      source: 'Transferencia',
+      spec: source.spec,
+      body: source.body,
+      targetAmbiente: targetAmbiente,
     );
-    if (errores.isNotEmpty) {
-      final primero = errores.first;
-      return (
-        success: false,
-        message:
-            '${primero.attribute} línea ${primero.line}, col ${primero.position}: '
-            '${primero.text.trim()}',
-      );
-    }
+    if (!deployResult.success) return deployResult;
 
     if (!transferGrants && !transferSynonyms) {
-      return (success: true, message: 'Creado/actualizado en $targetAmbiente');
+      return deployResult;
     }
 
     var owner = await _resolveOwner(item.name, objectType, targetAmbiente);

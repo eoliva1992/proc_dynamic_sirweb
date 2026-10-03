@@ -104,13 +104,17 @@ abstract final class BackupService {
         '${now.year}-${p(now.month)}-${p(now.day)} ${p(now.hour)}:${p(now.minute)}:${p(now.second)}';
 
     final buffer = StringBuffer();
-    buffer.writeln('-- ============================================================');
+    buffer.writeln(
+      '-- ============================================================',
+    );
     buffer.writeln('-- BACKUP SCHEMA OBJECT');
     buffer.writeln('-- Objeto   : $objectName');
     buffer.writeln('-- Tipo     : $objectType');
     buffer.writeln('-- Ambiente : $ambiente');
     buffer.writeln('-- Fecha    : $fecha');
-    buffer.writeln('-- ============================================================');
+    buffer.writeln(
+      '-- ============================================================',
+    );
     buffer.writeln();
 
     String normalizeDdl(String ddl) {
@@ -160,7 +164,8 @@ abstract final class BackupService {
 
     final path = await FilePicker.saveFile(
       dialogTitle: 'Guardar backup previo — $objectName ($ambiente)',
-      fileName: '${objectName}_${objectType}_${ambiente.toUpperCase()}_backup.sql',
+      fileName:
+          '${objectName}_${objectType}_${ambiente.toUpperCase()}_backup.sql',
       type: FileType.custom,
       allowedExtensions: ['sql'],
     );
