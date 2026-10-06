@@ -6,6 +6,7 @@ import 'sql_executor_toolbar.dart'
 import 'sql_explain_plan_view.dart';
 import 'sql_output_console.dart';
 import 'sql_results_grid.dart';
+import 'sql_results_tab_strip.dart';
 
 /// Panel inferior deslizable y redimensionable con los resultados de la consulta,
 /// consola de mensajes, árbol Explain Plan e historial de sentencias.
@@ -15,7 +16,9 @@ class SqlExecutorResultsPanel extends StatelessWidget {
   final double height;
   final ValueChanged<double> onHeightChanged;
   final VoidCallback onToggleVisible;
-  final SqlQueryResult? lastResult;
+  final List<SqlNamedResult> results;
+  final int selectedResultIndex;
+  final ValueChanged<int> onSelectResult;
   final List<SqlExecutionLogEntry> log;
   final List<SqlExplainPlanNode>? explainNodes;
   final List<String>? explainText;
@@ -31,7 +34,9 @@ class SqlExecutorResultsPanel extends StatelessWidget {
     required this.height,
     required this.onHeightChanged,
     required this.onToggleVisible,
-    required this.lastResult,
+    required this.results,
+    required this.selectedResultIndex,
+    required this.onSelectResult,
     required this.log,
     required this.explainNodes,
     this.explainText,
@@ -40,6 +45,9 @@ class SqlExecutorResultsPanel extends StatelessWidget {
     required this.onGenerateDml,
     this.onReplay,
   });
+
+  SqlQueryResult? get _selectedResult =>
+      results.isEmpty ? null : results[selectedResultIndex].result;
 
   @override
   Widget build(BuildContext context) {
@@ -145,10 +153,16 @@ class SqlExecutorResultsPanel extends StatelessWidget {
                               const Icon(Icons.table_chart_outlined, size: 13),
                               const SizedBox(width: 5),
                               const Text('Resultados'),
-                              if (lastResult != null) ...[
+                              if (results.length > 1) ...[
                                 const SizedBox(width: 5),
                                 _buildCountBadge(
-                                  '${lastResult!.returnedRows}',
+                                  '${results.length} sets',
+                                  cs.primary,
+                                ),
+                              ] else if (_selectedResult != null) ...[
+                                const SizedBox(width: 5),
+                                _buildCountBadge(
+                                  '${_selectedResult!.returnedRows}',
                                   cs.primary,
                                 ),
                               ],
@@ -237,11 +251,28 @@ class SqlExecutorResultsPanel extends StatelessWidget {
                     controller: tabController,
                     children: [
                       // Tab 0: Grilla de resultados
-                      SqlResultsGrid(
-                        result: lastResult,
-                        maxRows: maxRows,
-                        onMaxRowsChanged: onMaxRowsChanged,
-                        onGenerateDml: onGenerateDml,
+                      Column(
+                        children: [
+                          if (results.length > 1)
+                            SqlResultsTabStrip(
+                              results: results,
+                              selectedIndex: selectedResultIndex,
+                              onSelect: onSelectResult,
+                            ),
+                          Expanded(
+                            child: SqlResultsGrid(
+                              key: ValueKey(
+                                results.isEmpty
+                                    ? -1
+                                    : results[selectedResultIndex].id,
+                              ),
+                              result: _selectedResult,
+                              maxRows: maxRows,
+                              onMaxRowsChanged: onMaxRowsChanged,
+                              onGenerateDml: onGenerateDml,
+                            ),
+                          ),
+                        ],
                       ),
                       // Tab 1: Mensajes / Salida (lazy load si no está activo)
                       if (activeIndex == 1)

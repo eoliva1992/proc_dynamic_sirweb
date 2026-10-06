@@ -247,6 +247,55 @@ class _SqlResultsGridState extends State<SqlResultsGrid> {
     AppToast.success('${_selectedCells.length} celda(s) copiada(s)');
   }
 
+  /// Copia el encabezado de la(s) columna(s) seleccionada(s) junto con los
+  /// valores de las filas seleccionadas. Sin selección, copia solo los
+  /// nombres de las columnas visibles.
+  void _copyColumnNames(List<int> visibleIdx) {
+    final result = widget.result;
+    if (result == null || visibleIdx.isEmpty) return;
+
+    if (_selectedCells.isNotEmpty) {
+      final cols = _selectedCells.map((c) => c.$2).toSet().toList()..sort();
+      final rows = _selectedCells.map((c) => c.$1).toSet().toList()..sort();
+      final header = cols
+          .map((c) => result.columns[visibleIdx[c]].name)
+          .join('\t');
+      final lines = [header];
+      for (final r in rows) {
+        final line = cols
+            .map((c) {
+              if (!_selectedCells.contains((r, c))) return '';
+              final rawVal = result.rows[r][visibleIdx[c]];
+              return rawVal?.toString() ?? 'NULL';
+            })
+            .join('\t');
+        lines.add(line);
+      }
+      Clipboard.setData(ClipboardData(text: lines.join('\n')));
+      AppToast.success('Encabezado y ${rows.length} fila(s) copiados');
+      return;
+    }
+
+    if (_selectedRows.isNotEmpty) {
+      final rowsToCopy = _selectedRows.toList()..sort();
+      final header = visibleIdx.map((i) => result.columns[i].name).join('\t');
+      final lines = [header];
+      for (final r in rowsToCopy) {
+        final line = visibleIdx
+            .map((i) => _esc(result.rows[r][i]?.toString() ?? ''))
+            .join('\t');
+        lines.add(line);
+      }
+      Clipboard.setData(ClipboardData(text: lines.join('\n')));
+      AppToast.success('Encabezado y ${rowsToCopy.length} fila(s) copiados');
+      return;
+    }
+
+    final line = visibleIdx.map((i) => result.columns[i].name).join('\t');
+    Clipboard.setData(ClipboardData(text: line));
+    AppToast.success('Nombre(s) de columna copiado(s)');
+  }
+
   void _copySelection(List<int> visibleIdx) {
     if (_selectedCells.isNotEmpty) {
       _copySelectedCells(visibleIdx);
@@ -308,6 +357,20 @@ class _SqlResultsGridState extends State<SqlResultsGrid> {
               ],
             ),
           ),
+        const PopupMenuItem(
+          value: 'copy_with_header',
+          height: 32,
+          child: Row(
+            children: [
+              Icon(Icons.view_column_outlined, size: 14),
+              SizedBox(width: 8),
+              Text(
+                'Copiar con encabezado (Ctrl+Shift+C)',
+                style: TextStyle(fontSize: 11.5),
+              ),
+            ],
+          ),
+        ),
         PopupMenuItem(
           value: 'copy_cell',
           height: 32,
@@ -354,6 +417,8 @@ class _SqlResultsGridState extends State<SqlResultsGrid> {
     ).then((choice) {
       if (choice == 'copy_selection') {
         _copySelectedCells(visibleIdx);
+      } else if (choice == 'copy_with_header') {
+        _copyColumnNames(visibleIdx);
       } else if (choice == 'copy_cell') {
         _copyCell(text);
       } else if (choice == 'copy_row') {
@@ -680,6 +745,12 @@ class _SqlResultsGridState extends State<SqlResultsGrid> {
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyC, control: true): () =>
             _copySelection(visibleIdx),
+        const SingleActivator(
+          LogicalKeyboardKey.keyC,
+          control: true,
+          shift: true,
+        ): () =>
+            _copyColumnNames(visibleIdx),
         const SingleActivator(LogicalKeyboardKey.escape): () {
           if (_selectedCells.isNotEmpty || _selectedRows.isNotEmpty) {
             setState(() {
@@ -694,6 +765,7 @@ class _SqlResultsGridState extends State<SqlResultsGrid> {
         },
       },
       child: Focus(
+        key: const Key('sqlResultsGridFocus'),
         focusNode: _gridFocusNode,
         autofocus: false,
         child: RepaintBoundary(

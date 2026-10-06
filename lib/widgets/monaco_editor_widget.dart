@@ -235,6 +235,26 @@ class MonacoEditorController {
     );
   }
 
+  /// Devuelve el texto actualmente seleccionado en el editor, o `null` si no
+  /// hay selección (o el editor aún no está listo).
+  Future<String?> getSelectedText() async {
+    final ctrl = _ctrl;
+    if (ctrl == null) return null;
+    try {
+      return await ctrl.evaluateJavaScript<String>(
+        r'(()=>{'
+        r'  try {'
+        r'    const s = window.editor.getSelection();'
+        r'    if (!s || s.isEmpty()) return null;'
+        r'    return window.editor.getModel().getValueInRange(s) || null;'
+        r'  } catch(e) { return null; }'
+        r'})()',
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   void clearContent() {
     _enqueue((ctrl) async => ctrl.document.setText(''));
   }
@@ -1143,7 +1163,14 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
         '    if (pos) {'
         '      var w = window.editor.getModel().getWordAtPosition(pos);'
         '      word = w ? w.word : "";'
-        '      window.editor.setPosition(pos);'
+        '      var sel = window.editor.getSelection();'
+        // Right-clicking inside an existing selection must preserve it (so
+        // "Ejecutar sentencia actual" can run the selected text), not collapse
+        // the cursor to the click point as a fresh selection would.
+        '      var withinSel = sel && !sel.isEmpty() && sel.containsPosition(pos);'
+        '      if (!withinSel) {'
+        '        window.editor.setPosition(pos);'
+        '      }'
         '    } else if (isAux && window.__fmContextMenuAux) {'
         '      var aux = window.__fmContextMenuAux;'
         '      var s = aux.selectionStart, end = aux.selectionEnd;'

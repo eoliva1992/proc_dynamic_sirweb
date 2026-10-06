@@ -9,6 +9,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../providers/procedimientos_provider.dart';
 import '../services/sql_executor_state_controller.dart';
 import '../services/sql_statement_analyzer.dart';
 import '../widgets/monaco_editor_widget.dart';
@@ -18,6 +19,7 @@ import '../widgets/sql_executor/sql_dml_generator_dialog.dart';
 import '../widgets/sql_executor/sql_executor_results_panel.dart';
 import '../widgets/sql_executor/sql_executor_status_bar.dart';
 import '../widgets/sql_executor/sql_executor_toolbar.dart';
+import '../widgets/usuario_dialog.dart';
 
 export '../widgets/monaco_snippets.dart' show openSnippetsManager;
 
@@ -55,6 +57,11 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
       initialAmbiente: widget.ambiente,
       initialSql: widget.initialSql,
     );
+    _stateCtrl.getSelectedText = _monacoCtrl.getSelectedText;
+    _stateCtrl.ensureUsuario = () async {
+      await showUsuarioDialog(context);
+      return procedimientosProvider.cdUsuario.trim().isNotEmpty;
+    };
     _stateCtrl.onTabChangeRequested = (idx) {
       if (mounted && _resultTabCtrl.index != idx) {
         _resultTabCtrl.index = idx;
@@ -124,6 +131,9 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
                   onExecuteAll: _stateCtrl.runAll,
                   onExplainPlan: _stateCtrl.runExplainPlan,
                   onClearOutput: _stateCtrl.clearOutput,
+                  hasPendingChanges: _stateCtrl.hasPendingChanges,
+                  onCommit: _stateCtrl.commit,
+                  onRollback: _stateCtrl.rollback,
                 ),
                 _SqlProgressBar(
                   running: _stateCtrl.running,
@@ -228,7 +238,9 @@ class _SqlEditorWorkspace extends StatelessWidget {
                 height: stateCtrl.resultsPanelHeight,
                 onHeightChanged: stateCtrl.setResultsPanelHeight,
                 onToggleVisible: stateCtrl.toggleResultsPanel,
-                lastResult: stateCtrl.lastResult,
+                results: stateCtrl.results,
+                selectedResultIndex: stateCtrl.selectedResultIndex,
+                onSelectResult: stateCtrl.selectResult,
                 log: stateCtrl.log,
                 explainNodes: stateCtrl.explainNodes,
                 explainText: stateCtrl.lastExplainResult?.text,

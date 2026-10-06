@@ -13,11 +13,43 @@ bool _isNumericType(String dataType) {
       t.contains('DECIMAL');
 }
 
+/// Tipos de fecha/hora, que requieren `TO_DATE`/`TO_TIMESTAMP` explícito:
+/// el literal entre comillas simples queda sujeto al `NLS_DATE_FORMAT` de la
+/// sesión y casi nunca coincide con el string recibido (ORA-01861).
+bool _isDateType(String dataType) {
+  final t = dataType.toUpperCase();
+  return t.contains('DATE') || t.contains('TIMESTAMP');
+}
+
 String _sqlLiteral(dynamic value, String dataType) {
   if (value == null) return 'NULL';
   if (_isNumericType(dataType)) return value.toString();
+  if (_isDateType(dataType)) return _dateLiteral(value, dataType);
   final escaped = value.toString().replaceAll("'", "''");
   return "'$escaped'";
+}
+
+/// Normaliza el valor (típicamente ISO-8601, ej. `2026-10-06T00:00:00.123Z`)
+/// a `YYYY-MM-DD HH24:MI:SS[.FF6]` y lo envuelve en `TO_DATE`/`TO_TIMESTAMP`
+/// con la máscara correspondiente, para que no dependa del NLS de la sesión.
+String _dateLiteral(dynamic value, String dataType) {
+  var s = value.toString().replaceFirst('T', ' ');
+  final zIdx = s.indexOf('Z');
+  if (zIdx != -1) s = s.substring(0, zIdx);
+  final tzIdx = RegExp(r'[+-]\d{2}:\d{2}$').firstMatch(s)?.start;
+  if (tzIdx != null) s = s.substring(0, tzIdx);
+
+  final dotIdx = s.indexOf('.');
+  var datePart = dotIdx != -1 ? s.substring(0, dotIdx) : s;
+  if (!datePart.contains(' ')) datePart = '$datePart 00:00:00';
+
+  if (dataType.toUpperCase().contains('TIMESTAMP')) {
+    final frac = (dotIdx != -1 ? s.substring(dotIdx + 1) : '')
+        .padRight(6, '0')
+        .substring(0, 6);
+    return "TO_TIMESTAMP('$datePart.$frac', 'YYYY-MM-DD HH24:MI:SS.FF6')";
+  }
+  return "TO_DATE('$datePart', 'YYYY-MM-DD HH24:MI:SS')";
 }
 
 /// `INSERT INTO tabla (COL1, COL2) VALUES (v1, v2);` por cada fila indicada.
@@ -100,11 +132,16 @@ String generateMerge(
     if (onParts.isEmpty) continue;
     final cols = result.columns.map((c) => c.name).join(', ');
     final sourceCols = result.columns.map((c) => 's.${c.name}').join(', ');
+    // Si todas las columnas son clave no hay nada para el UPDATE SET: ese
+    // WHEN MATCHED se omite (si no, queda "UPDATE SET ;", SQL inválido).
+    final whenMatched = updateParts.isEmpty
+        ? ''
+        : 'WHEN MATCHED THEN UPDATE SET ${updateParts.join(', ')}\n';
     buf.writeln(
       'MERGE INTO $table t\n'
       'USING (SELECT ${selectParts.join(', ')} FROM DUAL) s\n'
       'ON (${onParts.join(' AND ')})\n'
-      'WHEN MATCHED THEN UPDATE SET ${updateParts.join(', ')}\n'
+      '$whenMatched'
       'WHEN NOT MATCHED THEN INSERT ($cols) VALUES ($sourceCols);',
     );
   }

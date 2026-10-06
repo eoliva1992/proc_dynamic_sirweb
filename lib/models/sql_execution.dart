@@ -92,24 +92,139 @@ class SqlQueryResult {
   );
 }
 
-/// Resultado de un DML/DDL (forma provisoria: se ajustará cuando el backend
-/// defina el contrato real del endpoint).
+/// Un resultado de SELECT con su etiqueta, para mostrar varias ejecuciones
+/// como sub-pestañas dentro de la pestaña "Resultados".
+class SqlNamedResult {
+  const SqlNamedResult({
+    required this.id,
+    required this.label,
+    required this.result,
+  });
+
+  final int id;
+  final String label;
+  final SqlQueryResult result;
+}
+
+/// Resultado de un DML o DDL ejecutado vía `POST /tools/sql/statement`
+/// (`data.dml` o `data.ddl` según el `kind` de la respuesta).
+///
+/// Mientras `sessionId` no sea `null`, la transacción sigue abierta en el
+/// backend hasta que se llame a `commitSession`/`rollbackSession`.
 class SqlDmlResult {
   const SqlDmlResult({
     required this.rowsAffected,
     required this.durationMs,
     this.message,
+    this.sessionId,
+    this.pendingCommit = false,
   });
 
   final int rowsAffected;
   final int durationMs;
   final String? message;
+  final String? sessionId;
+  final bool pendingCommit;
 
   factory SqlDmlResult.fromJson(Map<String, dynamic> json) => SqlDmlResult(
     rowsAffected: (json['rowsAffected'] as num?)?.toInt() ?? 0,
     durationMs: (json['durationMs'] as num?)?.toInt() ?? 0,
     message: json['message']?.toString(),
+    sessionId: json['sessionId']?.toString(),
+    pendingCommit: json['pendingCommit'] as bool? ?? false,
   );
+}
+
+/// Un error de compilación reportado al ejecutar DDL (`data.ddl.errors[]`).
+class SqlDdlError {
+  const SqlDdlError({this.line, this.position, this.text, this.attribute});
+
+  final int? line;
+  final int? position;
+  final String? text;
+  final String? attribute;
+
+  factory SqlDdlError.fromJson(Map<String, dynamic> json) => SqlDdlError(
+    line: (json['line'] as num?)?.toInt(),
+    position: (json['position'] as num?)?.toInt(),
+    text: json['text']?.toString(),
+    attribute: json['attribute']?.toString(),
+  );
+
+  @override
+  String toString() {
+    final loc = line != null ? 'L$line' : null;
+    final parts = [?loc, ?attribute, ?text];
+    return parts.join(' ');
+  }
+}
+
+/// Resultado de un DDL ejecutado vía `POST /tools/sql/statement`
+/// (`data.ddl`).
+class SqlDdlResult {
+  const SqlDdlResult({
+    required this.ambiente,
+    this.objectName,
+    this.objectType,
+    required this.confirmed,
+    required this.autoCommitPossible,
+    this.errors = const [],
+    required this.durationMs,
+  });
+
+  final String ambiente;
+  final String? objectName;
+  final String? objectType;
+  final bool confirmed;
+  final bool autoCommitPossible;
+  final List<SqlDdlError> errors;
+  final int durationMs;
+
+  factory SqlDdlResult.fromJson(Map<String, dynamic> json) {
+    final rawErrors = json['errors'] as List? ?? const [];
+    return SqlDdlResult(
+      ambiente: json['ambiente']?.toString() ?? '',
+      objectName: json['objectName']?.toString(),
+      objectType: json['objectType']?.toString(),
+      confirmed: json['confirmed'] as bool? ?? false,
+      autoCommitPossible: json['autoCommitPossible'] as bool? ?? false,
+      errors: rawErrors
+          .whereType<Map<String, dynamic>>()
+          .map(SqlDdlError.fromJson)
+          .toList(),
+      durationMs: (json['durationMs'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+/// Resultado de un bloque PL/SQL ejecutado vía `POST /tools/sql/statement`
+/// (`data.plSql`).
+class SqlPlSqlResult {
+  const SqlPlSqlResult({
+    this.sessionId,
+    this.outputs = const {},
+    this.dbmsOutput = const [],
+    this.pendingCommit = false,
+    required this.durationMs,
+  });
+
+  final String? sessionId;
+  final Map<String, dynamic> outputs;
+  final List<String> dbmsOutput;
+  final bool pendingCommit;
+  final int durationMs;
+
+  factory SqlPlSqlResult.fromJson(Map<String, dynamic> json) {
+    final rawOutputs = json['outputs'] as Map<String, dynamic>? ?? const {};
+    final rawDbmsOutput = json['dbmsOutput'] as List? ?? const [];
+    return SqlPlSqlResult(
+      sessionId: json['sessionId']?.toString(),
+      outputs: rawOutputs,
+      dbmsOutput: rawDbmsOutput.map((e) => e.toString()).toList(),
+      pendingCommit: json['pendingCommit'] as bool? ?? false,
+      durationMs: (json['durationMs'] as num?)?.toInt() ?? 0,
+    );
+  }
 }
 
 /// Un nodo del plan de ejecución (`EXPLAIN PLAN` de Oracle).

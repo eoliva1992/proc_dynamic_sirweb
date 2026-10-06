@@ -516,6 +516,7 @@ class _SqlOutputConsoleState extends State<SqlOutputConsole> {
               const SizedBox(height: 5),
               SelectableText(
                 entry.statementPreview,
+                onTap: hasDetalle ? () => _toggleDetalle(entry.id) : null,
                 style: TextStyle(
                   fontSize: 11.5,
                   fontFamily: 'Consolas',
@@ -570,6 +571,7 @@ class _SqlOutputConsoleState extends State<SqlOutputConsole> {
                     ),
                     child: SelectableText(
                       detalle,
+                      onTap: () => _toggleDetalle(entry.id),
                       style: TextStyle(
                         fontFamily: 'Consolas',
                         fontSize: 11,

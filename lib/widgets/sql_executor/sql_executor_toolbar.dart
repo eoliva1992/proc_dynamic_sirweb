@@ -41,6 +41,9 @@ class SqlExecutorToolbar extends StatelessWidget {
   final VoidCallback? onExecuteAll;
   final VoidCallback? onExplainPlan;
   final VoidCallback? onClearOutput;
+  final bool hasPendingChanges;
+  final VoidCallback? onCommit;
+  final VoidCallback? onRollback;
 
   const SqlExecutorToolbar({
     super.key,
@@ -52,6 +55,9 @@ class SqlExecutorToolbar extends StatelessWidget {
     required this.onExecuteAll,
     required this.onExplainPlan,
     required this.onClearOutput,
+    this.hasPendingChanges = false,
+    this.onCommit,
+    this.onRollback,
   });
 
   @override
@@ -96,6 +102,20 @@ class SqlExecutorToolbar extends StatelessWidget {
             onPressed: () => openSnippetsManager(context),
           ),
           const Spacer(),
+          if (hasPendingChanges) ...[
+            SqlToolBtn(
+              icon: Icons.check_circle_outline_rounded,
+              tooltip: 'Confirmar cambios (COMMIT)',
+              color: const Color(0xFF3FB950),
+              onPressed: running ? null : onCommit,
+            ),
+            SqlToolBtn(
+              icon: Icons.undo_rounded,
+              tooltip: 'Descartar cambios (ROLLBACK)',
+              color: const Color(0xFFE5484D),
+              onPressed: running ? null : onRollback,
+            ),
+          ],
           SqlToolBtn(
             icon: Icons.cleaning_services_outlined,
             tooltip: 'Limpiar salida',
@@ -282,12 +302,14 @@ class SqlToolBtn extends StatefulWidget {
   final IconData icon;
   final String tooltip;
   final VoidCallback? onPressed;
+  final Color? color;
 
   const SqlToolBtn({
     super.key,
     required this.icon,
     required this.tooltip,
     this.onPressed,
+    this.color,
   });
 
   @override
@@ -337,7 +359,9 @@ class _SqlToolBtnState extends State<SqlToolBtn> {
               widget.icon,
               size: 16,
               color: enabled
-                  ? (_hovered ? cs.primary : cs.onSurfaceVariant)
+                  ? (_hovered
+                        ? (widget.color ?? cs.primary)
+                        : (widget.color ?? cs.onSurfaceVariant))
                   : cs.onSurfaceVariant.withValues(alpha: 0.35),
             ),
           ),

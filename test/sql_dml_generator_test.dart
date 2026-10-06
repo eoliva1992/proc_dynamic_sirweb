@@ -32,6 +32,29 @@ void main() {
         "INSERT INTO CLIENTE (ID, NOMBRE, ACTIVO) VALUES (2, 'Ana', 1);",
       );
     });
+
+    test('usa TO_DATE/TO_TIMESTAMP para columnas de fecha (evita ORA-01861)', () {
+      const result = SqlQueryResult(
+        columns: [
+          SqlColumn(name: 'ID', dataType: 'NUMBER'),
+          SqlColumn(name: 'F_ALTA', dataType: 'DATE'),
+          SqlColumn(name: 'F_STAMP', dataType: 'TIMESTAMP(6)'),
+        ],
+        rows: [
+          [1, '2026-10-06T00:00:00', '2026-10-06T12:30:45.123456Z'],
+        ],
+        returnedRows: 1,
+        truncated: false,
+        durationMs: 1,
+      );
+      final sql = generateInsert('CLIENTE', result, [0]);
+      expect(
+        sql,
+        "INSERT INTO CLIENTE (ID, F_ALTA, F_STAMP) VALUES "
+        "(1, TO_DATE('2026-10-06 00:00:00', 'YYYY-MM-DD HH24:MI:SS'), "
+        "TO_TIMESTAMP('2026-10-06 12:30:45.123456', 'YYYY-MM-DD HH24:MI:SS.FF6'));",
+      );
+    });
   });
 
   group('generateUpdate', () {
@@ -60,6 +83,21 @@ void main() {
           'WHEN MATCHED THEN UPDATE SET t.NOMBRE = s.NOMBRE, t.ACTIVO = s.ACTIVO',
         ),
       );
+      expect(
+        sql,
+        contains('WHEN NOT MATCHED THEN INSERT (ID, NOMBRE, ACTIVO)'),
+      );
+    });
+
+    test('si todas las columnas son clave omite WHEN MATCHED (SET vacío)', () {
+      final sql = generateMerge(
+        'CLIENTE',
+        _result(),
+        [1],
+        ['ID', 'NOMBRE', 'ACTIVO'],
+      );
+      expect(sql, isNot(contains('WHEN MATCHED')));
+      expect(sql, contains('ON (t.ID = s.ID AND t.NOMBRE = s.NOMBRE'));
       expect(
         sql,
         contains('WHEN NOT MATCHED THEN INSERT (ID, NOMBRE, ACTIVO)'),

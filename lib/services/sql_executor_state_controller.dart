@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/sql_execution.dart';
+import '../providers/procedimientos_provider.dart';
 import '../services/sql_executor_service.dart';
 import '../services/sql_statement_analyzer.dart';
 import '../widgets/app_toast.dart';
@@ -44,12 +45,30 @@ class SqlExecutorStateController extends ChangeNotifier {
   int _selectedTabIndex = 0;
   void Function(int index)? onTabChangeRequested;
 
-  SqlQueryResult? _lastResult;
+  /// Inyectado por la página: consulta el texto actualmente seleccionado en
+  /// el editor Monaco (o `null`/vacío si no hay selección).
+  Future<String?> Function()? getSelectedText;
+
+  /// Inyectado por la página: si no hay `cdUsuario` configurado, muestra el
+  /// diálogo de identificación y devuelve `true` si quedó configurado al
+  /// cerrarse (para reintentar la acción pendiente).
+  Future<bool> Function()? ensureUsuario;
+
   SqlExplainResult? _lastExplainResult;
   List<SqlExplainPlanNode>? _explainNodes;
   final List<SqlExecutionLogEntry> _log = [];
 
+  int _resultSeq = 0;
+  final List<SqlNamedResult> _results = [];
+  int _selectedResultIndex = 0;
+
+  /// Sesión Oracle abierta por el último DML/DDL/PL-SQL ejecutado con
+  /// `confirmar: false`. Sigue viva hasta `commit()`/`rollback()`.
+  String? _sessionId;
+
   // ─── Getters ───────────────────────────────────────────────────────────────
+  String? get sessionId => _sessionId;
+  bool get hasPendingChanges => _sessionId != null;
   String get ambiente => _ambiente;
   String get text => _text;
   int get cursorLine => _cursorLine;
@@ -59,7 +78,11 @@ class SqlExecutorStateController extends ChangeNotifier {
   bool get resultsPanelVisible => _resultsPanelVisible;
   double get resultsPanelHeight => _resultsPanelHeight;
   int get selectedTabIndex => _selectedTabIndex;
-  SqlQueryResult? get lastResult => _lastResult;
+  List<SqlNamedResult> get results => List.unmodifiable(_results);
+  int get selectedResultIndex =>
+      _results.isEmpty ? 0 : _selectedResultIndex.clamp(0, _results.length - 1);
+  SqlQueryResult? get lastResult =>
+      _results.isEmpty ? null : _results[selectedResultIndex].result;
   SqlExplainResult? get lastExplainResult => _lastExplainResult;
   List<SqlExplainPlanNode>? get explainNodes => _explainNodes;
   List<SqlExecutionLogEntry> get log => List.unmodifiable(_log);
@@ -68,6 +91,8 @@ class SqlExecutorStateController extends ChangeNotifier {
   void setAmbiente(String value) {
     if (_ambiente == value) return;
     _ambiente = value;
+    // Una sesión abierta no cruza ambientes.
+    _sessionId = null;
     notifyListeners();
   }
 
@@ -128,6 +153,14 @@ class SqlExecutorStateController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Activa la sub-pestaña de resultados en `index` (uno por cada SELECT
+  /// ejecutado).
+  void selectResult(int index) {
+    if (index < 0 || index >= _results.length) return;
+    _selectedResultIndex = index;
+    notifyListeners();
+  }
+
   // ─── Análisis de Sentencias ────────────────────────────────────────────────
   int _offsetOf(int line, int col) {
     final lines = _text.split('\n');
@@ -145,6 +178,21 @@ class SqlExecutorStateController extends ChangeNotifier {
 
   // ─── Ejecución ─────────────────────────────────────────────────────────────
   Future<void> runCurrentOrSelection() async {
+    final selected = (await getSelectedText?.call())?.trim();
+    if (selected != null && selected.isNotEmpty) {
+      // Se divide igual que un script (no requiere ';' final) y cada
+      // sentencia resultante se ejecuta por separado, ignorando el resto
+      // del texto del editor.
+      final statements = splitStatements(selected);
+      if (statements.isEmpty) {
+        AppToast.info('No hay ninguna sentencia para ejecutar');
+        return;
+      }
+      for (final stmt in statements) {
+        await runStatement(stmt);
+      }
+      return;
+    }
     final stmt = currentStatement();
     if (stmt == null) {
       AppToast.info('No hay ninguna sentencia para ejecutar');
@@ -166,6 +214,8 @@ class SqlExecutorStateController extends ChangeNotifier {
 
   Future<void> runStatement(SqlStatement stmt) async {
     if (_running) return;
+    final owner = await _requireOwner();
+    if (owner == null) return;
     _running = true;
     _resultsPanelVisible = true;
     final entry = SqlExecutionLogEntry(
@@ -185,9 +235,17 @@ class SqlExecutorStateController extends ChangeNotifier {
           final result = await _svc.executeSelect(
             stmt.text,
             ambiente: _ambiente,
+            owner: owner,
             maxRows: _maxRows,
           );
-          _lastResult = result;
+          _results.add(
+            SqlNamedResult(
+              id: _resultSeq++,
+              label: _preview(stmt.text),
+              result: result,
+            ),
+          );
+          _selectedResultIndex = _results.length - 1;
           entry
             ..status = SqlLogStatus.success
             ..durationMs = result.durationMs
@@ -196,8 +254,14 @@ class SqlExecutorStateController extends ChangeNotifier {
           _switchTab(0);
 
         case SqlStatementKind.dml:
-        case SqlStatementKind.ddl:
-          final result = await _svc.executeDml(stmt.text, ambiente: _ambiente);
+          final result = await _svc.executeDml(
+            stmt.text,
+            ambiente: _ambiente,
+            owner: owner,
+            sessionId: _sessionId,
+            maxRows: _maxRows,
+          );
+          _sessionId = result.sessionId ?? _sessionId;
           entry
             ..status = SqlLogStatus.success
             ..durationMs = result.durationMs
@@ -205,17 +269,36 @@ class SqlExecutorStateController extends ChangeNotifier {
             ..message = result.message ?? 'OK';
           _switchTab(1);
 
+        case SqlStatementKind.ddl:
+          final result = await _svc.executeDdl(
+            stmt.text,
+            ambiente: _ambiente,
+            owner: owner,
+          );
+          entry
+            ..status = result.errors.isEmpty
+                ? SqlLogStatus.success
+                : SqlLogStatus.error
+            ..durationMs = result.durationMs
+            ..message = result.errors.isNotEmpty
+                ? result.errors.join('; ')
+                : 'OK';
+          _switchTab(1);
+
         case SqlStatementKind.plsql:
           final result = await _svc.executePlSql(
             stmt.text,
             ambiente: _ambiente,
+            owner: owner,
+            sessionId: _sessionId,
           );
+          _sessionId = result.sessionId ?? _sessionId;
           entry
-            ..status = result.errorOracle == null
-                ? SqlLogStatus.success
-                : SqlLogStatus.error
-            ..durationMs = result.duracionMs
-            ..message = result.errorOracle ?? result.traza.join('\n');
+            ..status = SqlLogStatus.success
+            ..durationMs = result.durationMs
+            ..message = result.dbmsOutput.isNotEmpty
+                ? result.dbmsOutput.join('\n')
+                : 'OK';
           _switchTab(1);
 
         case SqlStatementKind.explainPlan:
@@ -296,11 +379,69 @@ class SqlExecutorStateController extends ChangeNotifier {
 
   void clearOutput() {
     _log.clear();
-    _lastResult = null;
+    _results.clear();
+    _selectedResultIndex = 0;
     _lastExplainResult = null;
     _explainNodes = null;
     _savePersistedLog();
     notifyListeners();
+  }
+
+  /// Confirma la transacción abierta por el último DML/PL-SQL ejecutado.
+  Future<void> commit() => _resolveSession('commit');
+
+  /// Descarta la transacción abierta por el último DML/PL-SQL ejecutado.
+  Future<void> rollback() => _resolveSession('rollback');
+
+  Future<void> _resolveSession(String action) async {
+    final sessionId = _sessionId;
+    if (sessionId == null || _running) return;
+    final owner = await _requireOwner();
+    if (owner == null) return;
+    _running = true;
+    final entry = SqlExecutionLogEntry(
+      id: _logSeq++,
+      timestamp: DateTime.now(),
+      ambiente: _ambiente,
+      kind: SqlStatementKind.unknown,
+      statementPreview: action == 'commit' ? 'COMMIT' : 'ROLLBACK',
+      status: SqlLogStatus.running,
+    );
+    _log.add(entry);
+    notifyListeners();
+    try {
+      if (action == 'commit') {
+        await _svc.commitSession(sessionId, owner: owner);
+      } else {
+        await _svc.rollbackSession(sessionId, owner: owner);
+      }
+      _sessionId = null;
+      entry
+        ..status = SqlLogStatus.success
+        ..message = action == 'commit'
+            ? 'Cambios confirmados'
+            : 'Cambios descartados';
+    } catch (e) {
+      entry
+        ..status = SqlLogStatus.error
+        ..message = e.toString().replaceFirst('Exception: ', '');
+    } finally {
+      _running = false;
+      _savePersistedLog();
+      notifyListeners();
+    }
+  }
+
+  /// Obtiene el `cdUsuario` configurado (requerido como `owner` por el
+  /// backend). Si está vacío, pide a la página que muestre el diálogo de
+  /// identificación; devuelve `null` si sigue vacío o no se configuró.
+  Future<String?> _requireOwner() async {
+    var usuario = procedimientosProvider.cdUsuario.trim();
+    if (usuario.isNotEmpty) return usuario;
+    final confirmado = await ensureUsuario?.call() ?? false;
+    if (!confirmado) return null;
+    usuario = procedimientosProvider.cdUsuario.trim();
+    return usuario.isEmpty ? null : usuario;
   }
 
   Future<void> _loadPersistedLog() async {

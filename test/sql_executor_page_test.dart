@@ -45,33 +45,6 @@ void main() {
     },
   );
 
-  testWidgets('ejecutar un DML muestra advertencia de servicio en desarrollo', (
-    tester,
-  ) async {
-    await setLargeSurface(tester);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: SqlExecutorPage(
-            ambiente: 'DES',
-            onAmbienteChanged: (_) {},
-            initialSql: "UPDATE CLIENTE SET NOMBRE = 'X' WHERE ID = 1;",
-          ),
-        ),
-      ),
-    );
-    await _pumpBounded(tester);
-
-    await tester.tap(
-      find.byTooltip('Ejecutar sentencia actual / selección (Ctrl+Enter)'),
-    );
-    await _pumpBounded(tester);
-
-    // El panel debe saltar solo a "Mensajes": antes se quedaba en
-    // "Resultados" (vacío) y parecía que el botón no hacía nada.
-    expect(find.textContaining('en desarrollo'), findsWidgets);
-  });
-
   testWidgets('la salida inicia visible y puede colapsarse y reabrirse', (
     tester,
   ) async {

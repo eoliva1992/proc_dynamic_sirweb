@@ -238,16 +238,32 @@ class SchemaService {
   /// Columnas de clave primaria de una tabla, para el generador de
   /// INSERT/UPDATE/MERGE del Ejecutor SQL.
   ///
-  /// TODO: no hay endpoint todavía; cuando el backend lo publique, reemplazar
-  /// por una llamada real (candidato: `get_table_primary_key`). Mientras
-  /// tanto lanza para que el llamador caiga al selector manual de columnas.
+  /// No hay un endpoint dedicado todavía; se obtiene el DDL de la tabla
+  /// (`get_table_ddl`, vía DBMS_METADATA) y se extraen las columnas del
+  /// `CONSTRAINT ... PRIMARY KEY (...)`. Lanza si no se encuentra ninguna
+  /// clave primaria, para que el llamador caiga al selector manual de columnas.
   Future<List<String>> getPrimaryKeyColumns(
     String tableName, {
     String? ambiente,
   }) async {
-    throw UnimplementedError(
-      'getPrimaryKeyColumns aún no está soportado por el backend',
-    );
+    final ddl = await getTableDdl(tableName, ambiente: ambiente);
+    final match = RegExp(
+      r'PRIMARY\s+KEY\s*\(([^)]+)\)',
+      caseSensitive: false,
+    ).firstMatch(ddl.createTable);
+    if (match == null) {
+      throw StateError('No se encontró PRIMARY KEY en el DDL de $tableName');
+    }
+    final cols = match
+        .group(1)!
+        .split(',')
+        .map((c) => c.trim().replaceAll('"', '').toUpperCase())
+        .where((c) => c.isNotEmpty)
+        .toList();
+    if (cols.isEmpty) {
+      throw StateError('No se encontró PRIMARY KEY en el DDL de $tableName');
+    }
+    return cols;
   }
 
   /// Caché en memoria de argumentos por `AMBIENTE|OBJETO`.

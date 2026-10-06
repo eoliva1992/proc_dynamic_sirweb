@@ -1,8 +1,10 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:proc_dynamic_sirweb/models/sql_execution.dart';
 import 'package:proc_dynamic_sirweb/widgets/sql_executor/sql_results_grid.dart';
+import 'package:toastification/toastification.dart';
 
 void main() {
   const sampleResult = SqlQueryResult(
@@ -81,6 +83,128 @@ void main() {
       // Deseleccionar con tecla Escape
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'Ctrl+Shift+C copia encabezado y celda seleccionada sin afectar Ctrl+C',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      final clipboardTexts = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            final args = call.arguments as Map;
+            clipboardTexts.add(args['text'] as String);
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      await tester.pumpWidget(
+        const ToastificationWrapper(
+          child: MaterialApp(
+            home: Scaffold(
+              body: SqlResultsGrid(result: sampleResult, maxRows: 100),
+            ),
+          ),
+        ),
+      );
+
+      // Foco en la grilla: requerido para que los atajos de teclado se activen.
+      await tester.tap(find.text('Alice'));
+      // El GestureDetector de la celda tiene onDoubleTap, así que el tap
+      // simple sólo se resuelve tras el timeout de doble-tap.
+      await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
+      await tester.pumpAndSettle();
+      tester
+          .widget<Focus>(find.byKey(const Key('sqlResultsGridFocus')))
+          .focusNode!
+          .requestFocus();
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+
+      expect(clipboardTexts, contains('NAME\nAlice'));
+
+      // Ctrl+C sigue copiando la celda seleccionada, no los encabezados.
+      clipboardTexts.clear();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+
+      expect(clipboardTexts, contains('Alice'));
+    },
+  );
+
+  testWidgets(
+    'Ctrl+Shift+C con fila completa seleccionada copia encabezado y fila',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      final clipboardTexts = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            final args = call.arguments as Map;
+            clipboardTexts.add(args['text'] as String);
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      await tester.pumpWidget(
+        const ToastificationWrapper(
+          child: MaterialApp(
+            home: Scaffold(
+              body: SqlResultsGrid(result: sampleResult, maxRows: 100),
+            ),
+          ),
+        ),
+      );
+
+      final checkboxes = find.byType(Checkbox);
+      await tester.tap(checkboxes.at(1));
+      await tester.pumpAndSettle();
+      tester
+          .widget<Focus>(find.byKey(const Key('sqlResultsGridFocus')))
+          .focusNode!
+          .requestFocus();
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+
+      expect(clipboardTexts, contains('ID\tNAME\n101\tAlice'));
     },
   );
 }
