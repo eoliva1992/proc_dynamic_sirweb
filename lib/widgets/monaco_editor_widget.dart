@@ -7,6 +7,7 @@ import 'package:flutter_monaco/flutter_monaco.dart' as fm;
 
 import '../providers/procedimientos_provider.dart';
 import '../services/schema_service.dart';
+import '../services/sql_statement_analyzer.dart' show splitStatements;
 import '_editor_themes.dart';
 import '_monaco_oracle_completions.dart';
 import 'app_toast.dart';
@@ -21,6 +22,14 @@ import 'source_float_window.dart';
 
 // Cached per-ambiente so jsonEncode doesn't run on every editor open
 final Map<String, String> _schemaPayloadCache = {};
+
+// CSS inyectado en la página Monaco para estilizar las decoraciones propias
+// (separador visual entre sentencias del script SQL).
+const String _kEditorCustomCss = '''
+.sql-stmt-separator {
+  border-top: 1px dashed rgba(128, 128, 128, 0.35);
+}
+''';
 
 // Guard contra robo de foco en Monaco/WebView2:
 // 1. Evita que window.flutterMonaco.forceFocus redirija el foco al editor mientras el buscador
@@ -212,6 +221,25 @@ class MonacoEditorController {
     _enqueue(
       (ctrl) async => ctrl.document.clearMarkers(owner: 'plsql-checker'),
     );
+  }
+
+  // Decoraciones de línea reutilizadas para los separadores visuales entre
+  // sentencias (ver `.sql-stmt-separator` en el CSS inyectado del editor).
+  fm.MonacoDecorationSet? _stmtSeparators;
+
+  /// Dibuja una línea sutil justo encima del inicio de cada sentencia en
+  /// [startLines] (1-based), para facilitar la lectura de scripts largos.
+  void updateStatementSeparators(List<int> startLines) {
+    _enqueue((ctrl) async {
+      _stmtSeparators ??= await ctrl.createDecorationSet();
+      await _stmtSeparators!.set([
+        for (final line in startLines)
+          fm.DecorationOptions.line(
+            range: fm.Range.lines(line, line),
+            className: 'sql-stmt-separator',
+          ),
+      ]);
+    });
   }
 
   /// Cambia el lenguaje de resaltado del editor.
@@ -1106,6 +1134,9 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
   void _onReady(fm.MonacoController ctrl) {
     _rawCtrl = ctrl;
     widget.controller.attach(ctrl);
+    _updateStatementSeparators(
+      _currentText.isNotEmpty ? _currentText : widget.initialCode,
+    );
     // Registrar los temas y luego aplicar el actual: sin este paso Monaco se
     // queda con su tema 'vs' claro por defecto hasta el próximo cambio.
     unawaited(
@@ -1538,39 +1569,62 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
       child: fm.MonacoEditor(
         initialText: widget.initialCode,
         options: _editorOptions,
+        page: const fm.MonacoPageConfig(customCss: _kEditorCustomCss),
         contentDebounce: const Duration(milliseconds: 300),
         onReady: _onReady,
         onContentChanged: (code) {
           _currentText = code;
           widget.onChanged?.call(code);
           _checkDotTrigger(code);
+          _updateStatementSeparators(code);
         },
         onError: widget.onError,
       ),
     );
   }
 
+  /// Recalcula las líneas donde debe dibujarse el separador visual entre
+  /// sentencias (todas menos la primera, que no necesita línea encima).
+  void _updateStatementSeparators(String code) {
+    final stmts = splitStatements(code);
+    if (stmts.length < 2) {
+      widget.controller.updateStatementSeparators(const []);
+      return;
+    }
+    final lines = [for (final stmt in stmts.skip(1)) stmt.startLine + 1];
+    widget.controller.updateStatementSeparators(lines);
+  }
+
   /// Detecta cuando el usuario escribe "OBJETO." o "MI_PROC(" y carga bajo
   /// demanda columnas, subprogramas, atributos o argumentos según el caso.
+  /// Se acotan a [_dotTriggerMaxCache] entradas para no crecer sin límite en
+  /// sesiones largas, y los regex solo miran la cola del texto (no hace falta
+  /// re-escanear documentos de miles de líneas en cada pulsación).
+  static const _dotTriggerTailChars = 200;
+  static const _dotTriggerMaxCache = 500;
   final _lastTableLoaded = <String>{};
   final _lastArgsLoaded = <String>{};
 
   void _checkDotTrigger(String code) {
+    final tail = code.length > _dotTriggerTailChars
+        ? code.substring(code.length - _dotTriggerTailChars)
+        : code;
+
     // "PALABRA." al final del texto → miembros del objeto
-    final dot = RegExp(r'\b(\w{3,})\.$').firstMatch(code);
+    final dot = RegExp(r'\b(\w{3,})\.$').firstMatch(tail);
     if (dot != null) {
       final ref = dot.group(1)!.toUpperCase();
-      if (_lastTableLoaded.add(ref)) {
+      if (_rememberTrigger(_lastTableLoaded, ref)) {
         widget.controller.sendMembersFor(ref, ambiente: widget.ambiente);
       }
       return;
     }
 
     // "MI_PROC(" al final → argumentos para la notación nombrada
-    final call = RegExp(r'\b(\w{3,})\s*\($').firstMatch(code);
+    final call = RegExp(r'\b(\w{3,})\s*\($').firstMatch(tail);
     if (call != null) {
       final ref = call.group(1)!.toUpperCase();
-      if (_lastArgsLoaded.add(ref)) {
+      if (_rememberTrigger(_lastArgsLoaded, ref)) {
         widget.controller.sendObjectArgumentsFor(
           ref,
           ambiente: widget.ambiente,
@@ -1581,12 +1635,21 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
 
     // Palabra suelta que coincide con un objeto del schema → precargar su
     // firma para poder ofrecer el snippet de llamada al completar.
-    final word = RegExp(r'\b(\w{3,})$').firstMatch(code);
+    final word = RegExp(r'\b(\w{3,})$').firstMatch(tail);
     if (word != null) {
       final ref = word.group(1)!.toUpperCase();
-      if (_lastArgsLoaded.add(ref)) {
+      if (_rememberTrigger(_lastArgsLoaded, ref)) {
         widget.controller.prefetchSignatureFor(ref, ambiente: widget.ambiente);
       }
     }
+  }
+
+  // Evita volver a pedir lo mismo; si la caché crece demasiado la reinicia
+  // en vez de mantener un historial indefinido de objetos ya consultados.
+  bool _rememberTrigger(Set<String> cache, String ref) {
+    if (cache.contains(ref)) return false;
+    if (cache.length >= _dotTriggerMaxCache) cache.clear();
+    cache.add(ref);
+    return true;
   }
 }

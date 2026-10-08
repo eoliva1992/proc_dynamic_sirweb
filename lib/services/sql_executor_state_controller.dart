@@ -54,6 +54,19 @@ class SqlExecutorStateController extends ChangeNotifier {
   /// cerrarse (para reintentar la acción pendiente).
   Future<bool> Function()? ensureUsuario;
 
+  /// Inyectado por la página: pide confirmación antes de ejecutar DML/DDL/
+  /// PL-SQL en ambiente Producción. Devuelve `true` para continuar.
+  Future<bool> Function(SqlStatement stmt)? confirmProdExecution;
+
+  DateTime? _runStartedAt;
+  DateTime? get runStartedAt => _runStartedAt;
+
+  // Texto del script al momento de la última ejecución: permite detectar
+  // ediciones posteriores aún no corridas (ver `hasUnexecutedChanges`).
+  String? _lastRunText;
+  bool get hasUnexecutedChanges =>
+      _lastRunText != null && _lastRunText != _text;
+
   SqlExplainResult? _lastExplainResult;
   List<SqlExplainPlanNode>? _explainNodes;
   final List<SqlExecutionLogEntry> _log = [];
@@ -61,6 +74,11 @@ class SqlExecutorStateController extends ChangeNotifier {
   int _resultSeq = 0;
   final List<SqlNamedResult> _results = [];
   int _selectedResultIndex = 0;
+
+  // Caché de `splitStatements(_text)`, invalidada solo cuando `_text` cambia
+  // (evita repetir el escaneo completo del script en cada rebuild/getter).
+  String? _statementsCacheText;
+  List<SqlStatement>? _statementsCache;
 
   /// Sesión Oracle abierta por el último DML/DDL/PL-SQL ejecutado con
   /// `confirmar: false`. Sigue viva hasta `commit()`/`rollback()`.
@@ -87,6 +105,19 @@ class SqlExecutorStateController extends ChangeNotifier {
   List<SqlExplainPlanNode>? get explainNodes => _explainNodes;
   List<SqlExecutionLogEntry> get log => List.unmodifiable(_log);
 
+  // Se incrementa en cada `notifyListeners()` salvo `setText`/`setCursor`:
+  // permite a la UI cachear el subárbol del workspace (panel de resultados,
+  // Monaco) y sólo reconstruirlo cuando cambia algo relevante, no en cada tecla.
+  int _revision = 0;
+  int get revision => _revision;
+  bool _suppressRevisionBump = false;
+
+  @override
+  void notifyListeners() {
+    if (!_suppressRevisionBump) _revision++;
+    super.notifyListeners();
+  }
+
   // ─── Modificadores de Estado ───────────────────────────────────────────────
   void setAmbiente(String value) {
     if (_ambiente == value) return;
@@ -98,14 +129,24 @@ class SqlExecutorStateController extends ChangeNotifier {
 
   void setText(String value) {
     _text = value;
-    notifyListeners();
+    _suppressRevisionBump = true;
+    try {
+      notifyListeners();
+    } finally {
+      _suppressRevisionBump = false;
+    }
   }
 
   void setCursor(int line, int col) {
     if (_cursorLine == line && _cursorCol == col) return;
     _cursorLine = line;
     _cursorCol = col;
-    notifyListeners();
+    _suppressRevisionBump = true;
+    try {
+      notifyListeners();
+    } finally {
+      _suppressRevisionBump = false;
+    }
   }
 
   void setResultsPanelVisible(bool visible) {
@@ -162,6 +203,15 @@ class SqlExecutorStateController extends ChangeNotifier {
   }
 
   // ─── Análisis de Sentencias ────────────────────────────────────────────────
+  /// Sentencias del script actual (cacheadas por texto; ver `_statementsCache`).
+  List<SqlStatement> get statements {
+    if (!identical(_statementsCacheText, _text)) {
+      _statementsCache = splitStatements(_text);
+      _statementsCacheText = _text;
+    }
+    return _statementsCache!;
+  }
+
   int _offsetOf(int line, int col) {
     final lines = _text.split('\n');
     var offset = 0;
@@ -173,7 +223,12 @@ class SqlExecutorStateController extends ChangeNotifier {
 
   SqlStatement? currentStatement() {
     if (_text.trim().isEmpty) return null;
-    return statementAtCursor(_text, _offsetOf(_cursorLine, _cursorCol));
+    final offset = _offsetOf(_cursorLine, _cursorCol);
+    final stmts = statements;
+    for (final s in stmts) {
+      if (offset >= s.startOffset && offset <= s.endOffset) return s;
+    }
+    return stmts.isNotEmpty ? stmts.last : null;
   }
 
   // ─── Ejecución ─────────────────────────────────────────────────────────────
@@ -202,7 +257,7 @@ class SqlExecutorStateController extends ChangeNotifier {
   }
 
   Future<void> runAll() async {
-    final statements = splitStatements(_text);
+    final statements = this.statements;
     if (statements.isEmpty) {
       AppToast.info('El editor está vacío');
       return;
@@ -216,8 +271,18 @@ class SqlExecutorStateController extends ChangeNotifier {
     if (_running) return;
     final owner = await _requireOwner();
     if (owner == null) return;
+    final isWriteKind =
+        stmt.kind == SqlStatementKind.dml ||
+        stmt.kind == SqlStatementKind.ddl ||
+        stmt.kind == SqlStatementKind.plsql;
+    if (isWriteKind && _ambiente == 'Prod' && confirmProdExecution != null) {
+      final confirmed = await confirmProdExecution!(stmt);
+      if (!confirmed) return;
+    }
     _running = true;
     _resultsPanelVisible = true;
+    _runStartedAt = DateTime.now();
+    _lastRunText = _text;
     final entry = SqlExecutionLogEntry(
       id: _logSeq++,
       timestamp: DateTime.now(),
@@ -322,6 +387,7 @@ class SqlExecutorStateController extends ChangeNotifier {
       _switchTab(1);
     } finally {
       _running = false;
+      _runStartedAt = null;
       _savePersistedLog();
       notifyListeners();
     }
@@ -350,6 +416,7 @@ class SqlExecutorStateController extends ChangeNotifier {
         ..message = e.toString().replaceFirst('Exception: ', '');
     } finally {
       _running = false;
+      _runStartedAt = null;
       _savePersistedLog();
       notifyListeners();
     }
@@ -364,6 +431,8 @@ class SqlExecutorStateController extends ChangeNotifier {
     }
     _running = true;
     _resultsPanelVisible = true;
+    _runStartedAt = DateTime.now();
+    _lastRunText = _text;
     final entry = SqlExecutionLogEntry(
       id: _logSeq++,
       timestamp: DateTime.now(),

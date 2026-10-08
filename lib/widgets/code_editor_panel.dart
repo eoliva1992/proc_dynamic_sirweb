@@ -1723,7 +1723,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
                 final suggestions = <CompletionItem>[];
 
-                // Extraer tablas del FROM en el texto completo
+                // Extraer tablas del FROM en el texto completo; se acotan
+                // las columnas para no desplazar tablas/vistas/objetos si hay muchas.
+                final colSuggestions = <CompletionItem>[];
                 final fromMap = _extractFromTables(fullText);
                 for (final realTable in fromMap.values.toSet()) {
                   // Cargar columnas bajo demanda si no están en caché
@@ -1731,7 +1733,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                       ? schema.cachedColumns[realTable]!
                       : await SchemaService.instance.getColumns(realTable);
 
-                  suggestions.addAll(
+                  colSuggestions.addAll(
                     cols
                         .where((c) => upper.isEmpty || c.name.startsWith(upper))
                         .map(
@@ -1744,11 +1746,13 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                         ),
                   );
                 }
+                suggestions.addAll(colSuggestions.take(25));
 
-                // Tablas
+                // Tablas (acotadas para no desplazar vistas/objetos si hay muchas)
                 suggestions.addAll(
                   schema.tables
                       .where((t) => upper.isEmpty || t.startsWith(upper))
+                      .take(15)
                       .map(
                         (t) => CompletionItem(
                           label: t,
@@ -1763,6 +1767,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                 suggestions.addAll(
                   schema.views
                       .where((v) => upper.isEmpty || v.startsWith(upper))
+                      .take(10)
                       .map(
                         (v) => CompletionItem(
                           label: v,
@@ -1806,7 +1811,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                 }
 
                 suggestions.addAll(
-                  objMatches.map((o) {
+                  objMatches.take(15).map((o) {
                     final call = _callInsertText(o.name, o.type);
                     return CompletionItem(
                       label: o.name,
@@ -1822,9 +1827,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                   }),
                 );
 
-                return CompletionList(
-                  suggestions: suggestions.take(50).toList(),
-                );
+                return CompletionList(suggestions: suggestions);
               },
             ),
           );

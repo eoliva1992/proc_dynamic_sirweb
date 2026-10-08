@@ -2039,7 +2039,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           message: 'Ejecutor de sentencias SQL / PL-SQL',
           child: IconButton(
             onPressed: _addSqlExecutorTab,
-            icon: const Icon(Icons.storage_rounded),
+            icon: const Icon(Icons.receipt_long_rounded),
             color: barFgSoft,
           ),
         ),

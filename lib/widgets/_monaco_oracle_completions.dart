@@ -219,6 +219,10 @@ class MonacoOracleCompletionsManager {
           final upper = word.toUpperCase();
           final suggestions = <fm.CompletionItem>[];
 
+          // Columnas de las tablas referenciadas en FROM/JOIN. Se acotan con
+          // su propio `take()` para que, si hay muchas (varias tablas unidas),
+          // no ocupen todo el cupo y dejen afuera tablas/vistas/objetos.
+          final colSuggestions = <fm.CompletionItem>[];
           final fromMap = extractSqlTables(fullText);
           for (final realTable in fromMap.values.toSet()) {
             final cols = schema.cachedColumns.containsKey(realTable)
@@ -227,7 +231,7 @@ class MonacoOracleCompletionsManager {
                     realTable,
                     ambiente: curAmbiente,
                   );
-            suggestions.addAll(
+            colSuggestions.addAll(
               cols
                   .where((c) => upper.isEmpty || c.name.startsWith(upper))
                   .map(
@@ -240,11 +244,13 @@ class MonacoOracleCompletionsManager {
                   ),
             );
           }
+          suggestions.addAll(colSuggestions.take(25));
 
           // Tablas
           suggestions.addAll(
             schema.tables
                 .where((t) => upper.isEmpty || t.startsWith(upper))
+                .take(15)
                 .map(
                   (t) => fm.CompletionItem(
                     label: t,
@@ -259,6 +265,7 @@ class MonacoOracleCompletionsManager {
           suggestions.addAll(
             schema.views
                 .where((v) => upper.isEmpty || v.startsWith(upper))
+                .take(10)
                 .map(
                   (v) => fm.CompletionItem(
                     label: v,
@@ -300,7 +307,7 @@ class MonacoOracleCompletionsManager {
           }
 
           suggestions.addAll(
-            objMatches.map((o) {
+            objMatches.take(15).map((o) {
               final call = _callInsertText(o.name, o.type, curAmbiente);
               return fm.CompletionItem(
                 label: o.name,
@@ -316,7 +323,7 @@ class MonacoOracleCompletionsManager {
             }),
           );
 
-          return fm.CompletionList(suggestions: suggestions.take(60).toList());
+          return fm.CompletionList(suggestions: suggestions);
         },
       );
     } catch (_) {}
@@ -403,10 +410,26 @@ class MonacoOracleCompletionsManager {
     String esc(String s) => s.replaceAll(r'$', r'\$');
     final params = [
       for (var i = 0; i < args.length; i++)
-        '  ${esc(args[i].name)} => \${${i + 1}:${esc(args[i].name)}}',
+        '  ${esc(args[i].name)} => \${${i + 1}:${esc(_callPlaceholderFor(args[i].name, args[i].inOut))}}',
     ].join(',\n');
     final body = '${esc(name)}(\n$params\n)';
     return (text: isProc ? '$body;' : body, isSnippet: true);
+  }
+
+  /// Valor por defecto del placeholder del snippet para un parámetro:
+  /// `IN` → `NULL` (se espera un literal); `OUT`/`IN OUT` → nombre de
+  /// variable sugerido cambiando el prefijo `P`/`P_` del parámetro por `W`/`W_`.
+  String _callPlaceholderFor(String paramName, String inOut) {
+    if (inOut.isEmpty || inOut.toUpperCase() == 'IN') return 'NULL';
+    if (paramName.length >= 2 &&
+        (paramName[0] == 'P' || paramName[0] == 'p') &&
+        paramName[1] == '_') {
+      return 'W_${paramName.substring(2)}';
+    }
+    if (paramName.isNotEmpty && (paramName[0] == 'P' || paramName[0] == 'p')) {
+      return 'W${paramName.substring(1)}';
+    }
+    return 'W_$paramName';
   }
 
   Future<List<fm.CompletionItem>> _packageMemberCompletions(

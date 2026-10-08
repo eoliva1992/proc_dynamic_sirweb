@@ -193,6 +193,98 @@ final plsqlCompletionItems = <CompletionItem>[
     kind: CompletionItemKind.keyword,
     insertText: 'MERGE INTO ',
   ),
+  // ── Cláusulas SQL (faltaban: FROM/WHERE/JOIN/etc. sólo existían embebidas
+  // en snippets, nunca como keyword propia sugerible)
+  CompletionItem(
+    label: 'FROM',
+    kind: CompletionItemKind.keyword,
+    insertText: 'FROM ',
+  ),
+  CompletionItem(
+    label: 'WHERE',
+    kind: CompletionItemKind.keyword,
+    insertText: 'WHERE ',
+  ),
+  CompletionItem(
+    label: 'JOIN',
+    kind: CompletionItemKind.keyword,
+    insertText: 'JOIN ',
+  ),
+  CompletionItem(
+    label: 'INNER JOIN',
+    kind: CompletionItemKind.keyword,
+    insertText: 'INNER JOIN ',
+  ),
+  CompletionItem(
+    label: 'LEFT JOIN',
+    kind: CompletionItemKind.keyword,
+    insertText: 'LEFT JOIN ',
+  ),
+  CompletionItem(
+    label: 'RIGHT JOIN',
+    kind: CompletionItemKind.keyword,
+    insertText: 'RIGHT JOIN ',
+  ),
+  CompletionItem(
+    label: 'ON',
+    kind: CompletionItemKind.keyword,
+    insertText: 'ON ',
+  ),
+  CompletionItem(
+    label: 'GROUP BY',
+    kind: CompletionItemKind.keyword,
+    insertText: 'GROUP BY ',
+  ),
+  CompletionItem(
+    label: 'ORDER BY',
+    kind: CompletionItemKind.keyword,
+    insertText: 'ORDER BY ',
+  ),
+  CompletionItem(
+    label: 'HAVING',
+    kind: CompletionItemKind.keyword,
+    insertText: 'HAVING ',
+  ),
+  CompletionItem(
+    label: 'UNION',
+    kind: CompletionItemKind.keyword,
+    insertText: 'UNION ',
+  ),
+  CompletionItem(
+    label: 'UNION ALL',
+    kind: CompletionItemKind.keyword,
+    insertText: 'UNION ALL ',
+  ),
+  CompletionItem(
+    label: 'AND',
+    kind: CompletionItemKind.keyword,
+    insertText: 'AND ',
+  ),
+  CompletionItem(
+    label: 'OR',
+    kind: CompletionItemKind.keyword,
+    insertText: 'OR ',
+  ),
+  CompletionItem(
+    label: 'DISTINCT',
+    kind: CompletionItemKind.keyword,
+    insertText: 'DISTINCT ',
+  ),
+  CompletionItem(
+    label: 'BETWEEN',
+    kind: CompletionItemKind.keyword,
+    insertText: 'BETWEEN ',
+  ),
+  CompletionItem(
+    label: 'IS NULL',
+    kind: CompletionItemKind.keyword,
+    insertText: 'IS NULL',
+  ),
+  CompletionItem(
+    label: 'IS NOT NULL',
+    kind: CompletionItemKind.keyword,
+    insertText: 'IS NOT NULL',
+  ),
   CompletionItem(
     label: 'COMMIT',
     kind: CompletionItemKind.keyword,

@@ -401,15 +401,31 @@ extension _EditorCompletionsMethods on _CodeEditorPanelState {
     // Un parámetro por línea, indentado, con el paréntesis de cierre alineado
     // a la llamada:
     //   MI_PROC(
-    //     P_UNO => ${1:P_UNO},
-    //     P_DOS => ${2:P_DOS}
+    //     P_UNO => ${1:NULL},
+    //     P_DOS => ${2:W_DOS}
     //   );
     final params = [
       for (var i = 0; i < args.length; i++)
-        '$_snippetIndent${esc(args[i].name)} => \${${i + 1}:${esc(args[i].name)}}',
+        '$_snippetIndent${esc(args[i].name)} => \${${i + 1}:${esc(_callPlaceholderFor(args[i].name, args[i].inOut))}}',
     ].join(',\n');
     final body = '${esc(name)}(\n$params\n)';
     return (text: isProc ? '$body;' : body, isSnippet: true);
+  }
+
+  /// Valor por defecto del placeholder del snippet para un parámetro:
+  /// `IN` → `NULL` (se espera un literal); `OUT`/`IN OUT` → nombre de
+  /// variable sugerido cambiando el prefijo `P`/`P_` del parámetro por `W`/`W_`.
+  String _callPlaceholderFor(String paramName, String inOut) {
+    if (inOut.isEmpty || inOut.toUpperCase() == 'IN') return 'NULL';
+    if (paramName.length >= 2 &&
+        (paramName[0] == 'P' || paramName[0] == 'p') &&
+        paramName[1] == '_') {
+      return 'W_${paramName.substring(2)}';
+    }
+    if (paramName.isNotEmpty && (paramName[0] == 'P' || paramName[0] == 'p')) {
+      return 'W${paramName.substring(1)}';
+    }
+    return 'W_$paramName';
   }
 
   /// Descarta el pseudo-argumento `(RETURN)` que Oracle reporta en funciones.

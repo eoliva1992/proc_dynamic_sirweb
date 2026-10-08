@@ -597,6 +597,23 @@ class _SqlResultsGridState extends State<SqlResultsGrid> {
     return indices;
   }
 
+  Widget _buildEmptyHint(ColorScheme cs, IconData icon, String text) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+        const SizedBox(width: 6),
+        Text(
+          text,
+          style: TextStyle(
+            fontSize: 11,
+            color: cs.onSurfaceVariant.withValues(alpha: 0.55),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final result = widget.result;
@@ -619,6 +636,18 @@ class _SqlResultsGridState extends State<SqlResultsGrid> {
                 fontSize: 12,
                 color: cs.onSurfaceVariant.withValues(alpha: 0.7),
               ),
+            ),
+            const SizedBox(height: 14),
+            _buildEmptyHint(
+              cs,
+              Icons.keyboard_return_rounded,
+              'Ctrl + Enter — ejecutar sentencia actual / selección',
+            ),
+            const SizedBox(height: 4),
+            _buildEmptyHint(
+              cs,
+              Icons.playlist_play_rounded,
+              'F5 — ejecutar todo el script',
             ),
           ],
         ),

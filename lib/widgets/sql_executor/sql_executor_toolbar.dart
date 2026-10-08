@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../models/sql_execution.dart';
@@ -44,6 +46,8 @@ class SqlExecutorToolbar extends StatelessWidget {
   final bool hasPendingChanges;
   final VoidCallback? onCommit;
   final VoidCallback? onRollback;
+  final DateTime? runStartedAt;
+  final bool hasUnexecutedChanges;
 
   const SqlExecutorToolbar({
     super.key,
@@ -58,12 +62,15 @@ class SqlExecutorToolbar extends StatelessWidget {
     this.hasPendingChanges = false,
     this.onCommit,
     this.onRollback,
+    this.runStartedAt,
+    this.hasUnexecutedChanges = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
+    final isProd = ambiente == 'Prod';
 
     return Container(
       height: 40,
@@ -73,7 +80,12 @@ class SqlExecutorToolbar extends StatelessWidget {
           alpha: 0.95,
         ),
         border: Border(
-          bottom: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.7)),
+          bottom: BorderSide(
+            color: isProd
+                ? Colors.red.withValues(alpha: 0.6)
+                : cs.outlineVariant.withValues(alpha: 0.7),
+            width: isProd ? 2 : 1,
+          ),
         ),
       ),
       child: Row(
@@ -81,10 +93,12 @@ class SqlExecutorToolbar extends StatelessWidget {
         children: [
           AmbienteSelector(value: ambiente, onChanged: onAmbienteChanged),
           if (statement != null) _buildKindChip(statement!, cs, isDark),
+          if (hasUnexecutedChanges) _buildUnrunChangesDot(cs),
           HeroExecuteBtn(
             running: running,
             onPressed: running ? null : onExecuteCurrent,
             tooltip: 'Ejecutar sentencia actual / selección (Ctrl+Enter)',
+            runStartedAt: runStartedAt,
           ),
           SqlToolBtn(
             icon: Icons.playlist_play_rounded,
@@ -100,6 +114,11 @@ class SqlExecutorToolbar extends StatelessWidget {
             icon: Icons.code_rounded,
             tooltip: 'Snippets de usuario',
             onPressed: () => openSnippetsManager(context),
+          ),
+          SqlToolBtn(
+            icon: Icons.keyboard_outlined,
+            tooltip: 'Atajos de teclado',
+            onPressed: () => showSqlShortcutsDialog(context),
           ),
           const Spacer(),
           if (hasPendingChanges) ...[
@@ -122,6 +141,23 @@ class SqlExecutorToolbar extends StatelessWidget {
             onPressed: onClearOutput,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildUnrunChangesDot(ColorScheme cs) {
+    return Tooltip(
+      message: 'Hay cambios sin ejecutar',
+      waitDuration: kSqlTooltipWait,
+      decoration: kSqlTooltipDecoration,
+      textStyle: kSqlTooltipTextStyle,
+      child: Container(
+        width: 7,
+        height: 7,
+        decoration: const BoxDecoration(
+          color: Color(0xFFFFB74D),
+          shape: BoxShape.circle,
+        ),
       ),
     );
   }
@@ -171,12 +207,14 @@ class HeroExecuteBtn extends StatefulWidget {
   final bool running;
   final VoidCallback? onPressed;
   final String tooltip;
+  final DateTime? runStartedAt;
 
   const HeroExecuteBtn({
     super.key,
     required this.running,
     required this.onPressed,
     required this.tooltip,
+    this.runStartedAt,
   });
 
   @override
@@ -185,6 +223,31 @@ class HeroExecuteBtn extends StatefulWidget {
 
 class _HeroExecuteBtnState extends State<HeroExecuteBtn> {
   bool _hovered = false;
+  Timer? _ticker;
+  Duration _elapsed = Duration.zero;
+
+  @override
+  void didUpdateWidget(HeroExecuteBtn old) {
+    super.didUpdateWidget(old);
+    if (widget.running && !old.running) {
+      _elapsed = Duration.zero;
+      _ticker?.cancel();
+      _ticker = Timer.periodic(const Duration(milliseconds: 200), (_) {
+        final startedAt = widget.runStartedAt;
+        if (!mounted || startedAt == null) return;
+        setState(() => _elapsed = DateTime.now().difference(startedAt));
+      });
+    } else if (!widget.running && old.running) {
+      _ticker?.cancel();
+      _ticker = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -256,7 +319,9 @@ class _HeroExecuteBtnState extends State<HeroExecuteBtn> {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          'Ejecutando…',
+                          widget.runStartedAt == null
+                              ? 'Ejecutando…'
+                              : 'Ejecutando… ${(_elapsed.inMilliseconds / 1000).toStringAsFixed(1)}s',
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
@@ -369,4 +434,70 @@ class _SqlToolBtnState extends State<SqlToolBtn> {
       ),
     );
   }
+}
+
+const List<(String, String)> _kSqlShortcuts = [
+  ('Ctrl + Enter', 'Ejecutar sentencia actual / selección'),
+  ('F5', 'Ejecutar todo el script'),
+  ('Ctrl + F', 'Buscar en el documento'),
+  ('F12', 'Ir a definición'),
+  ('Alt + I', 'Información del evento'),
+  ('Alt + D', 'Información del dato'),
+  ('Alt + R', 'Ejecutar procedimiento dinámico…'),
+  ('Ctrl + Shift + E', 'Ejecutar objeto PL/SQL…'),
+  ('Alt + E', 'Consultar evento…'),
+  ('Alt + A', 'Consultar autorizaciones…'),
+];
+
+/// Muestra un diálogo con los atajos de teclado disponibles en el editor.
+void showSqlShortcutsDialog(BuildContext context) {
+  showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Atajos de teclado'),
+      content: SizedBox(
+        width: 380,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final (keys, desc) in _kSqlShortcuts)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          ctx,
+                        ).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                      child: Text(
+                        keys,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text(desc)),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: const Text('Cerrar'),
+        ),
+      ],
+    ),
+  );
 }

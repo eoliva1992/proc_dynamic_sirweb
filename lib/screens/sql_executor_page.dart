@@ -9,9 +9,10 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../models/sql_execution.dart' show SqlStatement;
 import '../providers/procedimientos_provider.dart';
 import '../services/sql_executor_state_controller.dart';
-import '../services/sql_statement_analyzer.dart';
+import '../widgets/constellation_background.dart' show ConstellationDialogTitle;
 import '../widgets/monaco_editor_widget.dart';
 import '../widgets/plsql_tables.dart' show extractSqlTables;
 import '../widgets/slide_up_panel.dart';
@@ -62,11 +63,52 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
       await showUsuarioDialog(context);
       return procedimientosProvider.cdUsuario.trim().isNotEmpty;
     };
+    _stateCtrl.confirmProdExecution = _confirmProdExecution;
     _stateCtrl.onTabChangeRequested = (idx) {
       if (mounted && _resultTabCtrl.index != idx) {
         _resultTabCtrl.index = idx;
       }
     };
+  }
+
+  Future<bool> _confirmProdExecution(SqlStatement stmt) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        titlePadding: EdgeInsets.zero,
+        title: const ConstellationDialogTitle(
+          child: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.red, size: 20),
+              SizedBox(width: 8),
+              Text('Ejecutar en Producción'),
+            ],
+          ),
+        ),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            'Estás por ejecutar una sentencia ${stmt.kind.name.toUpperCase()} '
+            'en el ambiente de Producción. Esto puede modificar datos reales.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Ejecutar'),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
   }
 
   @override
@@ -96,6 +138,31 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
       suggestedTable: table,
       ambiente: _stateCtrl.ambiente,
       onInsert: (sql) => _monacoCtrl.insertTextAtCursor(sql),
+    );
+  }
+
+  // Cachea el workspace (panel de resultados + Monaco) para que no se
+  // reconstruya en cada tecla/movimiento de cursor, sólo cuando cambia algo
+  // que realmente afecta (resultados, panel, tema).
+  int? _workspaceRevision;
+  bool? _workspaceIsDark;
+  Widget? _workspaceCache;
+
+  Widget _buildWorkspace(bool isDark) {
+    final cached = _workspaceCache;
+    if (cached != null &&
+        _workspaceRevision == _stateCtrl.revision &&
+        _workspaceIsDark == isDark) {
+      return cached;
+    }
+    _workspaceRevision = _stateCtrl.revision;
+    _workspaceIsDark = isDark;
+    return _workspaceCache = _SqlEditorWorkspace(
+      monacoCtrl: _monacoCtrl,
+      stateCtrl: _stateCtrl,
+      resultTabCtrl: _resultTabCtrl,
+      isDark: isDark,
+      onGenerateDml: _onGenerateDml,
     );
   }
 
@@ -134,24 +201,18 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
                   hasPendingChanges: _stateCtrl.hasPendingChanges,
                   onCommit: _stateCtrl.commit,
                   onRollback: _stateCtrl.rollback,
+                  runStartedAt: _stateCtrl.runStartedAt,
+                  hasUnexecutedChanges: _stateCtrl.hasUnexecutedChanges,
                 ),
                 _SqlProgressBar(
                   running: _stateCtrl.running,
                   primaryColor: cs.primary,
                 ),
-                Expanded(
-                  child: _SqlEditorWorkspace(
-                    monacoCtrl: _monacoCtrl,
-                    stateCtrl: _stateCtrl,
-                    resultTabCtrl: _resultTabCtrl,
-                    isDark: isDark,
-                    onGenerateDml: _onGenerateDml,
-                  ),
-                ),
+                Expanded(child: _buildWorkspace(isDark)),
                 SqlExecutorStatusBar(
                   cursorLine: _stateCtrl.cursorLine,
                   cursorCol: _stateCtrl.cursorCol,
-                  statementCount: splitStatements(_stateCtrl.text).length,
+                  statementCount: _stateCtrl.statements.length,
                   statement: stmt,
                   running: _stateCtrl.running,
                   lastEntry: _stateCtrl.log.isNotEmpty

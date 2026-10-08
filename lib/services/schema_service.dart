@@ -235,6 +235,19 @@ class SchemaService {
     }
   }
 
+  /// Caché en memoria de claves primarias por `AMBIENTE|TABLA`, para no
+  /// repetir la consulta de DDL cada vez que se abre el generador DML.
+  final _pkCache = <String, List<String>>{};
+  final _pkInFlight = <String, Future<List<String>>>{};
+
+  static String _pkKey(String env, String table) =>
+      '$env|${table.toUpperCase()}';
+
+  /// Claves primarias ya cacheadas de forma **síncrona**, o `null` si todavía
+  /// no se consultaron.
+  List<String>? peekPrimaryKeyColumns(String tableName, {String? ambiente}) =>
+      _pkCache[_pkKey(_env(ambiente), tableName)];
+
   /// Columnas de clave primaria de una tabla, para el generador de
   /// INSERT/UPDATE/MERGE del Ejecutor SQL.
   ///
@@ -242,7 +255,29 @@ class SchemaService {
   /// (`get_table_ddl`, vía DBMS_METADATA) y se extraen las columnas del
   /// `CONSTRAINT ... PRIMARY KEY (...)`. Lanza si no se encuentra ninguna
   /// clave primaria, para que el llamador caiga al selector manual de columnas.
+  /// El resultado se cachea en memoria por tabla+ambiente; usar [forceRefresh]
+  /// para forzar una nueva consulta al servidor.
   Future<List<String>> getPrimaryKeyColumns(
+    String tableName, {
+    String? ambiente,
+    bool forceRefresh = false,
+  }) {
+    final key = _pkKey(_env(ambiente), tableName);
+    if (forceRefresh) {
+      _pkCache.remove(key);
+    } else {
+      final cached = _pkCache[key];
+      if (cached != null) return Future.value(cached);
+    }
+    final inFlight = _pkInFlight[key];
+    if (inFlight != null) return inFlight;
+    final future = _loadPrimaryKeyColumns(tableName, ambiente: ambiente);
+    _pkInFlight[key] = future;
+    future.whenComplete(() => _pkInFlight.remove(key));
+    return future;
+  }
+
+  Future<List<String>> _loadPrimaryKeyColumns(
     String tableName, {
     String? ambiente,
   }) async {
@@ -263,6 +298,7 @@ class SchemaService {
     if (cols.isEmpty) {
       throw StateError('No se encontró PRIMARY KEY en el DDL de $tableName');
     }
+    _pkCache[_pkKey(_env(ambiente), tableName)] = cols;
     return cols;
   }
 

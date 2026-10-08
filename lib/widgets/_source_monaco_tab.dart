@@ -961,6 +961,10 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
               }
               final upper = _wordBefore(line).toUpperCase();
               final suggestions = <fm.CompletionItem>[];
+              // Cada categoría se acota por separado: si las columnas de las
+              // tablas del FROM llenaran todo el cupo, tablas/vistas/objetos
+              // nunca aparecerían en la lista final.
+              final colSuggestions = <fm.CompletionItem>[];
               for (final t in _extractFromTables(fullText).values.toSet()) {
                 final cols =
                     schema.cachedColumns[t] ??
@@ -968,7 +972,7 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
                       t,
                       ambiente: widget.ambiente,
                     );
-                suggestions.addAll(
+                colSuggestions.addAll(
                   cols
                       .where((c) => upper.isEmpty || c.name.startsWith(upper))
                       .map(
@@ -981,9 +985,11 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
                       ),
                 );
               }
+              suggestions.addAll(colSuggestions.take(25));
               suggestions.addAll(
                 schema.tables
                     .where((t) => upper.isEmpty || t.startsWith(upper))
+                    .take(15)
                     .map(
                       (t) => fm.CompletionItem(
                         label: t,
@@ -996,6 +1002,7 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
               suggestions.addAll(
                 schema.views
                     .where((v) => upper.isEmpty || v.startsWith(upper))
+                    .take(10)
                     .map(
                       (v) => fm.CompletionItem(
                         label: v,
@@ -1008,6 +1015,7 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
               suggestions.addAll(
                 schema.objects
                     .where((o) => upper.isEmpty || o.name.startsWith(upper))
+                    .take(15)
                     .map(
                       (o) => fm.CompletionItem(
                         label: o.name,
@@ -1021,9 +1029,7 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
                       ),
                     ),
               );
-              return fm.CompletionList(
-                suggestions: suggestions.take(50).toList(),
-              );
+              return fm.CompletionList(suggestions: suggestions);
             },
           );
         })
