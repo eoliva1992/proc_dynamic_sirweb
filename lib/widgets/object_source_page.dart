@@ -28,6 +28,7 @@ import 'code_editor_panel.dart'
         showEjecutarLlamadaWindow;
 import 'constellation_background.dart';
 import 'monaco_snippets.dart';
+import 'plsql_tables.dart' show extractSqlTables;
 import 'slide_up_panel.dart';
 import 'source_tab_controller.dart';
 import 'status_card.dart';

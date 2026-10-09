@@ -68,22 +68,6 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
 
   static final _reDotPrefix = RegExp(r'(\w+)\.$');
   static final _reWordEnd = RegExp(r'(\w+)$');
-  static final _reFromBlock = RegExp(
-    r'FROM\s+([\s\S]*?)(?=\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|$)',
-    caseSensitive: false,
-  );
-  static final _reAliasBlock = RegExp(
-    r'\b(\w+)\s+(?:AS\s+)?(\w+)\b',
-    caseSensitive: false,
-  );
-  static final _reFromSimple = RegExp(
-    r'\bFROM\s+(\w+)(?:\s*,|\s*$|\s+(?:WHERE|GROUP|ORDER|HAVING|JOIN))',
-    caseSensitive: false,
-  );
-  static final _reJoin = RegExp(
-    r'\bJOIN\s+(\w+)(?:\s+AS\s+|\s+)(\w+)?',
-    caseSensitive: false,
-  );
 
   @override
   bool get wantKeepAlive => true;
@@ -1039,43 +1023,8 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
   Map<String, String> _extractFromTables(String sql) {
     final hash = sql.hashCode ^ sql.length;
     if (hash == _fromExtractHash) return _fromExtractResult;
-    final result = <String, String>{};
-    void add(String table, String? alias) {
-      final t = table.toUpperCase();
-      result[t] = t;
-      if (alias != null && alias.isNotEmpty) result[alias.toUpperCase()] = t;
-    }
-
-    const reserved = {
-      'ON',
-      'WHERE',
-      'SET',
-      'AND',
-      'OR',
-      'JOIN',
-      'LEFT',
-      'RIGHT',
-      'INNER',
-      'OUTER',
-      'FULL',
-      'CROSS',
-      'GROUP',
-      'ORDER',
-      'HAVING',
-    };
-    final fromBlock = _reFromBlock.firstMatch(sql)?.group(1) ?? '';
-    for (final m in _reAliasBlock.allMatches(fromBlock)) {
-      if (!reserved.contains(m.group(2)!.toUpperCase())) {
-        add(m.group(1)!, m.group(2));
-      }
-    }
-    for (final m in _reFromSimple.allMatches(sql)) {
-      add(m.group(1)!, null);
-    }
-    for (final m in _reJoin.allMatches(sql)) {
-      add(m.group(1)!, m.group(2));
-    }
-    _fromExtractHash = sql.hashCode ^ sql.length;
+    final result = extractSqlTables(sql);
+    _fromExtractHash = hash;
     _fromExtractResult = result;
     return result;
   }

@@ -3,14 +3,24 @@ part of 'code_editor_panel.dart';
 // ── Métodos _build* del editor — toolbar, tabs, botones, panel de problemas ──
 
 extension _EditorBuildMethods on _CodeEditorPanelState {
+  static const double _kProblemsHeaderH = 30.0;
+  static const double _kProblemsMinW = 360.0;
+  static const double _kProblemsMinH = 150.0;
+  static const double _kProblemsMinimizedW = 220.0;
+  static const double _kProblemsEdge = 6.0;
+  static const double _kProblemsCorner = 16.0;
+
   /// Panel de problemas (sintaxis + compilación Oracle).
   ///
-  /// Se monta como capa flotante DENTRO del `Stack` del editor, no como
-  /// hermano en el `Column`. Si fuera hermano, al abrirlo el `Expanded` del
+  /// Ventana flotante DENTRO del `Stack` del editor (arrastrable,
+  /// redimensionable desde cualquier borde, minimizable/maximizable), no un
+  /// hermano en el `Column`: si fuera hermano, al abrirlo el `Expanded` del
   /// editor se encogería y Monaco —que es una textura de WebView2— haría un
-  /// relayout visible: el código "salta". Como overlay, el editor conserva
-  /// exactamente su tamaño y solo aparece el panel encima.
-  Widget _buildProblemsPanel(BuildContext context) {
+  /// relayout visible. Como capas del Stack, el editor conserva su tamaño.
+  ///
+  /// Devuelve varias capas (contenido + handles de resize) para insertarlas
+  /// directamente como hijos del `Stack` del editor.
+  List<Widget> _buildProblemsPanelLayers(BuildContext context, Size areaSize) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final procId = _activeProcId ?? '';
@@ -25,217 +35,336 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
         .where((e) => e.severity == MarkerSeverity.warning)
         .length;
 
-    // El panel entra deslizándose desde abajo y se funde al salir.
-    return SlideUpPanel(
-      visible: _showProblemsPanel,
-      height: _problemsPanelHeight,
-      child: Container(
-        height: _problemsPanelHeight,
-        decoration: BoxDecoration(
-          // Opaco a propósito: el panel flota sobre el editor y el
-          // código no debe transparentarse por detrás.
-          color: isDark ? const Color(0xFF1E1E1E) : cs.surfaceContainerLow,
-          border: Border(top: BorderSide(color: cs.outlineVariant)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.18),
-              blurRadius: 12,
-              offset: const Offset(0, -3),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            // Resize handle + header combined
-            GestureDetector(
-              onVerticalDragUpdate: (d) {
-                setState(() {
-                  _problemsPanelHeight = (_problemsPanelHeight - d.delta.dy)
-                      .clamp(80.0, 400.0);
-                });
-              },
-              onVerticalDragEnd: (_) => _savePrefs(),
-              child: MouseRegion(
-                cursor: SystemMouseCursors.resizeRow,
-                child: Container(
-                  height: 28,
-                  color: isDark
-                      ? cs.surfaceContainerHigh
-                      : cs.surfaceContainerHighest,
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.list_alt_rounded,
-                        size: 13,
-                        color: cs.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Problemas',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: cs.onSurface,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      if (errorCount > 0)
-                        _ProblemCount(count: errorCount, isError: true),
-                      if (warnCount > 0) ...[
-                        const SizedBox(width: 4),
-                        _ProblemCount(count: warnCount, isError: false),
-                      ],
-                      if (_backendChecking) ...[
-                        const SizedBox(width: 6),
-                        SizedBox(
-                          width: 10,
-                          height: 10,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 1.5,
-                            color: cs.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                      const Spacer(),
-                      InkWell(
-                        onTap: () => setState(() => _showProblemsPanel = false),
-                        borderRadius: BorderRadius.circular(3),
-                        child: Padding(
-                          padding: const EdgeInsets.all(4),
-                          child: Icon(
-                            Icons.close,
-                            size: 13,
-                            color: cs.onSurfaceVariant,
-                          ),
-                        ),
-                      ),
-                    ],
+    double w, h, left, top;
+    if (_problemsMaximized) {
+      w = areaSize.width;
+      h = areaSize.height;
+      left = 0;
+      top = 0;
+    } else if (_problemsMinimized) {
+      w = _kProblemsMinimizedW;
+      h = _kProblemsHeaderH;
+      left = 12;
+      top = (areaSize.height - h - 12).clamp(0.0, double.infinity);
+    } else {
+      final maxW = areaSize.width.clamp(_kProblemsMinW, double.infinity);
+      w =
+          (_problemsPanelWidth ??
+                  (areaSize.width * 0.9).clamp(_kProblemsMinW, 900.0))
+              .clamp(_kProblemsMinW, maxW);
+      final maxH = areaSize.height.clamp(_kProblemsMinH, double.infinity);
+      h = _problemsPanelHeight.clamp(_kProblemsMinH, maxH);
+      final defaultPos = Offset(
+        ((areaSize.width - w) / 2).clamp(0.0, double.infinity),
+        (areaSize.height - h - 12).clamp(0.0, double.infinity),
+      );
+      final pos = _problemsPos ?? defaultPos;
+      left = pos.dx.clamp(
+        0.0,
+        (areaSize.width - w).clamp(0.0, double.infinity),
+      );
+      top = pos.dy.clamp(
+        0.0,
+        (areaSize.height - h).clamp(0.0, double.infinity),
+      );
+    }
+
+    void updateGeometry({
+      double? newW,
+      double? newH,
+      double? newLeft,
+      double? newTop,
+    }) {
+      setState(() {
+        _problemsAnim = Duration.zero;
+        if (newW != null) _problemsPanelWidth = newW;
+        if (newH != null) _problemsPanelHeight = newH;
+        if (newLeft != null || newTop != null) {
+          _problemsPos = Offset(newLeft ?? left, newTop ?? top);
+        }
+      });
+    }
+
+    Widget buildHeader() {
+      return MouseRegion(
+        cursor: (_problemsMaximized || _problemsMinimized)
+            ? SystemMouseCursors.basic
+            : SystemMouseCursors.grab,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onPanUpdate: (_problemsMaximized || _problemsMinimized)
+              ? null
+              : (d) => updateGeometry(
+                  newLeft: (left + d.delta.dx).clamp(
+                    0.0,
+                    (areaSize.width - w).clamp(0.0, double.infinity),
+                  ),
+                  newTop: (top + d.delta.dy).clamp(
+                    0.0,
+                    (areaSize.height - h).clamp(0.0, double.infinity),
                   ),
                 ),
-              ),
-            ),
-            Expanded(
-              child: allIssues.isEmpty
-                  ? Center(
-                      child: Text(
-                        'Sin problemas detectados',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: cs.onSurfaceVariant,
-                        ),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: allIssues.length,
-                      itemBuilder: (_, i) {
-                        final issue = allIssues[i];
-                        final isError = issue.severity == MarkerSeverity.error;
-                        return InkWell(
-                          onTap: () async {
-                            await _withCtrl((ctrl) async {
-                              await ctrl.revealLine(issue.line, center: true);
-                              await ctrl.setCursorPosition(
-                                Position(line: issue.line, column: issue.col),
-                              );
-                            });
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 5,
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  isError
-                                      ? Icons.error_outline
-                                      : Icons.warning_amber_rounded,
-                                  size: 14,
-                                  color: isError
-                                      ? Colors.red[400]
-                                      : Colors.orange[400],
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    issue.message,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontFamily: 'Consolas',
-                                    ),
-                                    softWrap: true,
-                                    maxLines: 4,
-                                    overflow: TextOverflow.fade,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                if (issue.line > 1 || issue.col > 1)
-                                  Text(
-                                    'L${issue.line}:${issue.col}',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: cs.onSurfaceVariant,
-                                      fontFamily: 'Consolas',
-                                    ),
-                                  ),
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 5,
-                                    vertical: 1,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: cs.surfaceContainerHighest,
-                                    borderRadius: BorderRadius.circular(3),
-                                  ),
-                                  child: Text(
-                                    issue.source,
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: issue.source == 'Oracle'
-                                          ? Colors.orange[400]
-                                          : cs.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                                Tooltip(
-                                  message: 'Copiar mensaje',
-                                  child: InkWell(
-                                    onTap: () {
-                                      Clipboard.setData(
-                                        ClipboardData(
-                                          text:
-                                              '${issue.source} L${issue.line}:${issue.col} — ${issue.message}',
-                                        ),
-                                      );
-                                      AppToast.info('Copiado al portapapeles');
-                                    },
-                                    borderRadius: BorderRadius.circular(3),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(3),
-                                      child: Icon(
-                                        Icons.copy_rounded,
-                                        size: 13,
-                                        color: cs.onSurfaceVariant.withValues(
-                                          alpha: 0.5,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
+          onPanEnd: (_) => _savePrefs(),
+          child: Container(
+            height: _kProblemsHeaderH,
+            color: isDark
+                ? cs.surfaceContainerHigh
+                : cs.surfaceContainerHighest,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.list_alt_rounded,
+                  size: 13,
+                  color: cs.onSurfaceVariant,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Problemas',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: cs.onSurface,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (errorCount > 0)
+                  _ProblemCount(count: errorCount, isError: true),
+                if (warnCount > 0) ...[
+                  const SizedBox(width: 4),
+                  _ProblemCount(count: warnCount, isError: false),
+                ],
+                if (_backendChecking) ...[
+                  const SizedBox(width: 6),
+                  SizedBox(
+                    width: 10,
+                    height: 10,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.5,
+                      color: cs.onSurfaceVariant,
                     ),
+                  ),
+                ],
+                const Spacer(),
+                _ProblemsHeaderButton(
+                  tooltip: _problemsMinimized ? 'Restaurar' : 'Minimizar',
+                  icon: _problemsMinimized
+                      ? Icons.open_in_browser_rounded
+                      : Icons.remove_rounded,
+                  onTap: () {
+                    setState(() {
+                      _problemsAnim = const Duration(milliseconds: 200);
+                      _problemsMinimized = !_problemsMinimized;
+                      if (_problemsMinimized) _problemsMaximized = false;
+                    });
+                    _savePrefs();
+                  },
+                ),
+                if (!_problemsMinimized)
+                  _ProblemsHeaderButton(
+                    tooltip: _problemsMaximized
+                        ? 'Restaurar tamaño'
+                        : 'Maximizar',
+                    icon: _problemsMaximized
+                        ? Icons.close_fullscreen_rounded
+                        : Icons.open_in_full_rounded,
+                    onTap: () {
+                      setState(() {
+                        _problemsAnim = const Duration(milliseconds: 200);
+                        _problemsMaximized = !_problemsMaximized;
+                        if (_problemsMaximized) _problemsMinimized = false;
+                      });
+                      _savePrefs();
+                    },
+                  ),
+                _ProblemsHeaderButton(
+                  tooltip: 'Cerrar',
+                  icon: Icons.close,
+                  onTap: () => setState(() => _showProblemsPanel = false),
+                ),
+              ],
             ),
-          ],
+          ),
+        ),
+      );
+    }
+
+    final panel = AnimatedPositioned(
+      duration: _problemsAnim,
+      curve: Curves.easeOutCubic,
+      left: left,
+      top: top,
+      width: w,
+      height: h,
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          decoration: BoxDecoration(
+            // Opaco a propósito: el panel flota sobre el editor y el
+            // código no debe transparentarse por detrás.
+            color: isDark ? const Color(0xFF1E1E1E) : cs.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(
+              _problemsMaximized ? 0 : (_problemsMinimized ? 8 : 10),
+            ),
+            border: Border.all(color: cs.outlineVariant),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.18),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: _problemsMinimized
+              ? buildHeader()
+              : Column(
+                  children: [
+                    buildHeader(),
+                    Expanded(
+                      child: ProblemsOutputConsole(
+                        issues: allIssues,
+                        checking: _backendChecking,
+                        onJumpTo: (issue) async {
+                          await _withCtrl((ctrl) async {
+                            await ctrl.revealLine(issue.line, center: true);
+                            await ctrl.setCursorPosition(
+                              Position(line: issue.line, column: issue.col),
+                            );
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
         ),
       ),
     );
+
+    if (_problemsMaximized || _problemsMinimized) {
+      return [panel];
+    }
+
+    return [
+      panel,
+      // Borde izquierdo
+      Positioned(
+        left: left - _kProblemsEdge / 2,
+        top: top + _kProblemsHeaderH,
+        width: _kProblemsEdge,
+        height: (h - _kProblemsHeaderH).clamp(0.0, double.infinity),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.resizeLeftRight,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanUpdate: (d) {
+              final newW = (w - d.delta.dx).clamp(
+                _kProblemsMinW,
+                areaSize.width,
+              );
+              final newLeft = (left + (w - newW)).clamp(
+                0.0,
+                (areaSize.width - newW).clamp(0.0, double.infinity),
+              );
+              updateGeometry(newW: newW, newLeft: newLeft);
+            },
+            onPanEnd: (_) => _savePrefs(),
+          ),
+        ),
+      ),
+      // Borde derecho
+      Positioned(
+        left: left + w - _kProblemsEdge / 2,
+        top: top + _kProblemsHeaderH,
+        width: _kProblemsEdge,
+        height: (h - _kProblemsHeaderH).clamp(0.0, double.infinity),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.resizeLeftRight,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanUpdate: (d) {
+              final newW = (w + d.delta.dx).clamp(
+                _kProblemsMinW,
+                (areaSize.width - left).clamp(_kProblemsMinW, double.infinity),
+              );
+              updateGeometry(newW: newW);
+            },
+            onPanEnd: (_) => _savePrefs(),
+          ),
+        ),
+      ),
+      // Borde superior (redimensiona y desplaza la posición)
+      Positioned(
+        left: left + 12,
+        top: top - _kProblemsEdge / 2,
+        width: (w - 24).clamp(0.0, double.infinity),
+        height: _kProblemsEdge,
+        child: MouseRegion(
+          cursor: SystemMouseCursors.resizeUpDown,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanUpdate: (d) {
+              final newH = (h - d.delta.dy).clamp(
+                _kProblemsMinH,
+                areaSize.height,
+              );
+              final newTop = (top + (h - newH)).clamp(
+                0.0,
+                (areaSize.height - newH).clamp(0.0, double.infinity),
+              );
+              updateGeometry(newH: newH, newTop: newTop);
+            },
+            onPanEnd: (_) => _savePrefs(),
+          ),
+        ),
+      ),
+      // Borde inferior
+      Positioned(
+        left: left + 12,
+        top: top + h - _kProblemsEdge / 2,
+        width: (w - 24).clamp(0.0, double.infinity),
+        height: _kProblemsEdge,
+        child: MouseRegion(
+          cursor: SystemMouseCursors.resizeUpDown,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanUpdate: (d) {
+              final newH = (h + d.delta.dy).clamp(
+                _kProblemsMinH,
+                (areaSize.height - top).clamp(_kProblemsMinH, double.infinity),
+              );
+              updateGeometry(newH: newH);
+            },
+            onPanEnd: (_) => _savePrefs(),
+          ),
+        ),
+      ),
+      // Esquina inferior derecha
+      Positioned(
+        left: left + w - _kProblemsCorner,
+        top: top + h - _kProblemsCorner,
+        width: _kProblemsCorner,
+        height: _kProblemsCorner,
+        child: MouseRegion(
+          cursor: SystemMouseCursors.resizeUpLeftDownRight,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanUpdate: (d) {
+              final newW = (w + d.delta.dx).clamp(
+                _kProblemsMinW,
+                (areaSize.width - left).clamp(_kProblemsMinW, double.infinity),
+              );
+              final newH = (h + d.delta.dy).clamp(
+                _kProblemsMinH,
+                (areaSize.height - top).clamp(_kProblemsMinH, double.infinity),
+              );
+              updateGeometry(newW: newW, newH: newH);
+            },
+            onPanEnd: (_) => _savePrefs(),
+          ),
+        ),
+      ),
+    ];
   }
 
   Widget _buildDocTabs(bool isDark) {
@@ -479,6 +608,11 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
             icon: Icons.play_arrow_rounded,
             tooltip: 'Ejecutar objeto PL/SQL (Ctrl+Shift+E)',
             onPressed: () => unawaited(_ejecutarLlamadaPlsql()),
+          ),
+          _ToolBtn(
+            icon: Icons.folder_open_rounded,
+            tooltip: 'Abrir archivo (.sql / .txt / .yaml)',
+            onPressed: () => unawaited(_openLocalFile()),
           ),
           const Spacer(),
           _buildErrorBadge(cs),

@@ -46,7 +46,9 @@ part '_screen_transitions.dart';
 part '_shortcuts_dialog.dart';
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({super.key});
+  final String? initialFilePath;
+
+  const MainScreen({super.key, this.initialFilePath});
 
   @override
   State<MainScreen> createState() => _MainScreenState();
@@ -112,6 +114,12 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     // descendientes del SourceTabController (diálogos en el root navigator).
     SourceTabController.registerGlobal(_addSourceTab);
     _markTabLive(0);
+    final initialFilePath = widget.initialFilePath;
+    if (initialFilePath != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_openInitialFile(initialFilePath));
+      });
+    }
     // Monitoreo de conectividad para el indicador de la barra superior.
     unawaited(ConnectionStatusService.instance.start());
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -353,6 +361,10 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   Future<void> _compileTabProcedure(AppTab tab, String code) async {
     final proc = tab.procedimiento;
     if (proc == null) return;
+    if (tab.localFilePath != null) {
+      AppToast.info('Compilar no está disponible para archivos locales');
+      return;
+    }
     if (procedimientosProvider.cdUsuario.trim().isEmpty) {
       if (!mounted) return;
       _showUsuarioDialog(
@@ -394,6 +406,21 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   Future<void> _saveTabProcedure(AppTab tab, String code) async {
     final proc = tab.procedimiento;
     if (proc == null) return;
+    if (tab.localFilePath != null) {
+      try {
+        await File(tab.localFilePath!).writeAsString(code);
+      } on IOException {
+        if (mounted) AppToast.error('No se pudo guardar el archivo en disco');
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        tab.procedimiento = proc.copyWith(deTexto: code);
+        tab.isDirty = false;
+      });
+      AppToast.success('Guardado en disco', duration: const Duration(seconds: 2));
+      return;
+    }
     // Require a registered user before saving
     if (procedimientosProvider.cdUsuario.trim().isEmpty) {
       if (!mounted) return;
@@ -569,6 +596,40 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     _markTabLive(_activeTab);
     procedimientosProvider.setProcedimientoActual(null);
     procedimientosProvider.setAmbiente(_tabs[_activeTab].ambiente);
+  }
+
+  /// Abre un archivo local (.sql/.txt) como una nueva pestaña, sin persistir
+  /// en BD — guardar escribe de vuelta al mismo archivo en disco.
+  void _openLocalFileTab(String path, String content) {
+    if (!_ensureTabSlot()) return;
+    final synthProc = Procedimiento(
+      cdProcedimiento: 'LOCAL_${DateTime.now().microsecondsSinceEpoch}',
+      deTexto: content,
+      inConfiguracion: 'S',
+      version: 0,
+      stProcedimiento: '1',
+    );
+    final tab = AppTab(ambiente: procedimientosProvider.ambiente)
+      ..procedimiento = synthProc
+      ..localFilePath = path
+      ..currentEditorCode = content;
+    setState(() {
+      _tabs.add(tab);
+      _activeTab = _tabs.length - 1;
+    });
+    _markTabLive(_activeTab);
+  }
+
+  /// Carga el archivo recibido por línea de comandos (lanzado vía "Abrir con"
+  /// de Windows) en la pestaña inicial en blanco.
+  Future<void> _openInitialFile(String path) async {
+    try {
+      final content = await File(path).readAsString();
+      if (!mounted) return;
+      _openLocalFileTab(path, content);
+    } on IOException {
+      if (mounted) AppToast.warning('No se pudo leer el archivo seleccionado');
+    }
   }
 
   /// Abre un objeto Oracle como tab de visor de fuente.
@@ -1305,6 +1366,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                           onSave: (code) => _saveTabProcedure(tab, code),
                           onCompile: (code) => _compileTabProcedure(tab, code),
                           onCodeChanged: (code) => tab.currentEditorCode = code,
+                          onOpenLocalFile: _openLocalFileTab,
                         ),
                       if (tab.loading)
                         _EditorLoadingOverlay(

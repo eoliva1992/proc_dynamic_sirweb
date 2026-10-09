@@ -432,7 +432,9 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
               if (_minimized)
                 Expanded(
                   child: Text(
-                    _cdEvento.isEmpty ? 'InfoEvento' : 'Evento $_cdEvento',
+                    _cdEvento.isEmpty
+                        ? 'Información de Evento'
+                        : 'Evento $_cdEvento',
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 12.5,
@@ -447,7 +449,7 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        'InfoEvento',
+                        'Información de Evento',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w500,
@@ -732,6 +734,17 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                _buildMiniIconButton(
+                  icon: Icons.copy_rounded,
+                  tooltip: 'Copiar toda la información',
+                  color: accent,
+                  onTap: () => _copyDefinicionCard(info, props, flags),
+                ),
+              ],
+            ),
             // ── Descripción ──────────────────────────────────────────
             if (info.deEvento != null) ...[
               Text(
@@ -797,6 +810,23 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
                           d.deDato,
                           style: TextStyle(fontSize: 12, color: textColor),
                           overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      _buildMiniIconButton(
+                        icon: Icons.copy_rounded,
+                        tooltip: 'Copiar dato',
+                        color: subColor,
+                        onTap: () => _copyDato(d),
+                      ),
+                      _buildMiniIconButton(
+                        icon: Icons.open_in_new_rounded,
+                        tooltip: 'Abrir InfoDato',
+                        color: subColor,
+                        onTap: () => showInfoDatoWindow(
+                          context,
+                          d.cdDato.toString(),
+                          widget.ambiente,
                         ),
                       ),
                     ],
@@ -1364,6 +1394,62 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
     AppToast.success(
       'Copiado al portapapeles — ${valores.length} fila${valores.length != 1 ? 's' : ''}',
     );
+  }
+
+  Widget _buildMiniIconButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+    Color? color,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(4),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(2),
+          child: Icon(icon, size: 13, color: color),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _copyDefinicionCard(
+    EventoInfo info,
+    List<(String, String)> props,
+    List<(String, bool)> flags,
+  ) async {
+    final buf = StringBuffer();
+    if (info.deEvento != null) {
+      buf.writeln('Definición: ${info.deEvento}');
+    }
+    if (info.datos.isNotEmpty) {
+      if (buf.isNotEmpty) buf.writeln();
+      buf.writeln('DATOS');
+      for (final d in info.datos) {
+        buf.writeln('${d.numero}\t${d.cdDato}\t${d.deDato}');
+      }
+    }
+    if (props.isNotEmpty) {
+      if (buf.isNotEmpty) buf.writeln();
+      for (final (label, value) in props) {
+        buf.writeln('$label: $value');
+      }
+    }
+    if (flags.isNotEmpty) {
+      if (buf.isNotEmpty) buf.writeln();
+      for (final (label, value) in flags) {
+        buf.writeln('$label: ${value ? 'Sí' : 'No'}');
+      }
+    }
+    await Clipboard.setData(ClipboardData(text: buf.toString().trimRight()));
+    AppToast.success('Información copiada al portapapeles');
+  }
+
+  Future<void> _copyDato(EventoDato d) async {
+    await Clipboard.setData(ClipboardData(text: '${d.cdDato} - ${d.deDato}'));
+    AppToast.success('Dato copiado al portapapeles');
   }
 
   Future<void> _exportCsv(List<String> cols, List<EventoValor> valores) async {

@@ -53,6 +53,13 @@ extension _EditorOptionsMethods on _CodeEditorPanelState {
           prefs.getBool('editor_occurrences_highlight') ?? true;
       _contextMenu = prefs.getBool('editor_context_menu') ?? true;
       _problemsPanelHeight = prefs.getDouble('editor_problems_height') ?? 180.0;
+      _problemsPanelWidth = prefs.getDouble('editor_problems_width');
+      final posDx = prefs.getDouble('editor_problems_pos_dx');
+      final posDy = prefs.getDouble('editor_problems_pos_dy');
+      _problemsPos = (posDx != null && posDy != null)
+          ? Offset(posDx, posDy)
+          : null;
+      _problemsMaximized = prefs.getBool('editor_problems_maximized') ?? false;
       _showOutline = prefs.getBool('editor_show_outline') ?? false;
       _varsDocked = prefs.getBool('editor_vars_docked') ?? false;
       _showAiChat = prefs.getBool('editor_show_ai_chat') ?? false;
@@ -83,6 +90,14 @@ extension _EditorOptionsMethods on _CodeEditorPanelState {
     await prefs.setBool('editor_occurrences_highlight', _occurrencesHighlight);
     await prefs.setBool('editor_context_menu', _contextMenu);
     await prefs.setDouble('editor_problems_height', _problemsPanelHeight);
+    final width = _problemsPanelWidth;
+    if (width != null) await prefs.setDouble('editor_problems_width', width);
+    final pos = _problemsPos;
+    if (pos != null) {
+      await prefs.setDouble('editor_problems_pos_dx', pos.dx);
+      await prefs.setDouble('editor_problems_pos_dy', pos.dy);
+    }
+    await prefs.setBool('editor_problems_maximized', _problemsMaximized);
     await prefs.setBool('editor_show_outline', _showOutline);
     await prefs.setBool('editor_vars_docked', _varsDocked);
     await prefs.setBool('editor_show_ai_chat', _showAiChat);

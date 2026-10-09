@@ -598,57 +598,6 @@ extension _EditorCompletionsMethods on _CodeEditorPanelState {
         .join('\n');
   }
 
-  /// Extrae `{ ALIAS_UPPER → TABLA_REAL_UPPER }` del texto completo del documento.
-  Map<String, String> _extractFromTables(String sql) {
-    final hash = sql.hashCode ^ sql.length;
-    if (hash == _fromExtractHash) return _fromExtractResult;
-    final result = <String, String>{};
-
-    void add(String table, String? alias) {
-      final t = table.toUpperCase();
-      result[t] = t;
-      if (alias != null && alias.isNotEmpty) {
-        result[alias.toUpperCase()] = t;
-      }
-    }
-
-    final fromBlock =
-        _CodeEditorPanelState._reFromBlock.firstMatch(sql)?.group(1) ?? '';
-    for (final m in _CodeEditorPanelState._reAliasBlock.allMatches(fromBlock)) {
-      final candidate = m.group(2)!.toUpperCase();
-      const reserved = {
-        'ON',
-        'WHERE',
-        'SET',
-        'AND',
-        'OR',
-        'JOIN',
-        'LEFT',
-        'RIGHT',
-        'INNER',
-        'OUTER',
-        'FULL',
-        'CROSS',
-        'GROUP',
-        'ORDER',
-        'HAVING',
-      };
-      if (!reserved.contains(candidate)) {
-        add(m.group(1)!, m.group(2));
-      }
-    }
-    for (final m in _CodeEditorPanelState._reFromSimple.allMatches(sql)) {
-      add(m.group(1)!, null);
-    }
-    for (final m in _CodeEditorPanelState._reJoin.allMatches(sql)) {
-      add(m.group(1)!, m.group(2));
-    }
-
-    _fromExtractHash = sql.hashCode ^ sql.length;
-    _fromExtractResult = result;
-    return result;
-  }
-
   /// Devuelve la palabra que está escribiendo el usuario al final de la línea.
   String _wordBefore(String line) {
     final match = _CodeEditorPanelState._reWordEnd.firstMatch(line);

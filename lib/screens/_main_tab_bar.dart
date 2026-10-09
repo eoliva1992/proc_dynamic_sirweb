@@ -332,6 +332,11 @@ class _MainTabBarState extends State<_MainTabBar> {
       icon = Icons.receipt_long_rounded;
       label = 'SQL';
       typeLabel = 'Ejecutor SQL';
+    } else if (inEditor && tab.localFilePath != null) {
+      accentColor = const Color(0xFF6E7681);
+      icon = Icons.insert_drive_file_outlined;
+      label = Uri.file(tab.localFilePath!).pathSegments.last;
+      typeLabel = 'Archivo local';
     } else if (inEditor && tab.procedimiento != null) {
       accentColor = ConfigBadge.colorForConfig(
         tab.procedimiento!.inConfiguracion,

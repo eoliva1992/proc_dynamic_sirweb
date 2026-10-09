@@ -210,3 +210,32 @@ class _ProblemCount extends StatelessWidget {
     );
   }
 }
+
+/// Botón del header de la ventana flotante de Problemas (minimizar,
+/// maximizar, cerrar).
+class _ProblemsHeaderButton extends StatelessWidget {
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onTap;
+  const _ProblemsHeaderButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(3),
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Icon(icon, size: 13, color: cs.onSurfaceVariant),
+        ),
+      ),
+    );
+  }
+}

@@ -18,6 +18,10 @@ class AppTab {
   bool isDirty = false;
   String? currentEditorCode;
 
+  /// Ruta del archivo en disco cuando este tab proviene de "Abrir archivo".
+  /// Si no es `null`, guardar escribe al disco en vez de persistir en BD.
+  String? localFilePath;
+
   /// Cuando está seteado, este tab muestra el visor de código fuente Oracle
   /// en lugar del editor de procedimientos dinámicos o la vista de búsqueda.
   ({

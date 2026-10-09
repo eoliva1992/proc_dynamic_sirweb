@@ -1,6 +1,6 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show File, Platform;
+import 'dart:io' show File, IOException, Platform;
 import 'dart:developer' as developer;
 import 'dart:math' show Random;
 
@@ -41,16 +41,17 @@ import '../services/schema_service.dart';
 import '../services/sirweb_service.dart';
 import '../services/snippet_service.dart';
 import 'constellation_background.dart';
-import 'slide_up_panel.dart';
 import 'ambiente_selector.dart';
 import '_editor_oracle_theme.dart';
 import '_editor_themes.dart';
 import '_editor_plsql_checker.dart';
 import '_editor_plsql_completions.dart';
 import 'procedure_diff_panel.dart';
+import 'problems_output_console.dart';
 import '../services/editor_draft_service.dart';
 import 'app_toast.dart';
 import 'floating_window.dart';
+import 'plsql_tables.dart' show extractSqlTables;
 import 'source_float_window.dart';
 
 part '_editor_toolbar_widgets.dart';
@@ -208,6 +209,7 @@ class CodeEditorPanel extends StatefulWidget {
   final Future<void> Function(String code)? onSave;
   final Future<void> Function(String code)? onCompile;
   final ValueChanged<String>? onCodeChanged;
+  final void Function(String path, String content)? onOpenLocalFile;
 
   const CodeEditorPanel({
     super.key,
@@ -217,6 +219,7 @@ class CodeEditorPanel extends StatefulWidget {
     this.onSave,
     this.onCompile,
     this.onCodeChanged,
+    this.onOpenLocalFile,
   });
 
   @override
@@ -277,22 +280,6 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     r'([A-Za-z]\w*)(?:\.([A-Za-z]\w*))?\s*\(([^()]*)$',
   );
   static final _reWordEnd = RegExp(r'(\w+)$');
-  static final _reFromBlock = RegExp(
-    r'FROM\s+([\s\S]*?)(?=\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|$)',
-    caseSensitive: false,
-  );
-  static final _reAliasBlock = RegExp(
-    r'\b(\w+)\s+(?:AS\s+)?(\w+)\b',
-    caseSensitive: false,
-  );
-  static final _reFromSimple = RegExp(
-    r'\bFROM\s+(\w+)(?:\s*,|\s*$|\s+(?:WHERE|GROUP|ORDER|HAVING|JOIN))',
-    caseSensitive: false,
-  );
-  static final _reJoin = RegExp(
-    r'\bJOIN\s+(\w+)(?:\s+AS\s+|\s+)(\w+)?',
-    caseSensitive: false,
-  );
 
   bool _ready = false;
   MonacoController? _ctrl;
@@ -386,6 +373,12 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   String? _lastSaveError;
   bool _showProblemsPanel = false;
   double _problemsPanelHeight = 180.0;
+  double? _problemsPanelWidth;
+  // null hasta que el usuario arrastra la ventana; luego guarda left/top.
+  Offset? _problemsPos;
+  bool _problemsMaximized = false;
+  bool _problemsMinimized = false;
+  Duration _problemsAnim = Duration.zero;
   final Map<String, bool> _draftVisible = {}; // procId → show restore banner
   final GlobalKey _varsButtonKey = GlobalKey();
 
@@ -1836,60 +1829,12 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   }
 
   /// Extrae { ALIAS_UPPER → TABLA_REAL_UPPER } del texto completo del documento.
-  /// Detecta: FROM tabla [alias], FROM tabla AS alias, JOIN tabla [alias]
+  /// Soporta esquema.tabla, identificadores con comillas y FROM/JOIN/DML.
   Map<String, String> _extractFromTables(String sql) {
     final hash = sql.hashCode ^ sql.length;
     if (hash == _fromExtractHash) return _fromExtractResult;
-    final result = <String, String>{};
-
-    void add(String table, String? alias) {
-      final t = table.toUpperCase();
-      result[t] = t;
-      if (alias != null && alias.isNotEmpty) {
-        result[alias.toUpperCase()] = t;
-      }
-    }
-
-    // FROM ... hasta WHERE/GROUP/ORDER/HAVING o fin (multi-línea)
-    final fromBlock = _reFromBlock.firstMatch(sql)?.group(1) ?? '';
-
-    // Cada "tabla [AS] alias" separado por coma o espacio
-    for (final m in _reAliasBlock.allMatches(fromBlock)) {
-      final candidate = m.group(2)!.toUpperCase();
-      // Excluir palabras reservadas como alias
-      const reserved = {
-        'ON',
-        'WHERE',
-        'SET',
-        'AND',
-        'OR',
-        'JOIN',
-        'LEFT',
-        'RIGHT',
-        'INNER',
-        'OUTER',
-        'FULL',
-        'CROSS',
-        'GROUP',
-        'ORDER',
-        'HAVING',
-      };
-      if (!reserved.contains(candidate)) {
-        add(m.group(1)!, m.group(2));
-      }
-    }
-
-    // Solo nombre sin alias
-    for (final m in _reFromSimple.allMatches(sql)) {
-      add(m.group(1)!, null);
-    }
-
-    // JOINs: JOIN tabla [AS] alias
-    for (final m in _reJoin.allMatches(sql)) {
-      add(m.group(1)!, m.group(2));
-    }
-
-    _fromExtractHash = sql.hashCode ^ sql.length;
+    final result = extractSqlTables(sql);
+    _fromExtractHash = hash;
     _fromExtractResult = result;
     return result;
   }
@@ -2323,6 +2268,22 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     });
   }
 
+  Future<void> _openLocalFile() async {
+    final result = await FilePicker.pickFiles(
+      dialogTitle: 'Abrir archivo',
+      type: FileType.custom,
+      allowedExtensions: const ['sql', 'txt', 'yaml', 'yml'],
+    );
+    final path = result?.files.single.path;
+    if (path == null) return;
+    try {
+      final content = await File(path).readAsString();
+      widget.onOpenLocalFile?.call(path, content);
+    } on IOException {
+      if (mounted) AppToast.warning('No se pudo leer el archivo seleccionado');
+    }
+  }
+
   // ── Guardar ────────────────────────────────────────────────────────────
 
   Future<void> _saveCurrentDocument() async {
@@ -2751,152 +2712,154 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         Expanded(
           child: RepaintBoundary(
             key: _editorAreaKey,
-            child: Stack(
-              children: [
-                Row(
-                  children: [
-                    // Monaco editor — takes all remaining width
-                    Expanded(
-                      child: MonacoEditor(
-                        initialText: widget.procedimiento.deTexto,
-                        options: EditorOptions(
-                          language: _langFor(widget.procedimiento),
-                          theme: oracleDarkTheme,
-                          fontSize: _fontSize,
-                          minimap: MonacoMinimapOptions(enabled: _minimap),
-                          wordWrap: _wordWrap
-                              ? MonacoWordWrap.on
-                              : MonacoWordWrap.off,
-                          lineNumbers: _lineNumbers
-                              ? MonacoLineNumbers.on
-                              : MonacoLineNumbers.off,
-                          renderWhitespace: _renderWhitespace
-                              ? RenderWhitespace.all
-                              : RenderWhitespace.none,
-                          tabSize: 2,
-                          bracketPairColorization: _bracketPairColorization,
-                          stickyScroll: MonacoStickyScroll(
-                            enabled: _stickyScroll,
+            child: LayoutBuilder(
+              builder: (context, constraints) => Stack(
+                children: [
+                  Row(
+                    children: [
+                      // Monaco editor — takes all remaining width
+                      Expanded(
+                        child: MonacoEditor(
+                          initialText: widget.procedimiento.deTexto,
+                          options: EditorOptions(
+                            language: _langFor(widget.procedimiento),
+                            theme: oracleDarkTheme,
+                            fontSize: _fontSize,
+                            minimap: MonacoMinimapOptions(enabled: _minimap),
+                            wordWrap: _wordWrap
+                                ? MonacoWordWrap.on
+                                : MonacoWordWrap.off,
+                            lineNumbers: _lineNumbers
+                                ? MonacoLineNumbers.on
+                                : MonacoLineNumbers.off,
+                            renderWhitespace: _renderWhitespace
+                                ? RenderWhitespace.all
+                                : RenderWhitespace.none,
+                            tabSize: 2,
+                            bracketPairColorization: _bracketPairColorization,
+                            stickyScroll: MonacoStickyScroll(
+                              enabled: _stickyScroll,
+                            ),
+                            folding: _folding,
+                            readOnly: _readOnly,
+                            smoothScrolling: _smoothScrolling,
+                            mouseWheelZoom: _mouseWheelZoom,
+                            formatOnPaste: _formatOnPaste,
+                            quickSuggestions: _quickSuggestions,
+                            parameterHints: _parameterHints,
+                            hover: _hover,
+                            links: _links,
+                            occurrencesHighlight: _occurrencesHighlight,
+                            contextMenu: _contextMenu,
+                            // fixedOverflowWidgets: renderiza el menú
+                            // contextual, el widget de sugerencias y el hover
+                            // DENTRO del contenedor del editor en vez de
+                            // anclados a document.body con position:fixed.
+                            // Sin esto, en el WebView2 embebido como Texture
+                            // de Flutter los clics del mouse sobre esos
+                            // widgets no se registran (desajuste de mapeo de
+                            // coordenadas del puntero vs. el layout fixed de
+                            // página completa), aunque la navegación por
+                            // teclado sí funciona porque no depende de
+                            // coordenadas. Mismo fix aplicado en el HTML
+                            // legacy de Monaco (assets/monaco_editor.html).
+                            extra: const {'fixedOverflowWidgets': true},
                           ),
-                          folding: _folding,
-                          readOnly: _readOnly,
-                          smoothScrolling: _smoothScrolling,
-                          mouseWheelZoom: _mouseWheelZoom,
-                          formatOnPaste: _formatOnPaste,
-                          quickSuggestions: _quickSuggestions,
-                          parameterHints: _parameterHints,
-                          hover: _hover,
-                          links: _links,
-                          occurrencesHighlight: _occurrencesHighlight,
-                          contextMenu: _contextMenu,
-                          // fixedOverflowWidgets: renderiza el menú
-                          // contextual, el widget de sugerencias y el hover
-                          // DENTRO del contenedor del editor en vez de
-                          // anclados a document.body con position:fixed.
-                          // Sin esto, en el WebView2 embebido como Texture
-                          // de Flutter los clics del mouse sobre esos
-                          // widgets no se registran (desajuste de mapeo de
-                          // coordenadas del puntero vs. el layout fixed de
-                          // página completa), aunque la navegación por
-                          // teclado sí funciona porque no depende de
-                          // coordenadas. Mismo fix aplicado en el HTML
-                          // legacy de Monaco (assets/monaco_editor.html).
-                          extra: const {'fixedOverflowWidgets': true},
+                          showStatusBar: true,
+                          page: const MonacoPageConfig(
+                            customCss:
+                                '.plsql-error-line { background: rgba(255,68,68,0.1) !important; }'
+                                // Verde de «línea añadida» de VS Code, con una
+                                // barra a la izquierda para que se distinga del
+                                // resaltado de la línea activa.
+                                '.copilot-change-line {'
+                                ' background: rgba(63,185,80,0.12) !important;'
+                                ' border-left: 2px solid rgba(63,185,80,0.85) !important;'
+                                ' }',
+                          ),
+                          contentDebounce: const Duration(milliseconds: 600),
+                          onReady: _onReady,
+                          onContentChanged: _onContentChanged,
+                          onError: (err, _) => debugPrint('Monaco error: $err'),
+                          interactionEnabled: true,
                         ),
-                        showStatusBar: true,
-                        page: const MonacoPageConfig(
-                          customCss:
-                              '.plsql-error-line { background: rgba(255,68,68,0.1) !important; }'
-                              // Verde de «línea añadida» de VS Code, con una
-                              // barra a la izquierda para que se distinga del
-                              // resaltado de la línea activa.
-                              '.copilot-change-line {'
-                              ' background: rgba(63,185,80,0.12) !important;'
-                              ' border-left: 2px solid rgba(63,185,80,0.85) !important;'
-                              ' }',
-                        ),
-                        contentDebounce: const Duration(milliseconds: 600),
-                        onReady: _onReady,
-                        onContentChanged: _onContentChanged,
-                        onError: (err, _) => debugPrint('Monaco error: $err'),
-                        interactionEnabled: true,
                       ),
-                    ),
-                    // Docked variables panel
-                    if (_varsDocked)
-                      Builder(
-                        builder: (context) {
-                          final dockedVars = _filteredVariables();
-                          if (dockedVars.isEmpty) {
-                            return const SizedBox.shrink();
-                          }
-                          return _VarsDockedPanel(
-                            vars: dockedVars,
-                            onSelected: (v) async {
-                              final ctrl = _ctrl;
-                              if (ctrl == null) return;
-                              final pos = await ctrl.getCursorPosition();
-                              if (pos != null) {
-                                await ctrl.document.insert(
-                                  pos,
-                                  ':${v.cdVariable}',
-                                );
-                              }
-                            },
-                            onUnpin: () {
-                              setState(() => _varsDocked = false);
-                              _savePrefs();
-                            },
-                          );
-                        },
-                      ),
-                    // Outline sidebar
-                    if (_showOutline)
-                      _EditorOutlinePanel(
-                        items: _outlineItems,
-                        code: _editorFullText,
-                        ambiente: widget.ambiente,
-                        schemaObjects: _cachedSchemaObjTypes,
-                        onItemTap: (line) async {
-                          await _withCtrl((ctrl) async {
-                            await ctrl.revealLine(line, center: true);
-                            await ctrl.setCursorPosition(
-                              Position(line: line, column: 1),
+                      // Docked variables panel
+                      if (_varsDocked)
+                        Builder(
+                          builder: (context) {
+                            final dockedVars = _filteredVariables();
+                            if (dockedVars.isEmpty) {
+                              return const SizedBox.shrink();
+                            }
+                            return _VarsDockedPanel(
+                              vars: dockedVars,
+                              onSelected: (v) async {
+                                final ctrl = _ctrl;
+                                if (ctrl == null) return;
+                                final pos = await ctrl.getCursorPosition();
+                                if (pos != null) {
+                                  await ctrl.document.insert(
+                                    pos,
+                                    ':${v.cdVariable}',
+                                  );
+                                }
+                              },
+                              onUnpin: () {
+                                setState(() => _varsDocked = false);
+                                _savePrefs();
+                              },
                             );
-                          });
-                        },
-                        onClose: () {
-                          setState(() => _showOutline = false);
-                          _savePrefs();
-                        },
-                      ),
-                    // Chat con GitHub Copilot
-                    if (_showAiChat)
-                      _AiChatDockedPanel(
-                        procedimiento: widget.procedimiento.cdProcedimiento,
-                        ambiente: widget.ambiente,
-                        getSelection: _selectionInfo,
-                        getFullText: () => _editorFullText.isNotEmpty
-                            ? _editorFullText
-                            : widget.procedimiento.deTexto,
-                        getErrors: _erroresResumen,
-                        onInsertCode: _insertCodeAtCursor,
-                        onApplyCode: _applyCodeToDocument,
-                        onApplyEdits: _applyAnchoredEdits,
-                        onClose: () {
-                          setState(() => _showAiChat = false);
-                          _savePrefs();
-                        },
-                      ),
-                  ],
-                ),
-                // Overlay flotante — indicador de schema (esquina inferior izquierda)
-              ],
+                          },
+                        ),
+                      // Outline sidebar
+                      if (_showOutline)
+                        _EditorOutlinePanel(
+                          items: _outlineItems,
+                          code: _editorFullText,
+                          ambiente: widget.ambiente,
+                          schemaObjects: _cachedSchemaObjTypes,
+                          onItemTap: (line) async {
+                            await _withCtrl((ctrl) async {
+                              await ctrl.revealLine(line, center: true);
+                              await ctrl.setCursorPosition(
+                                Position(line: line, column: 1),
+                              );
+                            });
+                          },
+                          onClose: () {
+                            setState(() => _showOutline = false);
+                            _savePrefs();
+                          },
+                        ),
+                      // Chat con GitHub Copilot
+                      if (_showAiChat)
+                        _AiChatDockedPanel(
+                          procedimiento: widget.procedimiento.cdProcedimiento,
+                          ambiente: widget.ambiente,
+                          getSelection: _selectionInfo,
+                          getFullText: () => _editorFullText.isNotEmpty
+                              ? _editorFullText
+                              : widget.procedimiento.deTexto,
+                          getErrors: _erroresResumen,
+                          onInsertCode: _insertCodeAtCursor,
+                          onApplyCode: _applyCodeToDocument,
+                          onApplyEdits: _applyAnchoredEdits,
+                          onClose: () {
+                            setState(() => _showAiChat = false);
+                            _savePrefs();
+                          },
+                        ),
+                    ],
+                  ),
+                  // Panel de problemas (sintaxis + compilación Oracle)
+                  if (_showProblemsPanel)
+                    ..._buildProblemsPanelLayers(context, constraints.biggest),
+                ],
+              ),
             ),
           ),
         ),
-        // Panel de problemas (sintaxis + compilación Oracle)
-        _buildProblemsPanel(context),
       ],
     );
   }

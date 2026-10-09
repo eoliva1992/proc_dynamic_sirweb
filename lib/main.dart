@@ -9,6 +9,7 @@ import 'providers/theme_provider.dart';
 import 'screens/main_screen.dart';
 import 'services/app_log.dart';
 import 'services/favorites_service.dart';
+import 'services/file_association_service.dart';
 import 'services/schema_service.dart';
 import 'services/server_config_service.dart';
 import 'widgets/_editor_themes.dart';
@@ -78,6 +79,10 @@ Future<void> main(List<String> args) async {
   // ── Ventana principal ────────────────────────────────────────────────────────
   // Se inicializa TODO dentro de runZonedGuarded para evitar el "Zone mismatch"
   // de Flutter 3.13+: ensureInitialized y runApp deben estar en la misma zona.
+  // Args: cuando Windows lanza vía "Abrir con", llega la ruta del archivo elegido.
+  final initialFilePath = args.isNotEmpty && File(args.first).existsSync()
+      ? args.first
+      : null;
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
@@ -91,6 +96,7 @@ Future<void> main(List<String> args) async {
       await FavoritesService.load();
       unawaited(ServerConfigService().getBaseUrl());
       unawaited(SchemaService.instance.loadMetadata());
+      unawaited(FileAssociationService.registerOpenWithIfNeeded());
 
       // Catch any unhandled Flutter framework errors: show on-screen instead of closing
       FlutterError.onError = (details) {
@@ -109,7 +115,7 @@ Future<void> main(List<String> args) async {
       // del WebView2 de Monaco desde el VM service.
       CodeEditorPanel.registerDebugEvalExtension();
 
-      runApp(const ProcDynamicApp());
+      runApp(ProcDynamicApp(initialFilePath: initialFilePath));
     },
     (error, stack) {
       debugPrint('Unhandled error: $error\n$stack');
@@ -122,7 +128,9 @@ Future<void> main(List<String> args) async {
 }
 
 class ProcDynamicApp extends StatelessWidget {
-  const ProcDynamicApp({super.key});
+  final String? initialFilePath;
+
+  const ProcDynamicApp({super.key, this.initialFilePath});
 
   // ── Theme builder ───────────────────────────────────────────────────────
   //
@@ -227,7 +235,7 @@ class ProcDynamicApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           navigatorKey: rootNavigatorKey,
           theme: ProcDynamicApp.buildThemeFor(editorThemeStore.themeId),
-          home: const MainScreen(),
+          home: MainScreen(initialFilePath: initialFilePath),
         ),
       ),
     );
