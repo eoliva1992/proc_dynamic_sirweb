@@ -56,10 +56,7 @@ Future<fm.MonacoCompletionRegistration?> registerUserSnippetCompletions(
     if (snippets.isEmpty) return null;
 
     final languages = isLocalDocumentEditor
-        ? [
-            fm.MonacoLanguage.yaml,
-            fm.MonacoLanguage.plaintext,
-          ]
+        ? [fm.MonacoLanguage.yaml, fm.MonacoLanguage.plaintext]
         : [
             fm.MonacoLanguage.sql,
             fm.MonacoLanguage('plsql'),

@@ -60,7 +60,9 @@ abstract final class SingleInstanceService {
       await socket.flush();
       await socket.close();
     } catch (e) {
-      debugPrint('[SingleInstanceService] No se pudo reenviar al proceso principal: $e');
+      debugPrint(
+        '[SingleInstanceService] No se pudo reenviar al proceso principal: $e',
+      );
     }
   }
 }
