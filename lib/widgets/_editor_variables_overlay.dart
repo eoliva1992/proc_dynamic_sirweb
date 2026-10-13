@@ -426,6 +426,27 @@ class _VarsDockedPanelState extends State<_VarsDockedPanel> {
 
 // ── Theme picker dialog ───────────────────────────────────────────────────────
 
+/// Abre el diálogo para seleccionar un tema del editor y la aplicación.
+void showThemePickerDialog(
+  BuildContext context, {
+  required String currentThemeId,
+  required Future<void> Function(String id) onSelected,
+}) {
+  showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: 'theme-picker',
+    barrierColor: Colors.black45,
+    transitionDuration: const Duration(milliseconds: 160),
+    transitionBuilder: (_, anim, _, child) =>
+        FadeTransition(opacity: anim, child: child),
+    pageBuilder: (_, _, _) => _ThemePickerDialog(
+      currentThemeId: currentThemeId,
+      onSelected: onSelected,
+    ),
+  );
+}
+
 class _ThemePickerDialog extends StatefulWidget {
   final String currentThemeId;
   final Future<void> Function(String id) onSelected;

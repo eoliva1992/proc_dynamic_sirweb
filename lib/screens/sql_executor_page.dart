@@ -6,11 +6,15 @@
 /// que el visor de fuente Oracle.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/sql_execution.dart' show SqlStatement;
 import '../providers/procedimientos_provider.dart';
+import '../services/backup_service.dart';
+import '../services/local_file_service.dart';
 import '../services/sql_executor_state_controller.dart';
 import '../widgets/constellation_background.dart' show ConstellationDialogTitle;
 import '../widgets/monaco_editor_widget.dart';
@@ -129,7 +133,23 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
   void _onGenerateDml(List<int> rowIndexes) {
     final result = _stateCtrl.lastResult;
     if (result == null) return;
-    final tables = extractSqlTables(_stateCtrl.text).values.toSet();
+
+    // Priorizamos la sentencia que dio origen al resultado activo
+    final selectedIdx = _stateCtrl.selectedResultIndex;
+    final results = _stateCtrl.results;
+    final sourceSql = (selectedIdx >= 0 && selectedIdx < results.length)
+        ? results[selectedIdx].statementText
+        : '';
+
+    var tables = sourceSql.trim().isNotEmpty
+        ? extractSqlTables(sourceSql).values.toSet()
+        : <String>{};
+
+    // Fallback: si no se detectó tabla en sourceSql, intentar con el texto completo
+    if (tables.isEmpty) {
+      tables = extractSqlTables(_stateCtrl.text).values.toSet();
+    }
+
     final table = tables.isEmpty ? '' : tables.first;
     showSqlDmlGeneratorDialog(
       context,
@@ -139,6 +159,70 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
       ambiente: _stateCtrl.ambiente,
       onInsert: (sql) => _monacoCtrl.insertTextAtCursor(sql),
     );
+  }
+
+  Future<void> _openLocalSqlFile() async {
+    final opened = await LocalFileService.openFile(
+      dialogTitle: 'Abrir script SQL',
+      allowedExtensions: const ['sql', 'txt', 'pls'],
+    );
+    if (opened == null || !mounted) return;
+    _stateCtrl.loadFromLocalFile(path: opened.path, content: opened.content);
+    _monacoCtrl.clearContent();
+    _monacoCtrl.insertTextAtCursor(opened.content);
+  }
+
+  Future<void> _saveLocalSqlFile({bool saveAs = false}) async {
+    final code = _stateCtrl.text;
+    final savedPath = await LocalFileService.saveFile(
+      content: code,
+      currentPath: _stateCtrl.currentFilePath,
+      saveAs: saveAs,
+      defaultFileName: 'script.sql',
+      dialogTitle: saveAs ? 'Guardar script como…' : 'Guardar script',
+      allowedExtensions: const ['sql', 'txt', 'pls'],
+    );
+    if (savedPath != null && mounted) {
+      _stateCtrl.setCurrentFilePath(savedPath);
+    }
+  }
+
+  Future<void> _newSqlScript() async {
+    final hasContent = _stateCtrl.text.trim().isNotEmpty;
+    final hasChanges = _stateCtrl.hasPendingChanges || hasContent;
+
+    if (hasChanges) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Nuevo script'),
+          content: const Text(
+            'El script actual tiene contenido o cambios pendientes. '
+            '¿Desea limpiar el editor y comenzar un nuevo documento?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0078D4),
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Limpiar editor'),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true || !mounted) return;
+    }
+
+    _monacoCtrl.clearContent();
+    _stateCtrl.setText('');
+    _stateCtrl.setCurrentFilePath(null);
+    _stateCtrl.clearOutput();
   }
 
   // Cachea el workspace (panel de resultados + Monaco) para que no se
@@ -163,6 +247,8 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
       resultTabCtrl: _resultTabCtrl,
       isDark: isDark,
       onGenerateDml: _onGenerateDml,
+      onSave: () => unawaited(_saveLocalSqlFile()),
+      onSaveAs: () => unawaited(_saveLocalSqlFile(saveAs: true)),
     );
   }
 
@@ -181,6 +267,16 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
             const SingleActivator(LogicalKeyboardKey.enter, control: true):
                 _stateCtrl.runCurrentOrSelection,
             const SingleActivator(LogicalKeyboardKey.f5): _stateCtrl.runAll,
+            const SingleActivator(LogicalKeyboardKey.keyN, control: true): () =>
+                unawaited(_newSqlScript()),
+            const SingleActivator(LogicalKeyboardKey.keyS, control: true): () =>
+                unawaited(_saveLocalSqlFile()),
+            const SingleActivator(
+              LogicalKeyboardKey.keyS,
+              control: true,
+              shift: true,
+            ): () =>
+                unawaited(_saveLocalSqlFile(saveAs: true)),
           },
           child: Focus(
             autofocus: true,
@@ -198,6 +294,19 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
                   onExecuteAll: _stateCtrl.runAll,
                   onExplainPlan: _stateCtrl.runExplainPlan,
                   onClearOutput: _stateCtrl.clearOutput,
+                  onNewFile: () => unawaited(_newSqlScript()),
+                  onOpenFile: () => unawaited(_openLocalSqlFile()),
+                  onSaveFile: () => unawaited(_saveLocalSqlFile()),
+                  onSaveFileAs: () =>
+                      unawaited(_saveLocalSqlFile(saveAs: true)),
+                  onRevealInExplorer: _stateCtrl.currentFilePath != null
+                      ? () => unawaited(
+                          BackupService.revealInExplorer(
+                            _stateCtrl.currentFilePath!,
+                          ),
+                        )
+                      : null,
+                  currentFilePath: _stateCtrl.currentFilePath,
                   hasPendingChanges: _stateCtrl.hasPendingChanges,
                   onCommit: _stateCtrl.commit,
                   onRollback: _stateCtrl.rollback,
@@ -219,6 +328,7 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
                       ? _stateCtrl.log.last
                       : null,
                   ambiente: _stateCtrl.ambiente,
+                  currentFilePath: _stateCtrl.currentFilePath,
                 ),
               ],
             ),
@@ -260,6 +370,8 @@ class _SqlEditorWorkspace extends StatelessWidget {
     required this.resultTabCtrl,
     required this.isDark,
     required this.onGenerateDml,
+    this.onSave,
+    this.onSaveAs,
   });
 
   final MonacoEditorController monacoCtrl;
@@ -267,6 +379,8 @@ class _SqlEditorWorkspace extends StatelessWidget {
   final TabController resultTabCtrl;
   final bool isDark;
   final ValueChanged<List<int>> onGenerateDml;
+  final VoidCallback? onSave;
+  final VoidCallback? onSaveAs;
 
   @override
   Widget build(BuildContext context) {
@@ -283,6 +397,8 @@ class _SqlEditorWorkspace extends StatelessWidget {
           onCursorChanged: (line, col) => stateCtrl.setCursor(line, col),
           onExecuteCurrent: stateCtrl.runCurrentOrSelection,
           onExecuteAll: stateCtrl.runAll,
+          onSave: onSave,
+          onSaveAs: onSaveAs,
         ),
         Positioned(
           left: 12,

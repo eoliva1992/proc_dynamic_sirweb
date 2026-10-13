@@ -41,53 +41,165 @@ void closeAppConsole() {
 }
 
 /// Botón de barra superior con contador de errores sin ver.
-class AppConsoleButton extends StatelessWidget {
+class AppConsoleButton extends StatefulWidget {
   const AppConsoleButton({super.key, this.color});
 
   final Color? color;
 
   @override
+  State<AppConsoleButton> createState() => _AppConsoleButtonState();
+}
+
+class _AppConsoleButtonState extends State<AppConsoleButton> {
+  bool _isHovered = false;
+
+  @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final fg = theme.appBarTheme.iconTheme?.color ?? cs.onSurface;
+    final baseColor = widget.color ?? fg.withValues(alpha: 0.7);
+
     return ListenableBuilder(
       listenable: AppLog.instance,
       builder: (context, _) {
         final errores = AppLog.instance.unseenErrors;
         return Tooltip(
-          message: errores > 0
-              ? 'Consola de la aplicación — $errores error(es) nuevo(s) '
-                    '(Ctrl+Shift+L)'
-              : 'Consola de la aplicación (Ctrl+Shift+L)',
-          child: IconButton(
-            onPressed: () => showAppConsole(context),
-            color: color,
-            icon: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                const Icon(Icons.terminal_rounded),
-                if (errores > 0)
-                  Positioned(
-                    right: -3,
-                    top: -3,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 3),
-                      constraints: const BoxConstraints(minWidth: 13),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE5484D),
-                        borderRadius: BorderRadius.circular(7),
-                      ),
-                      child: Text(
-                        errores > 99 ? '99+' : '$errores',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 9,
-                          height: 1.4,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
+          richMessage: TextSpan(
+            children: [
+              TextSpan(
+                text: errores > 0
+                    ? 'Consola de la aplicación — $errores error(es) nuevo(s)  '
+                    : 'Consola de la aplicación  ',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+              WidgetSpan(
+                alignment: PlaceholderAlignment.middle,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 1.5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.3),
+                      width: 0.8,
                     ),
                   ),
-              ],
+                  child: const Text(
+                    'Ctrl+Shift+L',
+                    style: TextStyle(
+                      color: Color(0xFF90CAF9),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      fontFamily: 'Consolas',
+                      letterSpacing: 0.4,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          waitDuration: const Duration(milliseconds: 350),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1E24),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.12),
+              width: 0.8,
+            ),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x66000000),
+                blurRadius: 8,
+                offset: Offset(0, 3),
+              ),
+            ],
+          ),
+          child: MouseRegion(
+            onEnter: (_) => setState(() => _isHovered = true),
+            onExit: (_) => setState(() => _isHovered = false),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 140),
+              curve: Curves.easeOut,
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: errores > 0
+                    ? const Color(0xFFE5484D).withValues(alpha: 0.15)
+                    : (_isHovered
+                          ? fg.withValues(alpha: 0.10)
+                          : Colors.transparent),
+                borderRadius: BorderRadius.circular(7),
+                border: Border.all(
+                  color: errores > 0
+                      ? const Color(0xFFE5484D).withValues(alpha: 0.40)
+                      : (_isHovered
+                            ? fg.withValues(alpha: 0.18)
+                            : Colors.transparent),
+                  width: 1,
+                ),
+              ),
+              child: InkWell(
+                onTap: () => showAppConsole(context),
+                hoverColor: Colors.transparent,
+                splashColor: fg.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(7),
+                child: Center(
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Icon(
+                        Icons.terminal_rounded,
+                        size: 17,
+                        color: errores > 0
+                            ? const Color(0xFFE5484D)
+                            : (_isHovered ? fg : baseColor),
+                      ),
+                      if (errores > 0)
+                        Positioned(
+                          right: -5,
+                          top: -5,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 3),
+                            constraints: const BoxConstraints(
+                              minWidth: 13,
+                              minHeight: 13,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE5484D),
+                              borderRadius: BorderRadius.circular(7),
+                              border: Border.all(
+                                color:
+                                    theme.appBarTheme.backgroundColor ??
+                                    cs.surface,
+                                width: 1,
+                              ),
+                            ),
+                            child: Center(
+                              child: Text(
+                                errores > 99 ? '99+' : '$errores',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 8.5,
+                                  height: 1.2,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
         );

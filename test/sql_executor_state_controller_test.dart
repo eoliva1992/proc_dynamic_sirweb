@@ -363,8 +363,8 @@ void main() {
       expect(ctrl.explainNodes, isNull);
     });
 
-    test('ejecutar varios SELECT acumula un resultado por cada uno y '
-        'selectResult permite alternar entre ellos', () async {
+    test('ejecutar varios SELECT genera un resultado por cada uno en la corrida '
+        'y una nueva corrida limpia los tabs anteriores', () async {
       final fakeSvc = _FakeSqlExecutorService();
       final ctrl = SqlExecutorStateController(
         initialAmbiente: 'Desa',
@@ -379,12 +379,23 @@ void main() {
 
       expect(fakeSvc.selectCalls, 2);
       expect(ctrl.results.length, 2);
+      expect(ctrl.results[0].statementText, 'SELECT 1 FROM dual;');
+      expect(ctrl.results[1].statementText, 'SELECT 2 FROM dual;');
       expect(ctrl.selectedResultIndex, 1);
       expect(ctrl.lastResult, same(ctrl.results[1].result));
 
       ctrl.selectResult(0);
       expect(ctrl.selectedResultIndex, 0);
       expect(ctrl.lastResult, same(ctrl.results[0].result));
+
+      // Nueva corrida con 1 sola consulta: debe limpiar los tabs viejos y dejar solo 1
+      ctrl.getSelectedText = () async => 'SELECT 3 FROM dual;';
+      await ctrl.runCurrentOrSelection();
+
+      expect(fakeSvc.selectCalls, 3);
+      expect(ctrl.results.length, 1);
+      expect(ctrl.results[0].statementText, 'SELECT 3 FROM dual;');
+      expect(ctrl.selectedResultIndex, 0);
 
       ctrl.clearOutput();
       expect(ctrl.results, isEmpty);

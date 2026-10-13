@@ -13,6 +13,8 @@ import '../services/backup_service.dart';
 import '../services/connection_status_service.dart';
 import '../services/editor_draft_service.dart';
 import '../services/schema_service.dart';
+import '../services/session_service.dart';
+import '../services/single_instance_service.dart';
 import '../services/sirweb_service.dart';
 import '../widgets/ambiente_selector.dart';
 import '../widgets/app_tab.dart';
@@ -23,6 +25,10 @@ import '../widgets/connection_indicator.dart';
 import '../widgets/constellation_background.dart';
 import '../widgets/_editor_themes.dart';
 import '../widgets/new_procedure_dialog.dart';
+import '../widgets/notes/note_editor_window.dart';
+import '../widgets/notes/notes_manager_overlay.dart';
+import '../widgets/notifications/notifications_popover.dart';
+import '../services/notification_service.dart';
 import '../widgets/object_source_page.dart';
 import '../widgets/schema_command_palette.dart';
 import '../widgets/schema_sidebar.dart';
@@ -30,6 +36,7 @@ import '../widgets/schema_status_overlay.dart';
 import '../widgets/app_console.dart';
 import '../widgets/app_toast.dart';
 import '../widgets/search_tab_view.dart';
+import '../widgets/simple_text_editor_page.dart';
 import '../widgets/source_tab_controller.dart';
 import '../widgets/server_config_dialog.dart';
 import '../widgets/usuario_dialog.dart';
@@ -65,6 +72,8 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   static const _minSidebarW = 180.0;
   static const _maxSidebarW = 540.0;
   late ReactionDisposer _tabReaction;
+  StreamSubscription<String>? _filePathSub;
+  StreamSubscription<void>? _focusSub;
   final Set<int> _togglingTabs = {};
   // Tabs whose editor is suspended (WebView2 removed) during diff navigation
   final Set<int> _suspendedTabs = {};
@@ -114,14 +123,37 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     // descendientes del SourceTabController (diálogos en el root navigator).
     SourceTabController.registerGlobal(_addSourceTab);
     _markTabLive(0);
+    // Restaurar sesión de pestañas previa estilo Notepad++
+    unawaited(_restoreSavedSession());
     final initialFilePath = widget.initialFilePath;
     if (initialFilePath != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         unawaited(_openInitialFile(initialFilePath));
       });
     }
+    // Una segunda instancia (lanzada p. ej. vía "Abrir con") reenvía su
+    // archivo aquí en vez de abrir otra ventana.
+    _filePathSub = SingleInstanceService.filePathRequests.stream.listen((path) {
+      unawaited(_bringToFront());
+      unawaited(_openInitialFile(path));
+    });
+    _focusSub = SingleInstanceService.focusRequests.stream.listen((_) {
+      unawaited(_bringToFront());
+    });
     // Monitoreo de conectividad para el indicador de la barra superior.
     unawaited(ConnectionStatusService.instance.start());
+    // Iniciar servicio de notificaciones en tiempo real si hay usuario configurado
+    if (procedimientosProvider.cdUsuario.isNotEmpty) {
+      unawaited(
+        NotificationService.instance.start(
+          user: procedimientosProvider.cdUsuario,
+        ),
+      );
+    }
+    NotificationService.instance.onOpenNoteRequested = (noteId) {
+      if (!mounted) return;
+      showNotesManager(context);
+    };
     WidgetsBinding.instance.addPostFrameCallback((_) {
       procedimientosProvider.cargarConfiguraciones();
     });
@@ -195,6 +227,8 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     windowManager.removeListener(this);
     HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
     _tabReaction();
+    unawaited(_filePathSub?.cancel());
+    unawaited(_focusSub?.cancel());
     for (final tab in _tabs) {
       tab.searchState.dispose();
     }
@@ -204,9 +238,32 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   @override
   void onWindowClose() async {
     if (_closePromptOpen) return;
-    final hasDirtyTabs = _tabs.any((tab) => tab.isDirty);
-    if (hasDirtyTabs) {
+
+    final restoreEnabled = await SessionService.isRestoreEnabled();
+    if (restoreEnabled) {
+      // Hot Exit estilo Notepad++: persiste todas las pestañas y borradores sin interrumpir
+      await SessionService.saveSession(tabs: _tabs, activeTab: _activeTab);
+      SchemaService.instance.dispose();
+      exit(0);
+    }
+
+    final dirtyTabs = _tabs.where((tab) {
+      if (!tab.isDirty) return false;
+      return tab.procedimiento != null || tab.inSourceViewMode;
+    }).toList();
+
+    if (dirtyTabs.isNotEmpty) {
+      if (!mounted) return;
       _closePromptOpen = true;
+      final names = dirtyTabs.map((tab) => _tabDisplayLabel(tab)).toList();
+      final itemsSummary = names.take(5).map((n) => '• $n').join('\n');
+      final moreCount = names.length - 5;
+      final message = names.length == 1
+          ? '${names.first} tiene cambios sin guardar.\n¿Descartarlos y salir de la aplicación?'
+          : 'Hay ${names.length} editores con cambios sin guardar:\n\n$itemsSummary'
+                '${moreCount > 0 ? '\n• ... y $moreCount más' : ''}\n\n'
+                '¿Descartar los cambios y salir de la aplicación?';
+
       final discard = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -214,9 +271,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           title: const ConstellationDialogTitle(
             child: Text('Cambios sin guardar'),
           ),
-          content: const Padding(
-            padding: EdgeInsets.only(top: 8),
-            child: Text('Hay cambios sin guardar. ¿Descartarlos y salir?'),
+          content: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(message),
           ),
           actions: [
             TextButton(
@@ -224,7 +281,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
               child: const Text('Seguir editando'),
             ),
             TextButton(
-              style: TextButton.styleFrom(foregroundColor: Colors.orange),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.orange.shade700,
+              ),
               onPressed: () => Navigator.of(ctx).pop(true),
               child: const Text('Descartar y salir'),
             ),
@@ -234,6 +293,8 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       _closePromptOpen = false;
       if (discard != true || !mounted) return;
     }
+    // Al salir sin restauración habilitada, aseguramos limpiar la sesión
+    await SessionService.clearSession();
     // windowManager.destroy() calls PostQuitMessage(0) which terminates the
     // entire Win32 message loop — if desktop_multi_window sub-windows close
     // while that races, the whole process dies. exit(0) is sufficient and
@@ -270,9 +331,15 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           break;
       }
     }
-    if (ctrl && shift && event.logicalKey == LogicalKeyboardKey.tab) {
-      _cycleTab(-1);
-      return true;
+    if (ctrl && shift) {
+      if (event.logicalKey == LogicalKeyboardKey.tab) {
+        _cycleTab(-1);
+        return true;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.keyN) {
+        showNewNoteWindow(context);
+        return true;
+      }
     }
     return false;
   }
@@ -418,7 +485,10 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         tab.procedimiento = proc.copyWith(deTexto: code);
         tab.isDirty = false;
       });
-      AppToast.success('Guardado en disco', duration: const Duration(seconds: 2));
+      AppToast.success(
+        'Guardado en disco',
+        duration: const Duration(seconds: 2),
+      );
       return;
     }
     // Require a registered user before saving
@@ -522,9 +592,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           ),
           content: Padding(
             padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              '${tab.procedimiento!.cdProcedimiento} tiene cambios sin guardar.',
-            ),
+            child: Text('${_tabDisplayLabel(tab)} tiene cambios sin guardar.'),
           ),
           actions: [
             TextButton(
@@ -585,6 +653,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     final now = _tabs[_activeTab];
     procedimientosProvider.setProcedimientoActual(now.procedimiento);
     procedimientosProvider.setAmbiente(now.ambiente);
+
+    // Actualiza la sesión guardada para no reabrir pestañas cerradas deliberadamente
+    unawaited(SessionService.saveSession(tabs: _tabs, activeTab: _activeTab));
   }
 
   void _addSearchTab() {
@@ -596,6 +667,19 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     _markTabLive(_activeTab);
     procedimientosProvider.setProcedimientoActual(null);
     procedimientosProvider.setAmbiente(_tabs[_activeTab].ambiente);
+  }
+
+  /// Trae la ventana principal al frente (restaura si está minimizada, muestra y enfoca).
+  Future<void> _bringToFront() async {
+    try {
+      if (await windowManager.isMinimized()) {
+        await windowManager.restore();
+      }
+      await windowManager.show();
+      await windowManager.focus();
+    } catch (e) {
+      debugPrint('[MainScreen] Error al traer ventana al frente: $e');
+    }
   }
 
   /// Abre un archivo local (.sql/.txt) como una nueva pestaña, sin persistir
@@ -618,6 +702,43 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       _activeTab = _tabs.length - 1;
     });
     _markTabLive(_activeTab);
+    unawaited(_bringToFront());
+  }
+
+  /// Restaura la sesión previa de pestañas si está habilitada la opción.
+  Future<void> _restoreSavedSession() async {
+    final session = await SessionService.loadSession();
+    if (session == null || session.tabs.isEmpty || !mounted) return;
+
+    final restoredTabs = session.tabs.map((t) => t.toAppTab()).toList();
+    for (final tab in restoredTabs) {
+      if (tab.procedimiento != null && tab.currentEditorCode != null) {
+        unawaited(
+          EditorDraftService.save(
+            tab.procedimiento!.cdProcedimiento,
+            tab.ambiente,
+            tab.currentEditorCode!,
+          ),
+        );
+      }
+    }
+
+    setState(() {
+      _tabs
+        ..clear()
+        ..addAll(restoredTabs);
+      _activeTab = session.activeTab.clamp(0, _tabs.length - 1);
+    });
+
+    for (var i = 0; i < _tabs.length; i++) {
+      _markTabLive(i);
+    }
+
+    final active = _tabs[_activeTab];
+    _syncingActiveTab = true;
+    procedimientosProvider.setAmbiente(active.ambiente);
+    procedimientosProvider.setProcedimientoActual(active.procedimiento);
+    _syncingActiveTab = false;
   }
 
   /// Carga el archivo recibido por línea de comandos (lanzado vía "Abrir con"
@@ -630,6 +751,28 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     } on IOException {
       if (mounted) AppToast.warning('No se pudo leer el archivo seleccionado');
     }
+  }
+
+  /// Pestañas de archivo local .txt/.yaml usan el editor simple en vez del
+  /// editor de procedimientos dinámicos (sin lógica/toolbar de Oracle).
+  bool _isPlainTextTab(AppTab tab) {
+    final path = tab.localFilePath;
+    if (path == null) return false;
+    final name = Uri.file(path).pathSegments.last.toLowerCase();
+    return name.endsWith('.txt') ||
+        name.endsWith('.yaml') ||
+        name.endsWith('.yml');
+  }
+
+  /// Nombre de archivo para pestañas locales; código del procedimiento o
+  /// nombre del objeto Oracle para las demás (usado en diálogos de confirmación).
+  String _tabDisplayLabel(AppTab tab) {
+    final path = tab.localFilePath;
+    if (path != null) return Uri.file(path).pathSegments.last;
+    if (tab.inSourceViewMode && tab.sourceViewer != null) {
+      return tab.sourceViewer!.name;
+    }
+    return tab.procedimiento?.cdProcedimiento ?? 'Editor';
   }
 
   /// Abre un objeto Oracle como tab de visor de fuente.
@@ -1048,7 +1191,17 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   }
 
   void _showUsuarioDialog(BuildContext context, {VoidCallback? onSaved}) {
-    showUsuarioDialog(context, onSaved: onSaved);
+    showUsuarioDialog(
+      context,
+      onSaved: () {
+        if (procedimientosProvider.cdUsuario.isNotEmpty) {
+          NotificationService.instance.updateUser(
+            procedimientosProvider.cdUsuario,
+          );
+        }
+        onSaved?.call();
+      },
+    );
   }
 
   @override
@@ -1091,6 +1244,13 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             control: true,
             shift: true,
           ): _addSqlExecutorTab,
+          // Nueva nota adhesiva flotante desde cualquier parte
+          SingleActivator(
+            LogicalKeyboardKey.keyN,
+            control: true,
+            shift: true,
+          ): () =>
+              showNewNoteWindow(context),
         },
         child: Focus(
           autofocus: true,
@@ -1353,7 +1513,27 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                 : Stack(
                     fit: StackFit.expand,
                     children: [
-                      if (tab.procedimiento != null)
+                      if (tab.procedimiento != null && _isPlainTextTab(tab))
+                        SimpleTextEditorPage(
+                          key: ValueKey('txt_${tab.tabId}'),
+                          filePath: tab.localFilePath!,
+                          initialText: tab.procedimiento!.deTexto,
+                          ambiente: tab.ambiente,
+                          onDirtyChanged: (dirty) {
+                            if (tab.isDirty != dirty) {
+                              setState(() => tab.isDirty = dirty);
+                            }
+                          },
+                          onSave: (code) => _saveTabProcedure(tab, code),
+                          onCodeChanged: (code) => tab.currentEditorCode = code,
+                          onOpenLocalFile: _openLocalFileTab,
+                          onFilePathChanged: (newPath) {
+                            setState(() {
+                              tab.localFilePath = newPath;
+                            });
+                          },
+                        )
+                      else if (tab.procedimiento != null)
                         CodeEditorPanel(
                           key: ValueKey('editor_${tab.tabId}'),
                           procedimiento: tab.procedimiento!,
@@ -2044,76 +2224,90 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       actions: [
         ConnectionIndicator(onlineLabelColor: barFgSoft),
         const SizedBox(width: 4),
-        Tooltip(
-          message: _schemaSidebarOpen
+
+        // --- Grupo 1: Explorador de Esquema & Búsqueda ---
+        _AppBarActionBtn(
+          tooltip: _schemaSidebarOpen
               ? 'Cerrar explorador de esquema'
-              : 'Abrir explorador de esquema',
-          child: IconButton(
-            onPressed: () =>
-                setState(() => _schemaSidebarOpen = !_schemaSidebarOpen),
-            icon: Icon(
-              _schemaSidebarOpen
-                  ? Icons.menu_open_rounded
-                  : Icons.schema_outlined,
-            ),
-            color: _schemaSidebarOpen ? barFg : barFgSoft,
+              : 'Explorador de esquema (árbol de objetos)',
+          icon: _schemaSidebarOpen
+              ? Icons.menu_open_rounded
+              : Icons.account_tree_outlined,
+          isActive: _schemaSidebarOpen,
+          fgColor: barFg,
+          fgSoftColor: barFgSoft,
+          onPressed: () =>
+              setState(() => _schemaSidebarOpen = !_schemaSidebarOpen),
+        ),
+        _AppBarActionBtn(
+          tooltip: 'Búsqueda rápida de esquema',
+          shortcutText: 'Ctrl+K',
+          icon: Icons.manage_search_rounded,
+          fgColor: barFg,
+          fgSoftColor: barFgSoft,
+          onPressed: () => _showSchemaCommandPalette(context),
+        ),
+
+        _AppBarDivider(color: barFg),
+
+        // --- Grupo 2: Herramientas de Base de Datos y Código ---
+        _AppBarActionBtn(
+          tooltip: 'Ejecutar objeto PL/SQL',
+          shortcutText: 'Ctrl+Shift+E',
+          icon: Icons.play_circle_outline_rounded,
+          fgColor: barFg,
+          fgSoftColor: barFgSoft,
+          onPressed: () => _showEjecutarLlamada(context),
+        ),
+        _AppBarActionBtn(
+          tooltip: 'Ejecutor de sentencias SQL / PL-SQL',
+          icon: Icons.dataset_outlined,
+          fgColor: barFg,
+          fgSoftColor: barFgSoft,
+          onPressed: _addSqlExecutorTab,
+        ),
+        _AppBarActionBtn(
+          tooltip: 'Transferencia por lote a uno o varios ambientes',
+          icon: Icons.sync_alt_rounded,
+          fgColor: barFg,
+          fgSoftColor: barFgSoft,
+          onPressed: () => showBatchTransferWindow(
+            context,
+            ambiente: _tabs[_activeTab].ambiente,
           ),
         ),
-        Tooltip(
-          message: 'Búsqueda rápida de esquema (Ctrl+K)',
-          child: IconButton(
-            onPressed: () => _showSchemaCommandPalette(context),
-            icon: const Icon(Icons.search_rounded),
-            color: barFgSoft,
+        _AppBarActionBtn(
+          tooltip: 'Backup masivo de objetos',
+          icon: Icons.cloud_download_outlined,
+          fgColor: barFg,
+          fgSoftColor: barFgSoft,
+          onPressed: () => showBulkBackupWindow(
+            context,
+            ambiente: _tabs[_activeTab].ambiente,
           ),
         ),
-        Tooltip(
-          message: 'Ejecutar objeto PL/SQL (Ctrl+Shift+E)',
-          child: IconButton(
-            onPressed: () => _showEjecutarLlamada(context),
-            icon: const Icon(Icons.play_circle_outline_rounded),
-            color: barFgSoft,
-          ),
+        _AppBarActionBtn(
+          tooltip: 'Comparar texto de origen y destino (Paste Diff)',
+          icon: Icons.difference_outlined,
+          fgColor: barFg,
+          fgSoftColor: barFgSoft,
+          onPressed: _openPasteDiff,
         ),
-        Tooltip(
-          message: 'Backup masivo de objetos',
-          child: IconButton(
-            onPressed: () => showBulkBackupWindow(
-              context,
-              ambiente: _tabs[_activeTab].ambiente,
-            ),
-            icon: const Icon(Icons.backup_outlined),
-            color: barFgSoft,
-          ),
+
+        _AppBarDivider(color: barFg),
+
+        // --- Grupo 3: Colaboración y Diagnóstico ---
+        _AppBarActionBtn(
+          tooltip: 'Notas y documentación markdown',
+          shortcutText: 'Ctrl+Shift+N',
+          icon: Icons.sticky_note_2_outlined,
+          fgColor: barFg,
+          fgSoftColor: barFgSoft,
+          onPressed: () => showNotesManager(context),
         ),
-        Tooltip(
-          message: 'Transferencia por lote a uno o varios ambientes',
-          child: IconButton(
-            onPressed: () => showBatchTransferWindow(
-              context,
-              ambiente: _tabs[_activeTab].ambiente,
-            ),
-            icon: const Icon(Icons.move_up_rounded),
-            color: barFgSoft,
-          ),
-        ),
-        Tooltip(
-          message: 'Ejecutor de sentencias SQL / PL-SQL',
-          child: IconButton(
-            onPressed: _addSqlExecutorTab,
-            icon: const Icon(Icons.receipt_long_rounded),
-            color: barFgSoft,
-          ),
-        ),
-        Tooltip(
-          message: 'Comparar texto de origen y destino',
-          child: IconButton(
-            onPressed: _openPasteDiff,
-            icon: const Icon(Icons.content_paste_go_outlined, size: 18),
-            color: barFg,
-          ),
-        ),
-        AppConsoleButton(color: barFgSoft),
+        _AppBarWrapper(child: NotificationsMenuButton(color: barFgSoft)),
+        _AppBarWrapper(child: AppConsoleButton(color: barFgSoft)),
+        const SizedBox(width: 4),
         Observer(
           builder: (_) => _UsuarioButton(
             cdUsuario: procedimientosProvider.cdUsuario,
@@ -2121,23 +2315,48 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             foreground: barFg,
           ),
         ),
-        const SizedBox(width: 8),
-        Tooltip(
-          message: 'Configurar dirección del servidor',
-          child: IconButton(
-            onPressed: () => showDialog(
-              context: context,
-              builder: (context) => ServerConfigDialog(
-                onServerConfigChanged: () {
-                  AppToast.info('Dirección del servidor actualizada');
-                },
-              ),
-            ),
-            icon: const Icon(Icons.language),
-            color: barFgSoft,
-          ),
+
+        _AppBarDivider(color: barFg),
+
+        // --- Grupo 4: Sistema, Sesión & Configuración ---
+        FutureBuilder<bool>(
+          future: SessionService.isRestoreEnabled(),
+          builder: (context, snapshot) {
+            final restoreOn = snapshot.data ?? true;
+            return _AppBarActionBtn(
+              tooltip: restoreOn
+                  ? 'Restaurar pestañas al iniciar: Activado'
+                  : 'Restaurar pestañas al iniciar: Desactivado',
+              icon: restoreOn
+                  ? Icons.tab_rounded
+                  : Icons.tab_unselected_rounded,
+              isActive: restoreOn,
+              activeColor: const Color(0xFF0078D4),
+              fgColor: barFg,
+              fgSoftColor: barFgSoft,
+              onPressed: () async {
+                final newValue = !restoreOn;
+                await SessionService.setRestoreEnabled(newValue);
+                if (newValue) {
+                  await SessionService.saveSession(
+                    tabs: _tabs,
+                    activeTab: _activeTab,
+                  );
+                  AppToast.success(
+                    'Restauración de sesión activada (las pestañas se conservarán al salir)',
+                    duration: const Duration(seconds: 3),
+                  );
+                } else {
+                  AppToast.info(
+                    'Restauración de sesión desactivada',
+                    duration: const Duration(seconds: 3),
+                  );
+                }
+                if (mounted) setState(() {});
+              },
+            );
+          },
         ),
-        const SizedBox(width: 4),
         ListenableBuilder(
           listenable: editorThemeStore,
           builder: (context, _) {
@@ -2182,11 +2401,12 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                 ),
               );
             }
-            return Tooltip(
-              message: 'Tema: ${meta.name}',
+            return _AppBarActionWrapper(
+              tooltip: 'Tema de editor: ${meta.name}',
               child: PopupMenuButton<String>(
                 tooltip: '',
-                offset: const Offset(0, 40),
+                padding: EdgeInsets.zero,
+                offset: const Offset(0, 36),
                 constraints: const BoxConstraints(
                   minWidth: 220,
                   maxWidth: 280,
@@ -2194,38 +2414,331 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                 ),
                 onSelected: editorThemeStore.setTheme,
                 itemBuilder: (_) => items,
-                icon: Stack(
-                  children: [
-                    Icon(Icons.palette_outlined, color: barFgSoft, size: 22),
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
-                      child: Container(
-                        width: 9,
-                        height: 9,
-                        decoration: BoxDecoration(
-                          color: meta.swatch,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: barFgSoft, width: 1),
+                child: Center(
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Icon(Icons.palette_outlined, color: barFgSoft, size: 17),
+                      Positioned(
+                        right: -2,
+                        bottom: -2,
+                        child: Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: meta.swatch,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: barFg, width: 1),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             );
           },
         ),
-        Tooltip(
-          message: 'Atajos de teclado (F1)',
-          child: IconButton(
-            onPressed: () => _showShortcutsHelp(context),
-            icon: const Icon(Icons.help_outline_rounded),
-            color: barFgSoft,
+        _AppBarActionBtn(
+          tooltip: 'Configurar dirección del servidor',
+          icon: Icons.dns_outlined,
+          fgColor: barFg,
+          fgSoftColor: barFgSoft,
+          onPressed: () => showDialog(
+            context: context,
+            builder: (context) => ServerConfigDialog(
+              onServerConfigChanged: () {
+                AppToast.info('Dirección del servidor actualizada');
+              },
+            ),
           ),
         ),
-        const SizedBox(width: 8),
+        _AppBarActionBtn(
+          tooltip: 'Atajos de teclado',
+          shortcutText: 'F1',
+          icon: Icons.keyboard_outlined,
+          fgColor: barFg,
+          fgSoftColor: barFgSoft,
+          onPressed: () => _showShortcutsHelp(context),
+        ),
+        const SizedBox(width: 6),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Widgets auxiliares para la barra superior (Toolbar AppBar)
+// ---------------------------------------------------------------------------
+
+class _AppBarActionBtn extends StatefulWidget {
+  final String tooltip;
+  final String? shortcutText;
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final bool isActive;
+  final Color? activeColor;
+  final Color fgColor;
+  final Color fgSoftColor;
+
+  const _AppBarActionBtn({
+    required this.tooltip,
+    this.shortcutText,
+    required this.icon,
+    required this.onPressed,
+    this.isActive = false,
+    this.activeColor,
+    required this.fgColor,
+    required this.fgSoftColor,
+  });
+
+  @override
+  State<_AppBarActionBtn> createState() => _AppBarActionBtnState();
+}
+
+class _AppBarActionBtnState extends State<_AppBarActionBtn> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveActiveColor =
+        widget.activeColor ?? Theme.of(context).colorScheme.primary;
+    final iconColor = widget.isActive
+        ? effectiveActiveColor
+        : (_isHovered ? widget.fgColor : widget.fgSoftColor);
+
+    Widget btnContent = AnimatedContainer(
+      duration: const Duration(milliseconds: 140),
+      curve: Curves.easeOut,
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        color: widget.isActive
+            ? effectiveActiveColor.withValues(alpha: 0.18)
+            : (_isHovered
+                  ? widget.fgColor.withValues(alpha: 0.10)
+                  : Colors.transparent),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(
+          color: widget.isActive
+              ? effectiveActiveColor.withValues(alpha: 0.45)
+              : (_isHovered
+                    ? widget.fgColor.withValues(alpha: 0.18)
+                    : Colors.transparent),
+          width: 1,
+        ),
+      ),
+      child: InkWell(
+        onTap: widget.onPressed,
+        hoverColor: Colors.transparent,
+        splashColor: widget.fgColor.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(7),
+        child: Center(child: Icon(widget.icon, size: 17, color: iconColor)),
+      ),
+    );
+
+    return _buildRichTooltip(
+      tooltip: widget.tooltip,
+      shortcutText: widget.shortcutText,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2),
+          child: SizedBox(width: 32, height: 32, child: btnContent),
+        ),
+      ),
+    );
+  }
+}
+
+/// Contenedor estilizado para elementos interactivos como menús popup dentro del AppBar
+class _AppBarActionWrapper extends StatefulWidget {
+  final Widget child;
+  final String tooltip;
+
+  const _AppBarActionWrapper({required this.child, required this.tooltip});
+
+  @override
+  State<_AppBarActionWrapper> createState() => _AppBarActionWrapperState();
+}
+
+class _AppBarActionWrapperState extends State<_AppBarActionWrapper> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final fg =
+        theme.appBarTheme.iconTheme?.color ?? theme.colorScheme.onSurface;
+
+    return _buildRichTooltip(
+      tooltip: widget.tooltip,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 140),
+            curve: Curves.easeOut,
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: _isHovered
+                  ? fg.withValues(alpha: 0.10)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(7),
+              border: Border.all(
+                color: _isHovered
+                    ? fg.withValues(alpha: 0.18)
+                    : Colors.transparent,
+                width: 1,
+              ),
+            ),
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(7),
+              clipBehavior: Clip.antiAlias,
+              child: widget.child,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Crea un tooltip moderno con soporte para atajos de teclado (Kbd chip).
+Widget _buildRichTooltip({
+  required String tooltip,
+  String? shortcutText,
+  required Widget child,
+}) {
+  if (shortcutText == null || shortcutText.isEmpty) {
+    return Tooltip(
+      message: tooltip,
+      waitDuration: const Duration(milliseconds: 350),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E24),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.12),
+          width: 0.8,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x66000000),
+            blurRadius: 8,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      textStyle: const TextStyle(
+        color: Colors.white,
+        fontSize: 12,
+        fontWeight: FontWeight.w400,
+      ),
+      child: child,
+    );
+  }
+
+  return Tooltip(
+    richMessage: TextSpan(
+      children: [
+        TextSpan(
+          text: '$tooltip  ',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+        WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.3),
+                width: 0.8,
+              ),
+            ),
+            child: Text(
+              shortcutText,
+              style: const TextStyle(
+                color: Color(0xFF90CAF9),
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                fontFamily: 'Consolas',
+                letterSpacing: 0.4,
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+    waitDuration: const Duration(milliseconds: 350),
+    decoration: BoxDecoration(
+      color: const Color(0xFF1E1E24),
+      borderRadius: BorderRadius.circular(6),
+      border: Border.all(
+        color: Colors.white.withValues(alpha: 0.12),
+        width: 0.8,
+      ),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x66000000),
+          blurRadius: 8,
+          offset: Offset(0, 3),
+        ),
+      ],
+    ),
+    child: child,
+  );
+}
+
+class _AppBarDivider extends StatelessWidget {
+  final Color color;
+  const _AppBarDivider({required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Center(
+        child: Container(
+          width: 1,
+          height: 18,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                color.withValues(alpha: 0.04),
+                color.withValues(alpha: 0.22),
+                color.withValues(alpha: 0.04),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(0.5),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AppBarWrapper extends StatelessWidget {
+  final Widget child;
+  const _AppBarWrapper({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: SizedBox(width: 32, height: 32, child: Center(child: child)),
     );
   }
 }

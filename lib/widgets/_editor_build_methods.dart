@@ -630,6 +630,11 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
           const SizedBox(width: 4),
           _buildSaveBtn(cs),
           _ToolBtn(
+            icon: Icons.save_as_outlined,
+            tooltip: 'Guardar como archivo local… (Ctrl+Shift+S)',
+            onPressed: () => unawaited(_saveAsLocalFile()),
+          ),
+          _ToolBtn(
             icon: Icons.compare_arrows,
             tooltip: 'Ver diff vs. versión guardada (sin guardar)',
             onPressed: _openDiff,
@@ -930,23 +935,13 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
   }
 
   void _showThemePickerDialog() {
-    showGeneralDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'theme-picker',
-      barrierColor: Colors.black45,
-      transitionDuration: const Duration(milliseconds: 160),
-      transitionBuilder: (_, anim, _, child) =>
-          FadeTransition(opacity: anim, child: child),
-      pageBuilder: (_, _, _) => _ThemePickerDialog(
-        currentThemeId: editorThemeStore.themeId,
-        onSelected: (id) async {
-          await editorThemeStore.setTheme(id);
-          await _withCtrl(
-            (ctrl) => ctrl.setTheme(editorThemeStore.monacoTheme),
-          );
-        },
-      ),
+    showThemePickerDialog(
+      context,
+      currentThemeId: editorThemeStore.themeId,
+      onSelected: (id) async {
+        await editorThemeStore.setTheme(id);
+        await _withCtrl((ctrl) => ctrl.setTheme(editorThemeStore.monacoTheme));
+      },
     );
   }
 

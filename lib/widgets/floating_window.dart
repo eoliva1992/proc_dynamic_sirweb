@@ -240,13 +240,19 @@ Future<T?> showFloatingDialog<T>(
             child: ColoredBox(color: barrierColor),
           ),
         ),
-        _FloatingDialogLayer<T>(
-          onDisposed: () {
-            if (!completer.isCompleted) completer.complete(null);
-          },
-          onEscape: barrierDismissible ? () => finish(null) : null,
-          builder: builder,
-          close: finish,
+        Overlay(
+          initialEntries: [
+            OverlayEntry(
+              builder: (innerContext) => _FloatingDialogLayer<T>(
+                onDisposed: () {
+                  if (!completer.isCompleted) completer.complete(null);
+                },
+                onEscape: barrierDismissible ? () => finish(null) : null,
+                builder: builder,
+                close: finish,
+              ),
+            ),
+          ],
         ),
       ],
     ),

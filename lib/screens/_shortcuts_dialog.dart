@@ -7,6 +7,7 @@ class _ShortcutsDialog extends StatelessWidget {
     ('Ctrl + K', 'Búsqueda rápida de esquema'),
     ('Ctrl + Shift + E', 'Ejecutar objeto PL/SQL'),
     ('Ctrl + Shift + L', 'Consola de la aplicación (log)'),
+    ('Ctrl + Shift + N', 'Nueva nota adhesiva'),
     ('Ctrl + S', 'Guardar procedimiento'),
     ('Ctrl + T', 'Nueva pestaña de búsqueda'),
     ('Ctrl + W', 'Cerrar pestaña activa'),

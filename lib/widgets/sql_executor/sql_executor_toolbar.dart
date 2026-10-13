@@ -43,6 +43,12 @@ class SqlExecutorToolbar extends StatelessWidget {
   final VoidCallback? onExecuteAll;
   final VoidCallback? onExplainPlan;
   final VoidCallback? onClearOutput;
+  final VoidCallback? onNewFile;
+  final VoidCallback? onOpenFile;
+  final VoidCallback? onSaveFile;
+  final VoidCallback? onSaveFileAs;
+  final VoidCallback? onRevealInExplorer;
+  final String? currentFilePath;
   final bool hasPendingChanges;
   final VoidCallback? onCommit;
   final VoidCallback? onRollback;
@@ -59,6 +65,12 @@ class SqlExecutorToolbar extends StatelessWidget {
     required this.onExecuteAll,
     required this.onExplainPlan,
     required this.onClearOutput,
+    this.onNewFile,
+    this.onOpenFile,
+    this.onSaveFile,
+    this.onSaveFileAs,
+    this.onRevealInExplorer,
+    this.currentFilePath,
     this.hasPendingChanges = false,
     this.onCommit,
     this.onRollback,
@@ -110,6 +122,34 @@ class SqlExecutorToolbar extends StatelessWidget {
             tooltip: 'Plan de ejecución del SELECT bajo el cursor',
             onPressed: running ? null : onExplainPlan,
           ),
+          SqlToolBtn(
+            icon: Icons.note_add_outlined,
+            tooltip: 'Nuevo script limpio (Ctrl+N)',
+            onPressed: running ? null : onNewFile,
+          ),
+          SqlToolBtn(
+            icon: Icons.folder_open_rounded,
+            tooltip: 'Abrir archivo local (.sql / .txt)',
+            onPressed: running ? null : onOpenFile,
+          ),
+          SqlToolBtn(
+            icon: Icons.save_outlined,
+            tooltip: currentFilePath != null
+                ? 'Guardar en disco (Ctrl+S) — ${Uri.file(currentFilePath!).pathSegments.last}'
+                : 'Guardar archivo local (Ctrl+S)',
+            onPressed: running ? null : onSaveFile,
+          ),
+          SqlToolBtn(
+            icon: Icons.save_as_outlined,
+            tooltip: 'Guardar como… (Ctrl+Shift+S)',
+            onPressed: running ? null : onSaveFileAs,
+          ),
+          if (currentFilePath != null && currentFilePath!.isNotEmpty)
+            SqlToolBtn(
+              icon: Icons.folder_shared_outlined,
+              tooltip: 'Abrir ubicación en el explorador\n$currentFilePath',
+              onPressed: running ? null : onRevealInExplorer,
+            ),
           SqlToolBtn(
             icon: Icons.code_rounded,
             tooltip: 'Snippets de usuario',
@@ -439,6 +479,8 @@ class _SqlToolBtnState extends State<SqlToolBtn> {
 const List<(String, String)> _kSqlShortcuts = [
   ('Ctrl + Enter', 'Ejecutar sentencia actual / selección'),
   ('F5', 'Ejecutar todo el script'),
+  ('Ctrl + S', 'Guardar archivo local'),
+  ('Ctrl + Shift + S', 'Guardar archivo local como…'),
   ('Ctrl + F', 'Buscar en el documento'),
   ('F12', 'Ir a definición'),
   ('Alt + I', 'Información del evento'),

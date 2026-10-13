@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../../models/sql_execution.dart';
+import '../../services/backup_service.dart';
 import 'sql_executor_toolbar.dart' show kindColor;
 
 /// Barra de estado inferior del Ejecutor SQL.
 ///
 /// Muestra posición del cursor, conteo de sentencias en el script, modo actual,
-/// tiempo de ejecución de la última sentencia y ambiente activo.
+/// ruta del archivo local o indicador de script nuevo, tiempo de ejecución de la
+/// última sentencia y ambiente activo.
 class SqlExecutorStatusBar extends StatelessWidget {
   final int cursorLine;
   final int cursorCol;
@@ -15,6 +17,7 @@ class SqlExecutorStatusBar extends StatelessWidget {
   final bool running;
   final SqlExecutionLogEntry? lastEntry;
   final String ambiente;
+  final String? currentFilePath;
 
   const SqlExecutorStatusBar({
     super.key,
@@ -25,6 +28,7 @@ class SqlExecutorStatusBar extends StatelessWidget {
     required this.running,
     required this.lastEntry,
     required this.ambiente,
+    this.currentFilePath,
   });
 
   @override
@@ -90,7 +94,79 @@ class SqlExecutorStatusBar extends StatelessWidget {
               ),
             ),
           ],
-          const Spacer(),
+          const SizedBox(width: 8),
+          SizedBox(
+            height: 12,
+            child: VerticalDivider(
+              color: cs.outlineVariant.withValues(alpha: 0.5),
+              width: 8,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Tooltip(
+              message: currentFilePath != null && currentFilePath!.isNotEmpty
+                  ? 'Archivo: $currentFilePath\n(Clic para abrir ubicación en el explorador)'
+                  : 'Documento nuevo sin guardar en disco',
+              child: InkWell(
+                onTap: currentFilePath != null && currentFilePath!.isNotEmpty
+                    ? () => BackupService.revealInExplorer(currentFilePath!)
+                    : null,
+                borderRadius: BorderRadius.circular(3),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 2,
+                    vertical: 2,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        currentFilePath != null && currentFilePath!.isNotEmpty
+                            ? Icons.description_outlined
+                            : Icons.edit_document,
+                        size: 12,
+                        color:
+                            currentFilePath != null &&
+                                currentFilePath!.isNotEmpty
+                            ? cs.primary
+                            : cs.onSurfaceVariant.withValues(alpha: 0.7),
+                      ),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          currentFilePath != null && currentFilePath!.isNotEmpty
+                              ? currentFilePath!
+                              : 'Script nuevo (sin guardar)',
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontFamily:
+                                currentFilePath != null &&
+                                    currentFilePath!.isNotEmpty
+                                ? 'Consolas'
+                                : null,
+                            color:
+                                currentFilePath != null &&
+                                    currentFilePath!.isNotEmpty
+                                ? cs.onSurface
+                                : cs.onSurfaceVariant,
+                            fontStyle:
+                                currentFilePath == null ||
+                                    currentFilePath!.isEmpty
+                                ? FontStyle.italic
+                                : FontStyle.normal,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
           if (running) ...[
             SizedBox(
               width: 10,

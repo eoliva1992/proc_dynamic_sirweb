@@ -29,23 +29,46 @@ Future<void> openSnippetsManager(BuildContext context) async {
 /// Devuelve la registración para poder liberarla (`dispose`) o reemplazarla
 /// luego de editar los snippets. Retorna `null` si no hay snippets.
 ///
-/// Se usa exactamente la misma configuración que en el editor de
-/// procedimientos dinámicos: se disparan con espacio, se insertan como snippet
-/// (soportan `${1:placeholder}`) y se ordenan por encima de las palabras clave.
+/// Si [isLocalDocumentEditor] es `true`, se incluyen los snippets específicos de
+/// YAML y texto plano (`yaml`, `any`).
+/// Si es `false` (editores Oracle / SQL / PL-SQL), los snippets marcados con
+/// lenguaje `yaml` se excluyen para que solo aparezcan en el editor de documentos locales.
 Future<fm.MonacoCompletionRegistration?> registerUserSnippetCompletions(
   fm.MonacoController ctrl, {
   String id = 'user-snippets',
+  bool isLocalDocumentEditor = false,
 }) async {
   try {
-    final snippets = await SnippetService.instance.loadAll();
+    final allSnippets = await SnippetService.instance.loadAll();
+    if (allSnippets.isEmpty) return null;
+
+    final snippets = allSnippets.where((s) {
+      final lang = s.language.toLowerCase().trim();
+      if (isLocalDocumentEditor) {
+        // En editor local: snippets de yaml o genéricos (any).
+        // También admitimos otros si estuvieran disponibles en texto plano.
+        return lang == 'yaml' || lang == 'any';
+      }
+      // En editores de procedimientos Oracle / SQL: no mostrar snippets yaml.
+      return lang != 'yaml';
+    }).toList();
+
     if (snippets.isEmpty) return null;
+
+    final languages = isLocalDocumentEditor
+        ? [
+            fm.MonacoLanguage.yaml,
+            fm.MonacoLanguage.plaintext,
+          ]
+        : [
+            fm.MonacoLanguage.sql,
+            fm.MonacoLanguage('plsql'),
+            fm.MonacoLanguage.javascript,
+          ];
+
     return await ctrl.registerStaticCompletions(
       id: id,
-      languages: [
-        fm.MonacoLanguage.sql,
-        fm.MonacoLanguage('plsql'),
-        fm.MonacoLanguage.javascript,
-      ],
+      languages: languages,
       triggerCharacters: const [' '],
       items: [
         for (final s in snippets)

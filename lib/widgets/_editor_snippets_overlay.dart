@@ -50,6 +50,11 @@ const Map<String, _LangMeta> _kSnippetLanguages = {
     icon: Icons.javascript_rounded,
     color: Color(0xFFD9A407),
   ),
+  'yaml': (
+    label: 'YAML (.yaml)',
+    icon: Icons.data_object_rounded,
+    color: Color(0xFFCB171E),
+  ),
 };
 
 class _SnippetsManagerDialogState extends State<_SnippetsManagerDialog> {
@@ -1235,45 +1240,81 @@ class _SnippetsManagerDialogState extends State<_SnippetsManagerDialog> {
                           children: [
                             Text('LENGUAJE', style: labelStyle),
                             const SizedBox(height: 5),
-                            DropdownButtonFormField<String>(
-                              key: ValueKey(_language),
-                              initialValue: _language,
-                              isDense: true,
-                              isExpanded: true,
-                              decoration: deco(),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: cs.onSurface,
-                              ),
-                              items: [
+                            MenuAnchor(
+                              alignmentOffset: const Offset(0, 4),
+                              menuChildren: [
                                 for (final e in _kSnippetLanguages.entries)
-                                  DropdownMenuItem(
-                                    value: e.key,
+                                  MenuItemButton(
+                                    leadingIcon: Icon(
+                                      e.value.icon,
+                                      size: 14,
+                                      color: e.value.color,
+                                    ),
+                                    trailingIcon: e.key == _language
+                                        ? Icon(
+                                            Icons.check_rounded,
+                                            size: 14,
+                                            color: cs.primary,
+                                          )
+                                        : null,
+                                    onPressed: () {
+                                      setState(() => _language = e.key);
+                                      _onFieldChanged();
+                                    },
+                                    child: Text(
+                                      e.value.label,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: e.key == _language
+                                            ? FontWeight.w600
+                                            : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                              builder: (context, menuCtrl, _) {
+                                final currentLang =
+                                    _kSnippetLanguages[_language] ??
+                                    _kSnippetLanguages['any']!;
+                                return InkWell(
+                                  borderRadius: BorderRadius.circular(6),
+                                  onTap: () {
+                                    if (menuCtrl.isOpen) {
+                                      menuCtrl.close();
+                                    } else {
+                                      menuCtrl.open();
+                                    }
+                                  },
+                                  child: InputDecorator(
+                                    decoration: deco(),
+                                    isEmpty: false,
                                     child: Row(
                                       children: [
                                         Icon(
-                                          e.value.icon,
+                                          currentLang.icon,
                                           size: 13,
-                                          color: e.value.color,
+                                          color: currentLang.color,
                                         ),
                                         const SizedBox(width: 6),
-                                        Flexible(
+                                        Expanded(
                                           child: Text(
-                                            e.value.label,
+                                            currentLang.label,
                                             overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
+                                            style: TextStyle(
                                               fontSize: 12,
+                                              color: cs.onSurface,
                                             ),
                                           ),
+                                        ),
+                                        Icon(
+                                          Icons.arrow_drop_down,
+                                          size: 18,
+                                          color: cs.onSurfaceVariant,
                                         ),
                                       ],
                                     ),
                                   ),
-                              ],
-                              onChanged: (v) {
-                                if (v == null) return;
-                                setState(() => _language = v);
-                                _onFieldChanged();
+                                );
                               },
                             ),
                           ],

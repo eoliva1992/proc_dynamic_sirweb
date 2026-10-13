@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:appflowy_editor/appflowy_editor.dart'
+    show AppFlowyEditorLocalizations;
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:toastification/toastification.dart';
 import 'package:window_manager/window_manager.dart';
 import 'app_navigator.dart';
@@ -12,6 +15,7 @@ import 'services/favorites_service.dart';
 import 'services/file_association_service.dart';
 import 'services/schema_service.dart';
 import 'services/server_config_service.dart';
+import 'services/single_instance_service.dart';
 import 'widgets/_editor_themes.dart';
 import 'widgets/code_editor_panel.dart';
 import 'widgets/object_source_page.dart';
@@ -83,6 +87,16 @@ Future<void> main(List<String> args) async {
   final initialFilePath = args.isNotEmpty && File(args.first).existsSync()
       ? args.first
       : null;
+
+  // Si ya hay una instancia corriendo, se le reenvía el archivo (si lo hay)
+  // y este proceso termina sin crear una segunda ventana.
+  final isPrimaryInstance = await SingleInstanceService.acquireOrForward(
+    initialFilePath,
+  );
+  if (!isPrimaryInstance) {
+    exit(0);
+  }
+
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
@@ -235,6 +249,10 @@ class ProcDynamicApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           navigatorKey: rootNavigatorKey,
           theme: ProcDynamicApp.buildThemeFor(editorThemeStore.themeId),
+          localizationsDelegates: const [
+            ...GlobalMaterialLocalizations.delegates,
+            AppFlowyEditorLocalizations.delegate,
+          ],
           home: MainScreen(initialFilePath: initialFilePath),
         ),
       ),

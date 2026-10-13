@@ -49,6 +49,7 @@ import '_editor_plsql_completions.dart';
 import 'procedure_diff_panel.dart';
 import 'problems_output_console.dart';
 import '../services/editor_draft_service.dart';
+import '../services/local_file_service.dart';
 import 'app_toast.dart';
 import 'floating_window.dart';
 import 'plsql_tables.dart' show extractSqlTables;
@@ -210,6 +211,7 @@ class CodeEditorPanel extends StatefulWidget {
   final Future<void> Function(String code)? onCompile;
   final ValueChanged<String>? onCodeChanged;
   final void Function(String path, String content)? onOpenLocalFile;
+  final VoidCallback? onSaveAsLocal;
 
   const CodeEditorPanel({
     super.key,
@@ -220,6 +222,7 @@ class CodeEditorPanel extends StatefulWidget {
     this.onCompile,
     this.onCodeChanged,
     this.onOpenLocalFile,
+    this.onSaveAsLocal,
   });
 
   @override
@@ -355,6 +358,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   MonacoActionRegistration? _zoomInAction;
   MonacoActionRegistration? _zoomOutAction;
   MonacoActionRegistration? _saveAction;
+  MonacoActionRegistration? _saveAsAction;
   MonacoActionRegistration? _compileAction;
   MonacoActionRegistration? _gotoDefAction;
   MonacoActionRegistration? _infoEventoAction;
@@ -516,6 +520,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _disposeQuietly(() => _zoomInAction?.dispose());
     _disposeQuietly(() => _zoomOutAction?.dispose());
     _disposeQuietly(() => _saveAction?.dispose());
+    _disposeQuietly(() => _saveAsAction?.dispose());
     _disposeQuietly(() => _compileAction?.dispose());
     _saveTimer?.cancel();
     _draftDebounce?.cancel();
@@ -921,6 +926,24 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
             },
           )
           .then((a) => _saveAction = a),
+      ctrl
+          .addAction(
+            MonacoActionDescriptor(
+              id: MonacoAction('custom.saveAs'),
+              label: 'Guardar como archivo local…',
+              keybindings: [
+                MonacoKeybinding(
+                  ctrlCmd: true,
+                  shift: true,
+                  key: MonacoKey.keyS,
+                ),
+              ],
+            ),
+            () async {
+              unawaited(_saveAsLocalFile());
+            },
+          )
+          .then((a) => _saveAsAction = a),
       ctrl
           .addAction(
             MonacoActionDescriptor(
@@ -2195,7 +2218,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   Future<void> _registerSnippetCompletions() async {
     await _disposeRegQuietly(_snippetsReg);
     _snippetsReg = null;
-    final snippets = await SnippetService.instance.loadAll();
+    final allSnippets = await SnippetService.instance.loadAll();
+    final snippets = allSnippets
+        .where((s) => s.language.toLowerCase().trim() != 'yaml')
+        .toList();
     if (snippets.isEmpty) return;
     _snippetsReg = await _withCtrl(
       (ctrl) => ctrl.registerStaticCompletions(
@@ -2285,6 +2311,22 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   }
 
   // ── Guardar ────────────────────────────────────────────────────────────
+
+  Future<void> _saveAsLocalFile() async {
+    if (widget.onSaveAsLocal != null) {
+      widget.onSaveAsLocal!();
+      return;
+    }
+    final code = await _withCtrl((ctrl) => ctrl.document.getText());
+    if (code == null || !mounted) return;
+    final procName = _activeProcId ?? widget.procedimiento.cdProcedimiento;
+    await LocalFileService.saveFile(
+      content: code,
+      defaultFileName: '${procName}_${widget.ambiente}.sql',
+      dialogTitle: 'Guardar procedimiento como…',
+      allowedExtensions: const ['sql', 'pls', 'txt'],
+    );
+  }
 
   Future<void> _saveCurrentDocument() async {
     final onSave = widget.onSave;

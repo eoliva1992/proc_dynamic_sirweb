@@ -84,9 +84,13 @@ class SqlExecutorStateController extends ChangeNotifier {
   /// `confirmar: false`. Sigue viva hasta `commit()`/`rollback()`.
   String? _sessionId;
 
+  /// Ruta del archivo local en disco si el script actual está vinculado a uno.
+  String? _currentFilePath;
+
   // ─── Getters ───────────────────────────────────────────────────────────────
   String? get sessionId => _sessionId;
   bool get hasPendingChanges => _sessionId != null;
+  String? get currentFilePath => _currentFilePath;
   String get ambiente => _ambiente;
   String get text => _text;
   int get cursorLine => _cursorLine;
@@ -135,6 +139,22 @@ class SqlExecutorStateController extends ChangeNotifier {
     } finally {
       _suppressRevisionBump = false;
     }
+  }
+
+  void setCurrentFilePath(String? path) {
+    if (_currentFilePath == path) return;
+    _currentFilePath = path;
+    notifyListeners();
+  }
+
+  void loadFromLocalFile({required String path, required String content}) {
+    _currentFilePath = path;
+    _text = content;
+    _cursorLine = 1;
+    _cursorCol = 1;
+    _statementsCache = null;
+    _statementsCacheText = null;
+    notifyListeners();
   }
 
   void setCursor(int line, int col) {
@@ -243,8 +263,9 @@ class SqlExecutorStateController extends ChangeNotifier {
         AppToast.info('No hay ninguna sentencia para ejecutar');
         return;
       }
+      _clearResultsForRun();
       for (final stmt in statements) {
-        await runStatement(stmt);
+        await _executeStatement(stmt);
       }
       return;
     }
@@ -253,7 +274,8 @@ class SqlExecutorStateController extends ChangeNotifier {
       AppToast.info('No hay ninguna sentencia para ejecutar');
       return;
     }
-    await runStatement(stmt);
+    _clearResultsForRun();
+    await _executeStatement(stmt);
   }
 
   Future<void> runAll() async {
@@ -262,12 +284,28 @@ class SqlExecutorStateController extends ChangeNotifier {
       AppToast.info('El editor está vacío');
       return;
     }
+    _clearResultsForRun();
     for (final stmt in statements) {
-      await runStatement(stmt);
+      await _executeStatement(stmt);
     }
   }
 
-  Future<void> runStatement(SqlStatement stmt) async {
+  void _clearResultsForRun() {
+    _results.clear();
+    _selectedResultIndex = 0;
+  }
+
+  Future<void> runStatement(
+    SqlStatement stmt, {
+    bool clearPreviousResults = true,
+  }) async {
+    if (clearPreviousResults) {
+      _clearResultsForRun();
+    }
+    await _executeStatement(stmt);
+  }
+
+  Future<void> _executeStatement(SqlStatement stmt) async {
     if (_running) return;
     final owner = await _requireOwner();
     if (owner == null) return;
@@ -308,6 +346,7 @@ class SqlExecutorStateController extends ChangeNotifier {
               id: _resultSeq++,
               label: _preview(stmt.text),
               result: result,
+              statementText: stmt.text,
             ),
           );
           _selectedResultIndex = _results.length - 1;

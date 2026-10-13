@@ -498,6 +498,8 @@ class MonacoEditorWidget extends StatefulWidget {
   final void Function(Object error, StackTrace stackTrace)? onError;
   final VoidCallback? onExecuteCurrent;
   final VoidCallback? onExecuteAll;
+  final VoidCallback? onSave;
+  final VoidCallback? onSaveAs;
 
   const MonacoEditorWidget({
     super.key,
@@ -511,6 +513,8 @@ class MonacoEditorWidget extends StatefulWidget {
     this.onError,
     this.onExecuteCurrent,
     this.onExecuteAll,
+    this.onSave,
+    this.onSaveAs,
   });
 
   @override
@@ -1335,6 +1339,52 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
               ),
               () async {
                 widget.onExecuteAll?.call();
+              },
+            )
+            .then((action) => _registeredActions.add(action)),
+      );
+    }
+
+    // Ctrl+S para guardar documento / archivo local
+    if (widget.onSave != null) {
+      unawaited(
+        ctrl
+            .addAction(
+              const fm.MonacoActionDescriptor(
+                id: fm.MonacoAction('custom.editor.save'),
+                label: 'Guardar',
+                keybindings: [
+                  fm.MonacoKeybinding(ctrlCmd: true, key: fm.MonacoKey.keyS),
+                ],
+                precondition: 'editorTextFocus',
+              ),
+              () async {
+                widget.onSave?.call();
+              },
+            )
+            .then((action) => _registeredActions.add(action)),
+      );
+    }
+
+    // Ctrl+Shift+S para Guardar como...
+    if (widget.onSaveAs != null) {
+      unawaited(
+        ctrl
+            .addAction(
+              const fm.MonacoActionDescriptor(
+                id: fm.MonacoAction('custom.editor.saveAs'),
+                label: 'Guardar como…',
+                keybindings: [
+                  fm.MonacoKeybinding(
+                    ctrlCmd: true,
+                    shift: true,
+                    key: fm.MonacoKey.keyS,
+                  ),
+                ],
+                precondition: 'editorTextFocus',
+              ),
+              () async {
+                widget.onSaveAs?.call();
               },
             )
             .then((action) => _registeredActions.add(action)),

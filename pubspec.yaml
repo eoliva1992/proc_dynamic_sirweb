@@ -9,6 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   http: ^1.2.1
   mobx: ^2.3.0
   flutter_mobx: ^2.2.0
@@ -23,6 +25,7 @@ dependencies:
   diff_match_patch: ^0.4.1
   signalr_netcore: ^1.4.4
   two_dimensional_scrollables: ^0.5.4
+  appflowy_editor: ^6.2.0
 
 dev_dependencies:
   flutter_test:
@@ -30,6 +33,22 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   build_runner: ^2.4.0
   mobx_codegen: ^2.6.0
+
+dependency_overrides:
+  # appflowy_editor 6.2.0 (pub.dev) no compila contra el SDK Flutter actual:
+  #  - TextInputClient ganó el miembro abstracto `onFocusReceived` después de
+  #    que se publicó esa versión.
+  #  - Usa `FilePicker.platform.*`, API retirada en file_picker 11+ (el resto
+  #    de la app ya usa `FilePicker.pickFiles()` estático).
+  # Se vendorizó una copia parcheada en vendor/appflowy_editor-6.2.0 (2
+  # cambios mínimos, ver ese directorio). Si se sube de versión el paquete
+  # real, probar si ya trae el fix y volver a la fuente de pub.dev.
+  appflowy_editor:
+    path: vendor/appflowy_editor-6.2.0
+  # appflowy_editor declara file_picker ^10.2.0; forzamos la versión que ya usa
+  # el resto de la app (ver /memories/repo si esto deja de compilar al subir
+  # de versión alguno de los dos paquetes).
+  file_picker: ^11.0.3
 
 flutter:
   uses-material-design: true

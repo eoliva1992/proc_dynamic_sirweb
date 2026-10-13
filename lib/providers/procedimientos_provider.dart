@@ -6,7 +6,10 @@ import '../models/configuracion_tipo.dart';
 import '../models/variable_dinamica.dart';
 import '../services/schema_service.dart';
 import '../services/app_log.dart';
+import '../services/note_service.dart';
+import '../services/notification_service.dart';
 import '../services/sirweb_service.dart';
+import '../services/snippet_service.dart';
 
 part 'procedimientos_provider.g.dart';
 
@@ -126,7 +129,15 @@ abstract class _ProcedimientosProvider with Store {
   }
 
   @action
-  void setCdUsuario(String value) => cdUsuario = value;
+  void setCdUsuario(String value) {
+    cdUsuario = value;
+    final normalized = value.trim().toUpperCase();
+    if (normalized.isNotEmpty) {
+      NoteService.resetForUser(normalized);
+      SnippetService.currentUser = normalized;
+      NotificationService.instance.updateUser(normalized);
+    }
+  }
 
   @action
   void setProcedimientoActual(Procedimiento? proc) {

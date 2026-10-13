@@ -6,7 +6,7 @@ part of 'code_editor_panel.dart';
 ///
 /// Se inserta en el overlay raíz (sin barrera modal) para poder minimizarla
 /// y seguir trabajando en el editor.
-void _showUsosProcedimientoModal(
+void showUsosProcedimientoWindow(
   BuildContext context,
   String cdProcedimiento,
   String ambiente,
@@ -20,6 +20,12 @@ void _showUsosProcedimientoModal(
     ),
   );
 }
+
+void _showUsosProcedimientoModal(
+  BuildContext context,
+  String cdProcedimiento,
+  String ambiente,
+) => showUsosProcedimientoWindow(context, cdProcedimiento, ambiente);
 
 class _UsosProcedimientoModal extends StatefulWidget {
   final String cdProcedimiento;
@@ -39,6 +45,8 @@ class _UsosProcedimientoModal extends StatefulWidget {
 
 class _UsosProcedimientoModalState extends State<_UsosProcedimientoModal> {
   late Future<UsosProcedimiento> _future;
+  late final TextEditingController _procCtrl;
+  late String _currentCd;
   final _filterCtrl = TextEditingController();
   final _listCtrl = ScrollController();
   String _filter = '';
@@ -99,6 +107,8 @@ class _UsosProcedimientoModalState extends State<_UsosProcedimientoModal> {
   @override
   void initState() {
     super.initState();
+    _currentCd = widget.cdProcedimiento.trim().toUpperCase();
+    _procCtrl = TextEditingController(text: _currentCd);
     _future = _load();
     _filterCtrl.addListener(() {
       final v = _filterCtrl.text.trim().toUpperCase();
@@ -109,15 +119,30 @@ class _UsosProcedimientoModalState extends State<_UsosProcedimientoModal> {
   @override
   void dispose() {
     _MinimizedSlots.release(_slot);
+    _procCtrl.dispose();
     _filterCtrl.dispose();
     _listCtrl.dispose();
     super.dispose();
   }
 
-  Future<UsosProcedimiento> _load() => SirwebService().usosProcedimiento(
-    widget.cdProcedimiento,
-    ambiente: widget.ambiente,
-  );
+  Future<UsosProcedimiento> _load() {
+    if (_currentCd.isEmpty) {
+      return Future.value(const UsosProcedimiento());
+    }
+    return SirwebService().usosProcedimiento(
+      _currentCd,
+      ambiente: widget.ambiente,
+    );
+  }
+
+  void _buscarProcedimiento() {
+    final next = _procCtrl.text.trim().toUpperCase();
+    if (next.isEmpty) return;
+    setState(() {
+      _currentCd = next;
+      _future = _load();
+    });
+  }
 
   void _recargar() => setState(() => _future = _load());
 
@@ -371,7 +396,9 @@ class _UsosProcedimientoModalState extends State<_UsosProcedimientoModal> {
               if (_minimized)
                 Expanded(
                   child: Text(
-                    'Usos · ${widget.cdProcedimiento}',
+                    _currentCd.isNotEmpty
+                        ? 'Usos · $_currentCd'
+                        : 'Usos del procedimiento',
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 12.5,
@@ -381,26 +408,82 @@ class _UsosProcedimientoModalState extends State<_UsosProcedimientoModal> {
                 )
               else
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
+                  child: Row(
                     children: [
-                      Text(
-                        'Usos del procedimiento',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: isDark ? Colors.white38 : Colors.black38,
-                          letterSpacing: 0.4,
-                        ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Usos del procedimiento',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              color: isDark ? Colors.white38 : Colors.black38,
+                              letterSpacing: 0.4,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          if (_currentCd.isNotEmpty)
+                            Text(
+                              _currentCd,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                fontFamily: 'Consolas',
+                              ),
+                            ),
+                        ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        widget.cdProcedimiento,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          fontFamily: 'Consolas',
+                      const SizedBox(width: 12),
+                      SizedBox(
+                        width: 190,
+                        height: 28,
+                        child: TextField(
+                          controller: _procCtrl,
+                          textInputAction: TextInputAction.search,
+                          onSubmitted: (_) => _buscarProcedimiento(),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            fontFamily: 'Consolas',
+                          ),
+                          decoration: InputDecoration(
+                            isDense: true,
+                            hintText: 'Procedimiento…',
+                            hintStyle: const TextStyle(
+                              fontSize: 11,
+                              fontFamily: 'Segoe UI',
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 6,
+                            ),
+                            suffixIcon: InkWell(
+                              onTap: _buscarProcedimiento,
+                              child: const Icon(Icons.search, size: 14),
+                            ),
+                            filled: true,
+                            fillColor: isDark
+                                ? Colors.black.withValues(alpha: 0.25)
+                                : Colors.white,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(4),
+                              borderSide: BorderSide(
+                                color: isDark
+                                    ? const Color(0xFF444444)
+                                    : const Color(0xFFD0D7DE),
+                              ),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(4),
+                              borderSide: BorderSide(
+                                color: isDark
+                                    ? const Color(0xFF444444)
+                                    : const Color(0xFFD0D7DE),
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ],

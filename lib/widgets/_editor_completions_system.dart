@@ -642,7 +642,10 @@ extension _EditorCompletionsMethods on _CodeEditorPanelState {
     if (ctrl == null) return;
     await _snippetsReg?.dispose();
     _snippetsReg = null;
-    final snippets = await SnippetService.instance.loadAll();
+    final allSnippets = await SnippetService.instance.loadAll();
+    final snippets = allSnippets
+        .where((s) => s.language.toLowerCase().trim() != 'yaml')
+        .toList();
     if (snippets.isEmpty) return;
     _snippetsReg = await ctrl.registerStaticCompletions(
       id: 'user-snippets',

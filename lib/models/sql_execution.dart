@@ -99,11 +99,15 @@ class SqlNamedResult {
     required this.id,
     required this.label,
     required this.result,
+    this.statementText = '',
   });
 
   final int id;
   final String label;
   final SqlQueryResult result;
+
+  /// Texto SQL de la sentencia que originó este resultado.
+  final String statementText;
 }
 
 /// Resultado de un DML o DDL ejecutado vía `POST /tools/sql/statement`
