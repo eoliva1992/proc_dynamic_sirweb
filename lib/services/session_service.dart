@@ -113,6 +113,16 @@ class SessionTabData {
 
     if (procedimientoJson != null) {
       tab.procedimiento = Procedimiento.fromJson(procedimientoJson!);
+    } else if (localFilePath != null) {
+      // Recrea el procedimiento sintético para documentos locales
+      // si no venía en procedimientoJson
+      tab.procedimiento = Procedimiento(
+        cdProcedimiento: 'LOCAL_${DateTime.now().microsecondsSinceEpoch}',
+        deTexto: currentEditorCode ?? '',
+        inConfiguracion: 'S',
+        version: 0,
+        stProcedimiento: '1',
+      );
     }
 
     if (sourceViewerName != null && sourceViewerType != null) {

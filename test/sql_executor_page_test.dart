@@ -71,4 +71,64 @@ void main() {
     await _pumpBounded(tester, times: 4);
     expect(find.text('Salida'), findsOneWidget);
   });
+
+  testWidgets(
+    'soporta desacoplar panel en ventana flotante y alternar pin para auto-ocultar',
+    (tester) async {
+      await setLargeSurface(tester);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SqlExecutorPage(
+              ambiente: 'DES',
+              onAmbienteChanged: (_) {},
+              initialSql: 'SELECT 1 FROM dual;',
+            ),
+          ),
+        ),
+      );
+      await _pumpBounded(tester);
+
+      // Botón de desacople presente
+      final detachBtn = find.byTooltip('Desacoplar en ventana flotante');
+      expect(detachBtn, findsOneWidget);
+
+      // Clic para desacoplar
+      await tester.tap(detachBtn);
+      await _pumpBounded(tester, times: 3);
+
+      // Ahora el tooltip debe cambiar a 'Acoplar al fondo' y aparecer el indicador de arrastre
+      expect(find.byTooltip('Acoplar al fondo'), findsOneWidget);
+      expect(find.byIcon(Icons.drag_indicator_rounded), findsOneWidget);
+
+      // Botón de Pin inicial (fijado)
+      final pinBtn = find.byTooltip(
+        'Fijado: permanece visible (clic para activar auto-ocultar al perder foco)',
+      );
+      expect(pinBtn, findsOneWidget);
+
+      // Clic en pin para activar auto-ocultar
+      await tester.tap(pinBtn);
+      await _pumpBounded(tester, times: 3);
+
+      expect(
+        find.byTooltip(
+          'Auto-ocultar activo: se oculta al hacer clic fuera (clic para fijar)',
+        ),
+        findsOneWidget,
+      );
+
+      // Clic fuera del panel flotante (por ejemplo en la esquina superior izquierda del workspace)
+      await tester.tapAt(const Offset(50, 80));
+      await _pumpBounded(tester, times: 4);
+
+      // Debe haberse ocultado automáticamente
+      expect(find.text('Mostrar salida'), findsOneWidget);
+
+      // Al reabrirlo con 'Mostrar salida' vuelve a aparecer
+      await tester.tap(find.text('Mostrar salida'));
+      await _pumpBounded(tester, times: 4);
+      expect(find.text('Salida'), findsOneWidget);
+    },
+  );
 }

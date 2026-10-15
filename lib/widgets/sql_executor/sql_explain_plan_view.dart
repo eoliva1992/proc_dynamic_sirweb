@@ -121,15 +121,32 @@ class _SqlExplainPlanViewState extends State<SqlExplainPlanView> {
         Expanded(
           child: _showRawText && rawText != null && rawText.isNotEmpty
               ? _buildRawTextView(rawText, cs, isDark)
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 8,
-                  ),
-                  itemCount: safeList.length,
-                  itemBuilder: (context, i) {
-                    final node = safeList[i];
-                    return _buildNodeRow(node, cs, isDark);
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    return SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minWidth: constraints.maxWidth,
+                        ),
+                        child: SizedBox(
+                          width: constraints.maxWidth > 720
+                              ? constraints.maxWidth
+                              : 720,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                            itemCount: safeList.length,
+                            itemBuilder: (context, i) {
+                              final node = safeList[i];
+                              return _buildNodeRow(node, cs, isDark);
+                            },
+                          ),
+                        ),
+                      ),
+                    );
                   },
                 ),
         ),
@@ -161,92 +178,115 @@ class _SqlExplainPlanViewState extends State<SqlExplainPlanView> {
     int indexScans, {
     required bool hasRawText,
   }) {
-    return Container(
-      height: 36,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      color: isDark ? cs.surfaceContainerLow : cs.surface,
-      child: Row(
-        children: [
-          _buildPillBadge(
-            'Costo total: $rootCost',
-            cs.primary,
-            Icons.speed_rounded,
-          ),
-          const SizedBox(width: 6),
-          _buildPillBadge(
-            '$totalNodes operaciones',
-            cs.onSurfaceVariant,
-            Icons.format_list_numbered_rounded,
-          ),
-          if (fullScans > 0) ...[
-            const SizedBox(width: 6),
-            _buildPillBadge(
-              '$fullScans Full Scan${fullScans > 1 ? 's' : ''}',
-              Colors.red,
-              Icons.warning_amber_rounded,
-            ),
-          ],
-          if (indexScans > 0) ...[
-            const SizedBox(width: 6),
-            _buildPillBadge(
-              '$indexScans Índice${indexScans > 1 ? 's' : ''}',
-              Colors.green,
-              Icons.bolt_rounded,
-            ),
-          ],
-          const Spacer(),
-          if (hasRawText) ...[
-            InkWell(
-              onTap: () => setState(() => _showRawText = !_showRawText),
-              borderRadius: BorderRadius.circular(4),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: _showRawText
-                      ? cs.primary.withValues(alpha: 0.15)
-                      : cs.surfaceContainerHighest.withValues(alpha: 0.5),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(
-                    color: _showRawText
-                        ? cs.primary
-                        : cs.outlineVariant.withValues(alpha: 0.5),
-                    width: 0.6,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final showHierarchyLabel = constraints.maxWidth >= 640;
+        return Container(
+          height: 36,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          color: isDark ? cs.surfaceContainerLow : cs.surface,
+          child: Row(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildPillBadge(
+                        'Costo total: $rootCost',
+                        cs.primary,
+                        Icons.speed_rounded,
+                      ),
+                      const SizedBox(width: 6),
+                      _buildPillBadge(
+                        '$totalNodes operaciones',
+                        cs.onSurfaceVariant,
+                        Icons.format_list_numbered_rounded,
+                      ),
+                      if (fullScans > 0) ...[
+                        const SizedBox(width: 6),
+                        _buildPillBadge(
+                          '$fullScans Full Scan${fullScans > 1 ? 's' : ''}',
+                          Colors.red,
+                          Icons.warning_amber_rounded,
+                        ),
+                      ],
+                      if (indexScans > 0) ...[
+                        const SizedBox(width: 6),
+                        _buildPillBadge(
+                          '$indexScans Índice${indexScans > 1 ? 's' : ''}',
+                          Colors.green,
+                          Icons.bolt_rounded,
+                        ),
+                      ],
+                    ],
                   ),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      _showRawText
-                          ? Icons.account_tree_outlined
-                          : Icons.text_snippet_outlined,
-                      size: 12,
-                      color: _showRawText ? cs.primary : cs.onSurfaceVariant,
+              ),
+              const SizedBox(width: 8),
+              if (hasRawText) ...[
+                InkWell(
+                  onTap: () => setState(() => _showRawText = !_showRawText),
+                  borderRadius: BorderRadius.circular(4),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
                     ),
-                    const SizedBox(width: 4),
-                    Text(
-                      _showRawText ? 'Ver árbol' : 'Ver texto plano',
-                      style: TextStyle(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w600,
-                        color: _showRawText ? cs.primary : cs.onSurfaceVariant,
+                    decoration: BoxDecoration(
+                      color: _showRawText
+                          ? cs.primary.withValues(alpha: 0.15)
+                          : cs.surfaceContainerHighest.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                        color: _showRawText
+                            ? cs.primary
+                            : cs.outlineVariant.withValues(alpha: 0.5),
+                        width: 0.6,
                       ),
                     ),
-                  ],
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _showRawText
+                              ? Icons.account_tree_outlined
+                              : Icons.text_snippet_outlined,
+                          size: 12,
+                          color: _showRawText
+                              ? cs.primary
+                              : cs.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _showRawText ? 'Ver árbol' : 'Ver texto plano',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                            color: _showRawText
+                                ? cs.primary
+                                : cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 8),
-          ],
-          Text(
-            'Jerarquía de operaciones Oracle',
-            style: TextStyle(
-              fontSize: 10.5,
-              color: cs.onSurfaceVariant.withValues(alpha: 0.6),
-            ),
+                if (showHierarchyLabel) const SizedBox(width: 8),
+              ],
+              if (showHierarchyLabel)
+                Text(
+                  'Jerarquía de operaciones Oracle',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+                  ),
+                ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -306,10 +346,11 @@ class _SqlExplainPlanViewState extends State<SqlExplainPlanView> {
             : null,
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (node.depth > 0)
             Padding(
-              padding: const EdgeInsets.only(right: 6),
+              padding: const EdgeInsets.only(right: 6, top: 2),
               child: Text(
                 '└─',
                 style: TextStyle(
@@ -319,12 +360,16 @@ class _SqlExplainPlanViewState extends State<SqlExplainPlanView> {
                 ),
               ),
             ),
-          Icon(_opIcon(node), size: 13, color: color),
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(_opIcon(node), size: 13, color: color),
+          ),
           const SizedBox(width: 6),
           Expanded(
             child: Wrap(
               crossAxisAlignment: WrapCrossAlignment.center,
               spacing: 6,
+              runSpacing: 4,
               children: [
                 Text(
                   node.operation,
@@ -375,38 +420,41 @@ class _SqlExplainPlanViewState extends State<SqlExplainPlanView> {
                       color: cs.onSurfaceVariant.withValues(alpha: 0.7),
                     ),
                   ),
+                if (node.cost != null)
+                  _buildMetricPill(
+                    'cost: ${node.cost}',
+                    cs.onSurfaceVariant,
+                    cs,
+                  ),
+                if (node.cardinality != null)
+                  _buildMetricPill(
+                    'rows: ${node.cardinality}',
+                    cs.onSurfaceVariant,
+                    cs,
+                  ),
+                if (node.bytes != null)
+                  _buildMetricPill(
+                    'bytes: ${node.bytes}',
+                    cs.onSurfaceVariant,
+                    cs,
+                  ),
+                if (node.accessPredicate != null &&
+                    node.accessPredicate!.isNotEmpty)
+                  _buildMetricPill(
+                    'access: ${node.accessPredicate}',
+                    cs.primary,
+                    cs,
+                  ),
+                if (node.filterPredicate != null &&
+                    node.filterPredicate!.isNotEmpty)
+                  _buildMetricPill(
+                    'filter: ${node.filterPredicate}',
+                    Colors.orange,
+                    cs,
+                  ),
               ],
             ),
           ),
-          if (node.cost != null) ...[
-            _buildMetricPill('cost: ${node.cost}', cs.onSurfaceVariant, cs),
-            const SizedBox(width: 4),
-          ],
-          if (node.cardinality != null) ...[
-            _buildMetricPill(
-              'rows: ${node.cardinality}',
-              cs.onSurfaceVariant,
-              cs,
-            ),
-            const SizedBox(width: 4),
-          ],
-          if (node.bytes != null) ...[
-            _buildMetricPill('bytes: ${node.bytes}', cs.onSurfaceVariant, cs),
-          ],
-          if (node.accessPredicate != null &&
-              node.accessPredicate!.isNotEmpty) ...[
-            const SizedBox(width: 4),
-            _buildMetricPill('access: ${node.accessPredicate}', cs.primary, cs),
-          ],
-          if (node.filterPredicate != null &&
-              node.filterPredicate!.isNotEmpty) ...[
-            const SizedBox(width: 4),
-            _buildMetricPill(
-              'filter: ${node.filterPredicate}',
-              Colors.orange,
-              cs,
-            ),
-          ],
         ],
       ),
     );

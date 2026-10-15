@@ -12,12 +12,20 @@ import '../app_toast.dart';
 enum _ConsoleFilter { all, success, error, warning }
 
 class SqlOutputConsole extends StatefulWidget {
-  const SqlOutputConsole({super.key, required this.entries, this.onReplay});
+  const SqlOutputConsole({
+    super.key,
+    required this.entries,
+    this.onReplay,
+    this.onClear,
+  });
 
   final List<SqlExecutionLogEntry> entries;
 
   /// Reinserta la sentencia de la entrada en el editor (usado también por Historial).
   final void Function(SqlExecutionLogEntry entry)? onReplay;
+
+  /// Limpia los mensajes/historial de ejecución.
+  final VoidCallback? onClear;
 
   @override
   State<SqlOutputConsole> createState() => _SqlOutputConsoleState();
@@ -36,10 +44,10 @@ class _SqlOutputConsoleState extends State<SqlOutputConsole> {
   }
 
   Color _statusColor(SqlLogStatus status, bool isDark) => switch (status) {
-    SqlLogStatus.success => const Color(0xFF3FB950),
+    SqlLogStatus.success => const Color(0xFF2EA043),
     SqlLogStatus.error => const Color(0xFFE5484D),
-    SqlLogStatus.warning => const Color(0xFFE2A03F),
-    SqlLogStatus.running => const Color(0xFF4C9AFF),
+    SqlLogStatus.warning => const Color(0xFFD97706),
+    SqlLogStatus.running => const Color(0xFF388BFD),
   };
 
   IconData _statusIcon(SqlLogStatus status) => switch (status) {
@@ -61,14 +69,49 @@ class _SqlOutputConsoleState extends State<SqlOutputConsole> {
   });
 
   void _toggleTodos() {
-    final ids = widget.entries.map((e) => e.id).toSet();
     setState(() {
-      if (ids.every(_expandedEntries.contains) && ids.isNotEmpty) {
+      if (_expandedEntries.length == widget.entries.length) {
         _expandedEntries.clear();
       } else {
-        _expandedEntries.addAll(ids);
+        _expandedEntries
+          ..clear()
+          ..addAll(widget.entries.map((e) => e.id));
       }
     });
+  }
+
+  Future<void> _handleClear(BuildContext context) async {
+    if (widget.onClear == null) return;
+    final esHistorial = widget.onReplay != null;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(esHistorial ? 'Limpiar historial' : 'Limpiar mensajes'),
+        content: Text(
+          esHistorial
+              ? '¿Deseas vaciar todo el historial de ejecuciones registrado?'
+              : '¿Deseas vaciar todos los mensajes de ejecución?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE5484D),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Limpiar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      widget.onClear!();
+    }
   }
 
   @override
@@ -136,11 +179,6 @@ class _SqlOutputConsoleState extends State<SqlOutputConsole> {
     return Column(
       children: [
         _buildFilterBar(cs, isDark, successCount, errorCount, warnCount),
-        Divider(
-          height: 1,
-          thickness: 1,
-          color: cs.outlineVariant.withValues(alpha: 0.8),
-        ),
         Expanded(
           child: filtered.isEmpty
               ? Center(
@@ -157,7 +195,6 @@ class _SqlOutputConsoleState extends State<SqlOutputConsole> {
                     horizontal: 10,
                     vertical: 6,
                   ),
-                  reverse: true,
                   itemCount: filtered.length,
                   itemBuilder: (context, i) {
                     final entry = filtered[filtered.length - 1 - i];
@@ -176,10 +213,17 @@ class _SqlOutputConsoleState extends State<SqlOutputConsole> {
     int errorCount,
     int warnCount,
   ) {
+    final borderColor = isDark
+        ? const Color(0xFF30363D)
+        : cs.outlineVariant.withValues(alpha: 0.8);
+
     return Container(
-      height: 38,
+      height: 40,
       padding: const EdgeInsets.fromLTRB(10, 0, 6, 0),
-      color: isDark ? const Color(0xFF161B22) : const Color(0xFFF1F3F5),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF161B22) : const Color(0xFFF6F8FA),
+        border: Border(bottom: BorderSide(color: borderColor, width: 1.0)),
+      ),
       child: LayoutBuilder(
         builder: (context, c) {
           final w = c.maxWidth;
@@ -230,7 +274,7 @@ class _SqlOutputConsoleState extends State<SqlOutputConsole> {
                         'Éxito',
                         successCount,
                         _ConsoleFilter.success,
-                        const Color(0xFF3FB950),
+                        const Color(0xFF2EA043),
                         cs,
                       ),
                       const SizedBox(width: 5),
@@ -246,7 +290,7 @@ class _SqlOutputConsoleState extends State<SqlOutputConsole> {
                         'Avisos',
                         warnCount,
                         _ConsoleFilter.warning,
-                        const Color(0xFFE2A03F),
+                        const Color(0xFFD97706),
                         cs,
                       ),
                     ],
@@ -260,18 +304,49 @@ class _SqlOutputConsoleState extends State<SqlOutputConsole> {
                 _toggleTodos,
                 cs,
               ),
-              _iconBtn(Icons.copy_all_rounded, 'Copiar todo el historial', () {
-                final text = widget.entries
-                    .map(
-                      (e) =>
-                          '[${e.timestamp.toIso8601String().substring(11, 19)}] '
-                          '[${e.kind.label}] ${e.statementPreview}\n'
-                          '${e.message ?? 'OK'}\n',
-                    )
-                    .join('\n');
-                Clipboard.setData(ClipboardData(text: text));
-                AppToast.success('Historial copiado al portapapeles');
-              }, cs),
+              _iconBtn(
+                Icons.copy_all_rounded,
+                widget.onReplay != null
+                    ? 'Copiar todo el historial'
+                    : 'Copiar todos los mensajes',
+                () {
+                  final esHistorial = widget.onReplay != null;
+                  final text = widget.entries
+                      .map((e) {
+                        if (esHistorial) {
+                          // En historial, el cuerpo de ejecución es el código/sentencia SQL
+                          return e.statementPreview;
+                        } else {
+                          // En mensajes, el cuerpo es el mensaje/resultado de ejecución
+                          return (e.message != null && e.message!.isNotEmpty)
+                              ? e.message!
+                              : (e.statementPreview.isNotEmpty
+                                    ? e.statementPreview
+                                    : 'OK');
+                        }
+                      })
+                      .where((t) => t.isNotEmpty)
+                      .join('\n');
+                  Clipboard.setData(ClipboardData(text: text));
+                  try {
+                    AppToast.success(
+                      esHistorial
+                          ? 'Historial copiado al portapapeles'
+                          : 'Mensajes copiados al portapapeles',
+                    );
+                  } catch (_) {}
+                },
+                cs,
+              ),
+              if (widget.onClear != null)
+                _iconBtn(
+                  Icons.delete_sweep_outlined,
+                  widget.onReplay != null
+                      ? 'Limpiar historial'
+                      : 'Limpiar mensajes',
+                  () => _handleClear(context),
+                  cs,
+                ),
             ],
           );
         },
@@ -309,17 +384,17 @@ class _SqlOutputConsoleState extends State<SqlOutputConsole> {
       borderRadius: BorderRadius.circular(12),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
         decoration: BoxDecoration(
           color: active
-              ? activeColor.withValues(alpha: 0.16)
+              ? activeColor.withValues(alpha: 0.18)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: active
-                ? activeColor.withValues(alpha: 0.6)
-                : cs.outlineVariant.withValues(alpha: 0.4),
-            width: 0.8,
+                ? activeColor.withValues(alpha: 0.7)
+                : cs.outlineVariant.withValues(alpha: 0.5),
+            width: active ? 1.0 : 0.8,
           ),
         ),
         child: Row(
@@ -328,7 +403,7 @@ class _SqlOutputConsoleState extends State<SqlOutputConsole> {
             Container(
               width: 7,
               height: 7,
-              margin: const EdgeInsets.only(right: 5),
+              margin: const EdgeInsets.only(right: 6),
               decoration: BoxDecoration(
                 color: activeColor,
                 shape: BoxShape.circle,
@@ -337,8 +412,8 @@ class _SqlOutputConsoleState extends State<SqlOutputConsole> {
             Text(
               count > 0 ? '$label ($count)' : label,
               style: TextStyle(
-                fontSize: 10.5,
-                fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+                fontSize: 11,
+                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
                 color: active ? activeColor : cs.onSurfaceVariant,
               ),
             ),
@@ -361,227 +436,329 @@ class _SqlOutputConsoleState extends State<SqlOutputConsole> {
       '${entry.statementPreview}\n${entry.message ?? ''}',
     );
 
+    final cardBorder = isDark
+        ? const Color(0xFF30363D)
+        : cs.outlineVariant.withValues(alpha: 0.6);
+
     return InkWell(
       onTap: hasDetalle ? () => _toggleDetalle(entry.id) : null,
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: BorderRadius.circular(8),
       child: Container(
-        margin: const EdgeInsets.only(bottom: 5),
+        margin: const EdgeInsets.only(bottom: 6),
         decoration: BoxDecoration(
-          color: (isDark ? const Color(0xFF161B22) : const Color(0xFFFFFFFF))
-              .withValues(alpha: 0.7),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-            color: cs.outlineVariant.withValues(alpha: 0.5),
-            width: 0.6,
-          ),
+          color: (isDark ? const Color(0xFF161B22) : const Color(0xFFFFFFFF)),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: cardBorder, width: 0.8),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+              blurRadius: 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
         ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        clipBehavior: Clip.antiAlias,
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  if (hasDetalle)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 5),
-                      child: Icon(
-                        isExpanded
-                            ? Icons.keyboard_arrow_down_rounded
-                            : Icons.chevron_right_rounded,
-                        size: 15,
-                        color: cs.onSurfaceVariant,
-                      ),
-                    ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 5,
-                      vertical: 1.5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _statusIcon(entry.status),
-                          size: 10.5,
-                          color: statusColor,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          _statusLabel(entry.status),
-                          style: TextStyle(
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w700,
-                            color: statusColor,
-                          ),
-                        ),
-                      ],
-                    ),
+              Container(width: 3.5, color: statusColor),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
                   ),
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 5,
-                      vertical: 1.5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: cs.primaryContainer.withValues(alpha: 0.25),
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                    child: Text(
-                      entry.kind.label,
-                      style: TextStyle(
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w600,
-                        color: cs.primary,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    [
-                      entry.timestamp.toIso8601String().substring(11, 19),
-                      entry.ambiente,
-                      if (entry.durationMs != null) '${entry.durationMs} ms',
-                      if (entry.rowsAffectedOrReturned != null)
-                        '${entry.rowsAffectedOrReturned} fila(s)',
-                    ].join(' · '),
-                    style: TextStyle(
-                      fontFamily: 'Consolas',
-                      fontSize: 10.5,
-                      color: cs.onSurfaceVariant.withValues(alpha: 0.8),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  for (final c in codigos) ...[
-                    Container(
-                      margin: const EdgeInsets.only(right: 4),
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: statusColor.withValues(alpha: 0.7),
-                        ),
-                        borderRadius: BorderRadius.circular(3),
-                      ),
-                      child: Text(
-                        c,
-                        style: TextStyle(
-                          fontSize: 9.5,
-                          fontFamily: 'Consolas',
-                          fontWeight: FontWeight.w700,
-                          color: statusColor,
-                        ),
-                      ),
-                    ),
-                  ],
-                  const Spacer(),
-                  if (widget.onReplay != null)
-                    Tooltip(
-                      message: 'Insertar en editor',
-                      child: IconButton(
-                        icon: const Icon(Icons.arrow_upward_rounded, size: 14),
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                          minWidth: 22,
-                          minHeight: 22,
-                        ),
-                        onPressed: () => widget.onReplay!(entry),
-                      ),
-                    ),
-                  Tooltip(
-                    message: 'Copiar SQL',
-                    child: IconButton(
-                      icon: const Icon(Icons.content_copy_rounded, size: 13),
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 22,
-                        minHeight: 22,
-                      ),
-                      onPressed: () {
-                        Clipboard.setData(
-                          ClipboardData(text: entry.statementPreview),
-                        );
-                        AppToast.success('Sentencia copiada');
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 5),
-              SelectableText(
-                entry.statementPreview,
-                onTap: hasDetalle ? () => _toggleDetalle(entry.id) : null,
-                style: TextStyle(
-                  fontSize: 11.5,
-                  fontFamily: 'Consolas',
-                  color: cs.onSurface,
-                  height: 1.3,
-                ),
-              ),
-              if (hasDetalle) ...[
-                const SizedBox(height: 4),
-                if (!isExpanded) ...[
-                  Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Text(
-                          detalle.split('\n').first,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontFamily: 'Consolas',
-                            fontSize: 11,
-                            color: statusColor,
-                            fontWeight: FontWeight.w500,
+                      // Fila superior: badges de estado, tipo, ambiente, duración y acciones
+                      Row(
+                        children: [
+                          if (hasDetalle)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: Icon(
+                                isExpanded
+                                    ? Icons.keyboard_arrow_down_rounded
+                                    : Icons.chevron_right_rounded,
+                                size: 16,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusColor.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _statusIcon(entry.status),
+                                  size: 11,
+                                  color: statusColor,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _statusLabel(entry.status),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    color: statusColor,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: cs.primaryContainer.withValues(
+                                alpha: 0.25,
+                              ),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              entry.kind.label,
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: cs.primary,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    [
+                                      entry.timestamp
+                                          .toIso8601String()
+                                          .substring(11, 19),
+                                      entry.ambiente,
+                                      if (entry.durationMs != null)
+                                        '${entry.durationMs} ms',
+                                      if (entry.rowsAffectedOrReturned != null)
+                                        '${entry.rowsAffectedOrReturned} fila(s)',
+                                    ].join(' · '),
+                                    style: TextStyle(
+                                      fontFamily: 'Consolas',
+                                      fontSize: 10.5,
+                                      color: cs.onSurfaceVariant.withValues(
+                                        alpha: 0.85,
+                                      ),
+                                    ),
+                                  ),
+                                  if (codigos.isNotEmpty)
+                                    const SizedBox(width: 6),
+                                  for (final c in codigos) ...[
+                                    Container(
+                                      margin: const EdgeInsets.only(right: 4),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                        vertical: 1,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        border: Border.all(
+                                          color: statusColor.withValues(
+                                            alpha: 0.7,
+                                          ),
+                                        ),
+                                        borderRadius: BorderRadius.circular(3),
+                                      ),
+                                      child: Text(
+                                        c,
+                                        style: TextStyle(
+                                          fontSize: 9.5,
+                                          fontFamily: 'Consolas',
+                                          fontWeight: FontWeight.w700,
+                                          color: statusColor,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          if (widget.onReplay != null)
+                            Tooltip(
+                              message: 'Insertar en editor',
+                              child: IconButton(
+                                icon: const Icon(
+                                  Icons.arrow_upward_rounded,
+                                  size: 14,
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 22,
+                                  minHeight: 22,
+                                ),
+                                onPressed: () => widget.onReplay!(entry),
+                              ),
+                            ),
+                          Tooltip(
+                            message: widget.onReplay != null
+                                ? 'Copiar SQL'
+                                : (hasDetalle
+                                      ? 'Copiar mensaje'
+                                      : 'Copiar SQL'),
+                            child: IconButton(
+                              icon: const Icon(
+                                Icons.content_copy_rounded,
+                                size: 13,
+                              ),
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 22,
+                                minHeight: 22,
+                              ),
+                              onPressed: () {
+                                final esHistorial = widget.onReplay != null;
+                                final text = esHistorial
+                                    ? entry.statementPreview
+                                    : (hasDetalle
+                                          ? detalle
+                                          : entry.statementPreview);
+                                Clipboard.setData(ClipboardData(text: text));
+                                try {
+                                  AppToast.success(
+                                    esHistorial || !hasDetalle
+                                        ? 'Sentencia copiada'
+                                        : 'Mensaje copiado',
+                                  );
+                                } catch (_) {}
+                              },
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 6),
-                      Text(
-                        '${detalle.split('\n').length} línea(s)',
+                      const SizedBox(height: 6),
+                      // Sentencia SQL / preview
+                      SelectableText(
+                        entry.statementPreview.isNotEmpty
+                            ? entry.statementPreview
+                            : '(Sentencia vacía)',
+                        onTap: hasDetalle
+                            ? () => _toggleDetalle(entry.id)
+                            : null,
                         style: TextStyle(
-                          fontSize: 10,
-                          color: cs.onSurfaceVariant.withValues(alpha: 0.8),
+                          fontSize: 12,
+                          fontFamily: 'Consolas',
+                          color: isDark
+                              ? const Color(0xFFE6EDF3)
+                              : const Color(0xFF1F2328),
+                          height: 1.35,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
+                      if (hasDetalle) ...[
+                        const SizedBox(height: 6),
+                        if (!isExpanded) ...[
+                          Row(
+                            children: [
+                              Icon(
+                                entry.status == SqlLogStatus.error
+                                    ? Icons.error_outline_rounded
+                                    : Icons.check_circle_outline_rounded,
+                                size: 13,
+                                color: statusColor,
+                              ),
+                              const SizedBox(width: 5),
+                              Expanded(
+                                child: Text(
+                                  detalle.split('\n').first,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontFamily: 'Consolas',
+                                    fontSize: 11,
+                                    color: statusColor,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              if (detalle.split('\n').length > 1) ...[
+                                const SizedBox(width: 6),
+                                Text(
+                                  '${detalle.split('\n').length} línea(s)',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: cs.onSurfaceVariant.withValues(
+                                      alpha: 0.8,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ] else ...[
+                          Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(top: 4),
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: statusColor.withValues(
+                                alpha: isDark ? 0.10 : 0.06,
+                              ),
+                              borderRadius: const BorderRadius.only(
+                                topRight: Radius.circular(4),
+                                bottomRight: Radius.circular(4),
+                              ),
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: IntrinsicHeight(
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Container(
+                                    width: 3,
+                                    color: statusColor,
+                                    margin: const EdgeInsets.only(right: 8),
+                                  ),
+                                  Expanded(
+                                    child: SelectableText(
+                                      detalle,
+                                      onTap: () => _toggleDetalle(entry.id),
+                                      style: TextStyle(
+                                        fontFamily: 'Consolas',
+                                        fontSize: 11.5,
+                                        color: isDark
+                                            ? (entry.status ==
+                                                      SqlLogStatus.error
+                                                  ? const Color(0xFFFF7B72)
+                                                  : const Color(0xFF7EE787))
+                                            : statusColor,
+                                        height: 1.35,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ],
                   ),
-                ] else ...[
-                  Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.only(top: 4),
-                    padding: const EdgeInsets.all(7),
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(
-                        alpha: isDark ? 0.08 : 0.05,
-                      ),
-                      border: Border(
-                        left: BorderSide(color: statusColor, width: 2.5),
-                      ),
-                      borderRadius: const BorderRadius.only(
-                        topRight: Radius.circular(4),
-                        bottomRight: Radius.circular(4),
-                      ),
-                    ),
-                    child: SelectableText(
-                      detalle,
-                      onTap: () => _toggleDetalle(entry.id),
-                      style: TextStyle(
-                        fontFamily: 'Consolas',
-                        fontSize: 11,
-                        color: statusColor,
-                        height: 1.35,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
+                ),
+              ),
             ],
           ),
         ),

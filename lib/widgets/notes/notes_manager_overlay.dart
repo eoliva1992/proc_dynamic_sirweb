@@ -366,10 +366,92 @@ class NotesBrowserDialogState extends State<NotesBrowserDialog> {
     _loadAllShareCounts();
   }
 
+  Future<void> _copyNoteAs(NoteListItem item, String format) async {
+    final note = item.note;
+    String textToCopy = '';
+    String label = '';
+
+    switch (format) {
+      case 'markdown':
+        textToCopy = '# ${note.title}\n\n${note.content}';
+        label = 'Markdown';
+        break;
+      case 'plain':
+        final cleanContent = _plainSnippet(note.content, maxLength: 100000);
+        textToCopy = '${note.title}\n\n$cleanContent'.trim();
+        label = 'Texto plano';
+        break;
+      case 'json':
+        final encoder = const JsonEncoder.withIndent('  ');
+        textToCopy = encoder.convert(note.toJson());
+        label = 'JSON';
+        break;
+    }
+
+    if (textToCopy.isNotEmpty) {
+      await Clipboard.setData(ClipboardData(text: textToCopy));
+      AppToast.success('Nota copiada como $label al portapapeles');
+    }
+  }
+
+  Future<void> _showCopyOptionsMenu(
+    BuildContext context,
+    Offset globalPosition,
+    NoteListItem item,
+  ) async {
+    final overlayState =
+        Overlay.maybeOf(context, rootOverlay: false) ?? Overlay.of(context);
+    final overlayBox = overlayState.context.findRenderObject() as RenderBox?;
+    if (overlayBox == null) return;
+
+    final selected = await showMenu<String>(
+      context: context,
+      useRootNavigator: false,
+      position: RelativeRect.fromRect(
+        Rect.fromLTWH(globalPosition.dx, globalPosition.dy, 0, 0),
+        Offset.zero & overlayBox.size,
+      ),
+      items: const [
+        PopupMenuItem<String>(
+          value: 'markdown',
+          child: Row(
+            children: [
+              Icon(Icons.code_rounded, size: 16),
+              SizedBox(width: 8),
+              Text('Copiar como Markdown'),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'plain',
+          child: Row(
+            children: [
+              Icon(Icons.notes_rounded, size: 16),
+              SizedBox(width: 8),
+              Text('Copiar como Texto plano'),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'json',
+          child: Row(
+            children: [
+              Icon(Icons.data_object_rounded, size: 16),
+              SizedBox(width: 8),
+              Text('Copiar como JSON'),
+            ],
+          ),
+        ),
+      ],
+    );
+
+    if (selected != null && mounted) {
+      await _copyNoteAs(item, selected);
+    }
+  }
+
   Future<void> _copyMarkdown(NoteListItem item) async {
-    final text = '# ${item.note.title}\n\n${item.note.content}';
-    await Clipboard.setData(ClipboardData(text: text));
-    AppToast.success('Markdown copiado al portapapeles');
+    await _copyNoteAs(item, 'markdown');
   }
 
   Future<void> _duplicateNote(NoteListItem item) async {
@@ -448,15 +530,17 @@ class NotesBrowserDialogState extends State<NotesBrowserDialog> {
     Offset globalPosition,
     NoteListItem item,
   ) async {
-    final overlay =
-        Overlay.of(context).context.findRenderObject() as RenderBox?;
-    if (overlay == null) return;
+    final overlayState =
+        Overlay.maybeOf(context, rootOverlay: false) ?? Overlay.of(context);
+    final overlayBox = overlayState.context.findRenderObject() as RenderBox?;
+    if (overlayBox == null) return;
 
     final selected = await showMenu<String>(
       context: context,
+      useRootNavigator: false,
       position: RelativeRect.fromRect(
         Rect.fromLTWH(globalPosition.dx, globalPosition.dy, 0, 0),
-        Offset.zero & overlay.size,
+        Offset.zero & overlayBox.size,
       ),
       items: [
         const PopupMenuItem<String>(
@@ -480,12 +564,42 @@ class NotesBrowserDialogState extends State<NotesBrowserDialog> {
           ),
         ),
         const PopupMenuItem<String>(
-          value: 'copy',
+          value: 'copy_menu',
           child: Row(
             children: [
               Icon(Icons.copy_rounded, size: 16),
               SizedBox(width: 8),
-              Text('Copiar Markdown'),
+              Text('Copiar...'),
+            ],
+          ),
+        ),
+        const PopupMenuItem<String>(
+          value: 'copy_md',
+          child: Row(
+            children: [
+              Icon(Icons.code_rounded, size: 16),
+              SizedBox(width: 8),
+              Text('Copiar como Markdown'),
+            ],
+          ),
+        ),
+        const PopupMenuItem<String>(
+          value: 'copy_plain',
+          child: Row(
+            children: [
+              Icon(Icons.notes_rounded, size: 16),
+              SizedBox(width: 8),
+              Text('Copiar como Texto plano'),
+            ],
+          ),
+        ),
+        const PopupMenuItem<String>(
+          value: 'copy_json',
+          child: Row(
+            children: [
+              Icon(Icons.data_object_rounded, size: 16),
+              SizedBox(width: 8),
+              Text('Copiar como JSON'),
             ],
           ),
         ),
@@ -523,7 +637,7 @@ class NotesBrowserDialogState extends State<NotesBrowserDialog> {
       ],
     );
 
-    if (selected == null) return;
+    if (selected == null || !context.mounted) return;
     switch (selected) {
       case 'open':
         _openNote(item);
@@ -531,8 +645,18 @@ class NotesBrowserDialogState extends State<NotesBrowserDialog> {
       case 'duplicate':
         _duplicateNote(item);
         break;
+      case 'copy_menu':
+        _showCopyOptionsMenu(context, globalPosition, item);
+        break;
+      case 'copy_md':
       case 'copy':
-        _copyMarkdown(item);
+        _copyNoteAs(item, 'markdown');
+        break;
+      case 'copy_plain':
+        _copyNoteAs(item, 'plain');
+        break;
+      case 'copy_json':
+        _copyNoteAs(item, 'json');
         break;
       case 'share':
         _share(item);
@@ -2276,6 +2400,31 @@ class NotesBrowserDialogState extends State<NotesBrowserDialog> {
                       ),
                       const SizedBox(width: 2),
                     ],
+                    // Botón de copiar nota con opciones
+                    Builder(
+                      builder: (btnCtx) => Tooltip(
+                        message: 'Copiar nota (Markdown, Texto, JSON)',
+                        child: InkWell(
+                          onTap: () {
+                            final box = btnCtx.findRenderObject() as RenderBox?;
+                            final pos = box != null
+                                ? box.localToGlobal(Offset(0, box.size.height))
+                                : Offset.zero;
+                            _showCopyOptionsMenu(context, pos, item);
+                          },
+                          borderRadius: BorderRadius.circular(4),
+                          child: Padding(
+                            padding: const EdgeInsets.all(2),
+                            child: Icon(
+                              Icons.copy_rounded,
+                              size: 13.5,
+                              color: fg.withValues(alpha: 0.65),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 2),
                     // Botón de abrir en ventana rápida
                     Tooltip(
                       message: 'Abrir ventana flotante',
@@ -2645,6 +2794,20 @@ class NotesBrowserDialogState extends State<NotesBrowserDialog> {
                   ),
                 ),
                 const SizedBox(width: 8),
+                // Botón copiar con opciones
+                Builder(
+                  builder: (btnCtx) => IconButton(
+                    icon: const Icon(Icons.copy_rounded, size: 16),
+                    tooltip: 'Copiar nota (Markdown, Texto, JSON)',
+                    onPressed: () {
+                      final box = btnCtx.findRenderObject() as RenderBox?;
+                      final pos = box != null
+                          ? box.localToGlobal(Offset(0, box.size.height))
+                          : Offset.zero;
+                      _showCopyOptionsMenu(context, pos, item);
+                    },
+                  ),
+                ),
                 // Botón flotante
                 IconButton(
                   icon: const Icon(Icons.open_in_new_rounded, size: 16),
@@ -2887,11 +3050,19 @@ class NotesBrowserDialogState extends State<NotesBrowserDialog> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    _buildQuickActionBtn(
-                      icon: Icons.copy_rounded,
-                      tooltip: 'Copiar Markdown',
-                      onPressed: () => _copyMarkdown(item),
-                      isDark: isDark,
+                    Builder(
+                      builder: (btnCtx) => _buildQuickActionBtn(
+                        icon: Icons.copy_rounded,
+                        tooltip: 'Copiar nota (Markdown, Texto, JSON)',
+                        onPressed: () {
+                          final box = btnCtx.findRenderObject() as RenderBox?;
+                          final pos = box != null
+                              ? box.localToGlobal(Offset(0, -120))
+                              : Offset.zero;
+                          _showCopyOptionsMenu(context, pos, item);
+                        },
+                        isDark: isDark,
+                      ),
                     ),
                     _buildQuickActionBtn(
                       icon: Icons.content_copy_rounded,
@@ -2976,11 +3147,15 @@ class NotesBrowserDialogState extends State<NotesBrowserDialog> {
     );
   }
 
-  String _plainSnippet(String markdown) {
-    return markdown
+  String _plainSnippet(String markdown, {int? maxLength}) {
+    final cleaned = markdown
         .replaceAll(RegExp(r'[#*`_>-]'), '')
         .replaceAll(RegExp(r'\n+'), ' ')
         .trim();
+    if (maxLength != null && cleaned.length > maxLength) {
+      return cleaned.substring(0, maxLength);
+    }
+    return cleaned;
   }
 
   String _formatDate(DateTime? dt) {

@@ -63,6 +63,19 @@ extension _EditorOptionsMethods on _CodeEditorPanelState {
       _showOutline = prefs.getBool('editor_show_outline') ?? false;
       _varsDocked = prefs.getBool('editor_vars_docked') ?? false;
       _showAiChat = prefs.getBool('editor_show_ai_chat') ?? false;
+      final savedSplitMode = prefs.getString('editor_split_mode');
+      final savedSplitRatio = prefs.getDouble('editor_split_ratio');
+      if (savedSplitMode != null) {
+        _splitMode = EditorSplitMode.values.firstWhere(
+          (m) => m.name == savedSplitMode,
+          orElse: () => EditorSplitMode.none,
+        );
+      }
+      if (savedSplitRatio != null &&
+          savedSplitRatio >= 0.15 &&
+          savedSplitRatio <= 0.85) {
+        _splitRatio = savedSplitRatio;
+      }
     });
   }
 
@@ -101,6 +114,8 @@ extension _EditorOptionsMethods on _CodeEditorPanelState {
     await prefs.setBool('editor_show_outline', _showOutline);
     await prefs.setBool('editor_vars_docked', _varsDocked);
     await prefs.setBool('editor_show_ai_chat', _showAiChat);
+    await prefs.setString('editor_split_mode', _splitMode.name);
+    await prefs.setDouble('editor_split_ratio', _splitRatio);
   }
 
   void _applyEditorOptions() {

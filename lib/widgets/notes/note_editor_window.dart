@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show KeyDownEvent, LogicalKeyboardKey;
+import 'package:flutter/services.dart'
+    show Clipboard, ClipboardData, KeyDownEvent, LogicalKeyboardKey;
 
 import '../../models/note.dart';
 import '../../services/note_service.dart';
@@ -76,7 +78,7 @@ class _NoteEditorWindow extends StatefulWidget {
 
 class _NoteEditorWindowState extends State<_NoteEditorWindow> {
   static const double _kHeaderH = 36;
-  static const double _kMinW = 280;
+  static const double _kMinW = 340;
   static const double _kMinH = 260;
   String get _currentUser => NoteService.currentUser;
 
@@ -345,6 +347,82 @@ class _NoteEditorWindowState extends State<_NoteEditorWindow> {
       currentUser: _currentUser,
     );
     _loadSharesCount();
+  }
+
+  Future<void> _copyCurrentNote(String format) async {
+    final title = _titleController.text.trim().isEmpty
+        ? _item.note.title.trim().isEmpty
+              ? 'Sin título'
+              : _item.note.title
+        : _titleController.text.trim();
+    final markdown = _editorKey.currentState?.toMarkdown() ?? _pendingMarkdown;
+
+    String textToCopy = '';
+    String label = '';
+
+    switch (format) {
+      case 'markdown':
+        textToCopy = '# $title\n\n$markdown';
+        label = 'Markdown';
+        break;
+      case 'plain':
+        final cleanContent = markdown
+            .replaceAll(RegExp(r'[#*`_>-]'), '')
+            .replaceAll(RegExp(r'\n+'), ' ')
+            .trim();
+        textToCopy = '$title\n\n$cleanContent'.trim();
+        label = 'Texto plano';
+        break;
+      case 'json':
+        final currentNote = _item.note.copyWith(
+          title: title,
+          content: markdown,
+          tags: _tags,
+        );
+        final encoder = const JsonEncoder.withIndent('  ');
+        textToCopy = encoder.convert(currentNote.toJson());
+        label = 'JSON';
+        break;
+    }
+
+    if (textToCopy.isNotEmpty) {
+      await Clipboard.setData(ClipboardData(text: textToCopy));
+      AppToast.success('Nota copiada como $label al portapapeles');
+    }
+  }
+
+  Future<void> _showCopyMenu(
+    BuildContext context,
+    Offset globalPosition,
+  ) async {
+    final overlayState =
+        Overlay.maybeOf(context, rootOverlay: false) ?? Overlay.of(context);
+    final overlayBox = overlayState.context.findRenderObject() as RenderBox?;
+    if (overlayBox == null) return;
+
+    final selected = await showMenu<String>(
+      context: context,
+      useRootNavigator: false,
+      position: RelativeRect.fromRect(
+        Rect.fromLTWH(globalPosition.dx, globalPosition.dy, 0, 0),
+        Offset.zero & overlayBox.size,
+      ),
+      items: const [
+        PopupMenuItem<String>(
+          value: 'markdown',
+          child: Text('Copiar como Markdown'),
+        ),
+        PopupMenuItem<String>(
+          value: 'plain',
+          child: Text('Copiar como Texto plano'),
+        ),
+        PopupMenuItem<String>(value: 'json', child: Text('Copiar como JSON')),
+      ],
+    );
+
+    if (selected != null && mounted) {
+      await _copyCurrentNote(selected);
+    }
   }
 
   @override
@@ -873,7 +951,7 @@ class _NoteEditorWindowState extends State<_NoteEditorWindow> {
         // Barra inferior: Estado de sincronización + Acciones contextuales
         Container(
           height: 34,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(
             border: Border(
               top: BorderSide(color: onBg.withValues(alpha: 0.07), width: 0.8),
@@ -915,7 +993,7 @@ class _NoteEditorWindowState extends State<_NoteEditorWindow> {
                       child: AnimatedDefaultTextStyle(
                         duration: const Duration(milliseconds: 200),
                         style: TextStyle(
-                          fontSize: 10.5,
+                          fontSize: 10,
                           fontWeight: FontWeight.w500,
                           letterSpacing: -0.1,
                           color: onBg.withValues(alpha: _saving ? 0.9 : 0.65),
@@ -937,6 +1015,21 @@ class _NoteEditorWindowState extends State<_NoteEditorWindow> {
                   ],
                 ),
               ),
+              // Botón para copiar la nota en múltiples formatos
+              Builder(
+                builder: (btnCtx) => _HeaderIconButton(
+                  icon: Icons.copy_rounded,
+                  color: onBg,
+                  tooltip: 'Copiar nota (Markdown, Texto, JSON)',
+                  onTap: () {
+                    final box = btnCtx.findRenderObject() as RenderBox?;
+                    final pos = box != null
+                        ? box.localToGlobal(Offset(0, -120))
+                        : Offset.zero;
+                    _showCopyMenu(context, pos);
+                  },
+                ),
+              ),
               if (access.canDelete && _item.note.isPersisted)
                 _HeaderIconButton(
                   icon: Icons.delete_outline_rounded,
@@ -945,60 +1038,65 @@ class _NoteEditorWindowState extends State<_NoteEditorWindow> {
                   onTap: _deleting ? null : _delete,
                 ),
               if (access.canShare && _item.note.isPersisted) ...[
-                InkWell(
-                  onTap: _share,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: (_sharesCount ?? 0) > 0
-                          ? onBg.withValues(alpha: 0.12)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: onBg.withValues(alpha: 0.15),
-                        width: 0.6,
+                Tooltip(
+                  message: (_sharesCount ?? 0) > 0
+                      ? 'Compartida con ${_sharesCount!} persona(s)'
+                      : 'Nota privada (click para compartir)',
+                  child: InkWell(
+                    onTap: _share,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 2,
                       ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          (_sharesCount ?? 0) > 0
-                              ? Icons.people_alt_rounded
-                              : Icons.lock_outline_rounded,
-                          size: 13,
-                          color: onBg.withValues(alpha: 0.8),
+                      decoration: BoxDecoration(
+                        color: (_sharesCount ?? 0) > 0
+                            ? onBg.withValues(alpha: 0.12)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: onBg.withValues(alpha: 0.15),
+                          width: 0.6,
                         ),
-                        const SizedBox(width: 4),
-                        if (_loadingShares)
-                          SizedBox(
-                            width: 10,
-                            height: 10,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 1.5,
-                              valueColor: AlwaysStoppedAnimation<Color>(onBg),
-                            ),
-                          )
-                        else
-                          Text(
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
                             (_sharesCount ?? 0) > 0
-                                ? '$_sharesCount ${(_sharesCount ?? 0) == 1 ? 'persona' : 'personas'}'
-                                : 'Privada',
-                            style: TextStyle(
-                              fontSize: 9.5,
-                              fontWeight: FontWeight.w600,
-                              color: onBg.withValues(alpha: 0.8),
-                            ),
+                                ? Icons.people_alt_rounded
+                                : Icons.lock_outline_rounded,
+                            size: 12,
+                            color: onBg.withValues(alpha: 0.8),
                           ),
-                      ],
+                          if (_loadingShares) ...[
+                            const SizedBox(width: 4),
+                            SizedBox(
+                              width: 9,
+                              height: 9,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                                valueColor: AlwaysStoppedAnimation<Color>(onBg),
+                              ),
+                            ),
+                          ] else if ((_sharesCount ?? 0) > 0) ...[
+                            const SizedBox(width: 3),
+                            Text(
+                              '$_sharesCount',
+                              style: TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w600,
+                                color: onBg.withValues(alpha: 0.8),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 4),
+                const SizedBox(width: 2),
                 _HeaderIconButton(
                   icon: Icons.share_outlined,
                   color: onBg,

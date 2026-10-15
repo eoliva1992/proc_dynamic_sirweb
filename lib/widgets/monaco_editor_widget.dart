@@ -18,7 +18,7 @@ import 'code_editor_panel.dart'
         showAutorizacionesWindow,
         showEjecutarLlamadaWindow,
         showEjecutarProcedimientoWindow;
-import 'source_float_window.dart';
+import 'definition_navigation.dart';
 
 // Cached per-ambiente so jsonEncode doesn't run on every editor open
 final Map<String, String> _schemaPayloadCache = {};
@@ -281,6 +281,11 @@ class MonacoEditorController {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Reemplaza de forma atómica todo el contenido del documento en Monaco.
+  void setText(String text) {
+    _enqueue((ctrl) async => ctrl.document.setText(text));
   }
 
   void clearContent() {
@@ -624,41 +629,7 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
     try {
       final word = await _wordAtContextMenu();
       if (word == null || word.isEmpty) return;
-
-      final upperWord = word.toUpperCase();
-      var schema = SchemaService.instance.getCached(ambiente: widget.ambiente);
-      schema ??= await SchemaService.instance.getMetadata(
-        ambiente: widget.ambiente,
-      );
-
-      String? name;
-      String? objectType;
-
-      final obj = schema.objects.where((o) => o.name == upperWord).firstOrNull;
-      if (obj != null) {
-        name = obj.name;
-        objectType = obj.type;
-      } else if (schema.tables.contains(upperWord)) {
-        name = upperWord;
-        objectType = 'TABLE';
-      } else if (schema.views.contains(upperWord)) {
-        name = upperWord;
-        objectType = 'VIEW';
-      }
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        if (name != null && objectType != null) {
-          openSourceWindow(
-            context,
-            name: name,
-            objectType: objectType,
-            ambiente: widget.ambiente,
-          );
-        } else {
-          AppToast.info('No se encontró definición para "$word"');
-        }
-      });
+      await navigateToDefinition(context, word, ambiente: widget.ambiente);
     } catch (e, st) {
       debugPrint('[GotoDef] Error: $e\n$st');
     }

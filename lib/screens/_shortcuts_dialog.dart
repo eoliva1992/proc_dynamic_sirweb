@@ -4,11 +4,13 @@ class _ShortcutsDialog extends StatelessWidget {
   const _ShortcutsDialog();
 
   static const _shortcuts = [
+    ('Ctrl + O', 'Abrir archivo local (.sql, .yaml, .txt)'),
+    ('Ctrl + Shift + O', 'Nuevo documento en blanco'),
     ('Ctrl + K', 'Búsqueda rápida de esquema'),
     ('Ctrl + Shift + E', 'Ejecutar objeto PL/SQL'),
     ('Ctrl + Shift + L', 'Consola de la aplicación (log)'),
     ('Ctrl + Shift + N', 'Nueva nota adhesiva'),
-    ('Ctrl + S', 'Guardar procedimiento'),
+    ('Ctrl + S', 'Guardar procedimiento o archivo'),
     ('Ctrl + T', 'Nueva pestaña de búsqueda'),
     ('Ctrl + W', 'Cerrar pestaña activa'),
     ('Ctrl + Tab', 'Siguiente pestaña'),

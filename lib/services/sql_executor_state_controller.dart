@@ -1,13 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/sql_execution.dart';
 import '../providers/procedimientos_provider.dart';
+import '../services/sirweb_service.dart' show SirwebCancelledException;
 import '../services/sql_executor_service.dart';
+import '../services/sql_session_manager.dart';
 import '../services/sql_statement_analyzer.dart';
 import '../widgets/app_toast.dart';
+import '../widgets/editor_split_container.dart';
 
 /// Controlador de estado y lógica de negocio para la ejecución interactiva
 /// de scripts SQL y PL/SQL.
@@ -18,19 +22,32 @@ class SqlExecutorStateController extends ChangeNotifier {
   SqlExecutorStateController({
     required String initialAmbiente,
     required String initialSql,
+    String? initialFilePath,
     SqlExecutorService? service,
+    SqlSessionManager? sessionManager,
   }) : _ambiente = initialAmbiente,
        _text = initialSql,
-       _svc = service ?? SqlExecutorService() {
+       _currentFilePath = initialFilePath,
+       _svc = service ?? SqlExecutorService(),
+       _sessionMgr = sessionManager ?? SqlSessionManager.instance {
+    _sessionMgr.addListener(_onSessionManagerChanged);
     _loadMaxRowsPreference();
+    _loadTimeoutPreference();
     _loadPersistedLog();
+    _loadPanelPreferences();
   }
 
   static const _maxRowsPreferenceKey = 'sql_executor_max_rows';
+  static const _timeoutSecondsPreferenceKey = 'sql_executor_timeout_seconds';
   static const _logHistoryPreferenceKey = 'sql_executor_log_history_v1';
+  static const _panelDetachedPreferenceKey = 'sql_executor_panel_detached';
+  static const _panelPinnedPreferenceKey = 'sql_executor_panel_pinned';
+  static const _splitModePreferenceKey = 'sql_executor_split_mode';
+  static const _splitRatioPreferenceKey = 'sql_executor_split_ratio';
   static const _retentionDays = 7;
 
   final SqlExecutorService _svc;
+  final SqlSessionManager _sessionMgr;
   int _logSeq = 0;
 
   String _ambiente;
@@ -38,9 +55,16 @@ class SqlExecutorStateController extends ChangeNotifier {
   int _cursorLine = 1;
   int _cursorCol = 1;
   bool _running = false;
+  http.Client? _activeClient;
+  bool _cancelRequested = false;
   int _maxRows = 1000;
+  int _timeoutSeconds = 60;
   bool _resultsPanelVisible = true;
   double _resultsPanelHeight = 240;
+  bool _resultsPanelDetached = false;
+  bool _resultsPanelPinned = true;
+  EditorSplitMode _splitMode = EditorSplitMode.none;
+  double _splitRatio = 0.5;
 
   int _selectedTabIndex = 0;
   void Function(int index)? onTabChangeRequested;
@@ -88,17 +112,23 @@ class SqlExecutorStateController extends ChangeNotifier {
   String? _currentFilePath;
 
   // ─── Getters ───────────────────────────────────────────────────────────────
-  String? get sessionId => _sessionId;
-  bool get hasPendingChanges => _sessionId != null;
+  String? get sessionId => _sessionMgr.getSessionId(_ambiente) ?? _sessionId;
+  bool get hasPendingChanges => sessionId != null;
   String? get currentFilePath => _currentFilePath;
   String get ambiente => _ambiente;
   String get text => _text;
   int get cursorLine => _cursorLine;
   int get cursorCol => _cursorCol;
   bool get running => _running;
+  bool get cancelRequested => _cancelRequested;
   int get maxRows => _maxRows;
+  int get timeoutSeconds => _timeoutSeconds;
   bool get resultsPanelVisible => _resultsPanelVisible;
   double get resultsPanelHeight => _resultsPanelHeight;
+  bool get resultsPanelDetached => _resultsPanelDetached;
+  bool get resultsPanelPinned => _resultsPanelPinned;
+  EditorSplitMode get splitMode => _splitMode;
+  double get splitRatio => _splitRatio;
   int get selectedTabIndex => _selectedTabIndex;
   List<SqlNamedResult> get results => List.unmodifiable(_results);
   int get selectedResultIndex =>
@@ -122,12 +152,24 @@ class SqlExecutorStateController extends ChangeNotifier {
     super.notifyListeners();
   }
 
+  void _onSessionManagerChanged() {
+    // Sincroniza _sessionId con el gestor centralizado del ambiente.
+    _sessionId = _sessionMgr.getSessionId(_ambiente);
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _sessionMgr.removeListener(_onSessionManagerChanged);
+    super.dispose();
+  }
+
   // ─── Modificadores de Estado ───────────────────────────────────────────────
   void setAmbiente(String value) {
     if (_ambiente == value) return;
     _ambiente = value;
-    // Una sesión abierta no cruza ambientes.
-    _sessionId = null;
+    // Sincroniza la sesión con el nuevo ambiente.
+    _sessionId = _sessionMgr.getSessionId(_ambiente);
     notifyListeners();
   }
 
@@ -187,8 +229,111 @@ class SqlExecutorStateController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setResultsPanelDetached(bool detached) {
+    if (_resultsPanelDetached == detached) return;
+    _resultsPanelDetached = detached;
+    notifyListeners();
+    SharedPreferences.getInstance()
+        .then((prefs) {
+          prefs.setBool(_panelDetachedPreferenceKey, detached);
+        })
+        .catchError((_) {});
+  }
+
+  void toggleResultsPanelDetached() {
+    setResultsPanelDetached(!_resultsPanelDetached);
+  }
+
+  void setResultsPanelPinned(bool pinned) {
+    if (_resultsPanelPinned == pinned) return;
+    _resultsPanelPinned = pinned;
+    notifyListeners();
+    SharedPreferences.getInstance()
+        .then((prefs) {
+          prefs.setBool(_panelPinnedPreferenceKey, pinned);
+        })
+        .catchError((_) {});
+  }
+
+  void toggleResultsPanelPinned() {
+    setResultsPanelPinned(!_resultsPanelPinned);
+  }
+
+  void setSplitMode(EditorSplitMode mode) {
+    if (_splitMode == mode) return;
+    _splitMode = mode;
+    notifyListeners();
+    SharedPreferences.getInstance()
+        .then((prefs) {
+          prefs.setString(_splitModePreferenceKey, mode.name);
+        })
+        .catchError((_) {});
+  }
+
+  void toggleSplit(EditorSplitMode target) {
+    if (_splitMode == target) {
+      setSplitMode(EditorSplitMode.none);
+    } else {
+      setSplitMode(target);
+    }
+  }
+
+  void closeSplit() {
+    setSplitMode(EditorSplitMode.none);
+  }
+
+  void setSplitRatio(double ratio) {
+    final clamped = ratio.clamp(0.15, 0.85);
+    if ((_splitRatio - clamped).abs() < 0.001) return;
+    _splitRatio = clamped;
+    notifyListeners();
+    SharedPreferences.getInstance()
+        .then((prefs) {
+          prefs.setDouble(_splitRatioPreferenceKey, clamped);
+        })
+        .catchError((_) {});
+  }
+
+  Future<void> _loadPanelPreferences() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final detached = prefs.getBool(_panelDetachedPreferenceKey);
+      final pinned = prefs.getBool(_panelPinnedPreferenceKey);
+      final savedSplitMode = prefs.getString(_splitModePreferenceKey);
+      final savedSplitRatio = prefs.getDouble(_splitRatioPreferenceKey);
+      var changed = false;
+      if (detached != null && _resultsPanelDetached != detached) {
+        _resultsPanelDetached = detached;
+        changed = true;
+      }
+      if (pinned != null && _resultsPanelPinned != pinned) {
+        _resultsPanelPinned = pinned;
+        changed = true;
+      }
+      if (savedSplitMode != null) {
+        final mode = EditorSplitMode.values.firstWhere(
+          (m) => m.name == savedSplitMode,
+          orElse: () => EditorSplitMode.none,
+        );
+        if (_splitMode != mode) {
+          _splitMode = mode;
+          changed = true;
+        }
+      }
+      if (savedSplitRatio != null &&
+          (savedSplitRatio >= 0.15 && savedSplitRatio <= 0.85)) {
+        if ((_splitRatio - savedSplitRatio).abs() > 0.001) {
+          _splitRatio = savedSplitRatio;
+          changed = true;
+        }
+      }
+      if (changed) notifyListeners();
+    } catch (_) {}
+  }
+
   Future<void> setMaxRows(int value) async {
-    if (value < 1 || value > 100000 || _maxRows == value) return;
+    if (value != -1 && (value < 1 || value > 100000)) return;
+    if (_maxRows == value) return;
     _maxRows = value;
     notifyListeners();
     try {
@@ -201,8 +346,30 @@ class SqlExecutorStateController extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       final saved = prefs.getInt(_maxRowsPreferenceKey);
-      if (saved != null && saved >= 1 && saved <= 100000) {
+      if (saved != null && (saved == -1 || (saved >= 1 && saved <= 100000))) {
         _maxRows = saved;
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> setTimeoutSeconds(int value) async {
+    if (value < 5 || value > 3600) return;
+    if (_timeoutSeconds == value) return;
+    _timeoutSeconds = value;
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_timeoutSecondsPreferenceKey, value);
+    } catch (_) {}
+  }
+
+  Future<void> _loadTimeoutPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getInt(_timeoutSecondsPreferenceKey);
+      if (saved != null && saved >= 5 && saved <= 3600) {
+        _timeoutSeconds = saved;
         notifyListeners();
       }
     } catch (_) {}
@@ -265,7 +432,9 @@ class SqlExecutorStateController extends ChangeNotifier {
       }
       _clearResultsForRun();
       for (final stmt in statements) {
+        if (_cancelRequested) break;
         await _executeStatement(stmt);
+        if (_cancelRequested) break;
       }
       return;
     }
@@ -286,8 +455,23 @@ class SqlExecutorStateController extends ChangeNotifier {
     }
     _clearResultsForRun();
     for (final stmt in statements) {
+      if (_cancelRequested) break;
       await _executeStatement(stmt);
+      if (_cancelRequested) break;
     }
+  }
+
+  /// Cancela la ejecución de la sentencia o lote de sentencias actualmente
+  /// en curso, abortando inmediatamente la petición HTTP activa.
+  void cancel() {
+    if (!_running) return;
+    _cancelRequested = true;
+    _activeClient?.close();
+    _activeClient = null;
+    notifyListeners();
+    try {
+      AppToast.info('Ejecución cancelada');
+    } catch (_) {}
   }
 
   void _clearResultsForRun() {
@@ -318,6 +502,9 @@ class SqlExecutorStateController extends ChangeNotifier {
       if (!confirmed) return;
     }
     _running = true;
+    _cancelRequested = false;
+    final client = http.Client();
+    _activeClient = client;
     _resultsPanelVisible = true;
     _runStartedAt = DateTime.now();
     _lastRunText = _text;
@@ -339,7 +526,11 @@ class SqlExecutorStateController extends ChangeNotifier {
             stmt.text,
             ambiente: _ambiente,
             owner: owner,
+            sessionId: sessionId,
             maxRows: _maxRows,
+            timeoutSegundos: _timeoutSeconds,
+            client: client,
+            cancelado: () => _cancelRequested,
           );
           _results.add(
             SqlNamedResult(
@@ -362,10 +553,15 @@ class SqlExecutorStateController extends ChangeNotifier {
             stmt.text,
             ambiente: _ambiente,
             owner: owner,
-            sessionId: _sessionId,
+            sessionId: sessionId,
             maxRows: _maxRows,
+            timeoutSegundos: _timeoutSeconds,
+            client: client,
+            cancelado: () => _cancelRequested,
           );
-          _sessionId = result.sessionId ?? _sessionId;
+          final updatedSessionId = result.sessionId ?? sessionId;
+          _sessionId = updatedSessionId;
+          _sessionMgr.setSessionId(_ambiente, updatedSessionId);
           entry
             ..status = SqlLogStatus.success
             ..durationMs = result.durationMs
@@ -378,6 +574,9 @@ class SqlExecutorStateController extends ChangeNotifier {
             stmt.text,
             ambiente: _ambiente,
             owner: owner,
+            timeoutSegundos: _timeoutSeconds,
+            client: client,
+            cancelado: () => _cancelRequested,
           );
           entry
             ..status = result.errors.isEmpty
@@ -394,9 +593,14 @@ class SqlExecutorStateController extends ChangeNotifier {
             stmt.text,
             ambiente: _ambiente,
             owner: owner,
-            sessionId: _sessionId,
+            sessionId: sessionId,
+            timeoutSegundos: _timeoutSeconds,
+            client: client,
+            cancelado: () => _cancelRequested,
           );
-          _sessionId = result.sessionId ?? _sessionId;
+          final updatedSessionId = result.sessionId ?? sessionId;
+          _sessionId = updatedSessionId;
+          _sessionMgr.setSessionId(_ambiente, updatedSessionId);
           entry
             ..status = SqlLogStatus.success
             ..durationMs = result.durationMs
@@ -406,7 +610,12 @@ class SqlExecutorStateController extends ChangeNotifier {
           _switchTab(1);
 
         case SqlStatementKind.explainPlan:
-          await _explainPlanFor(stmt.text, entry);
+          await _explainPlanFor(
+            stmt.text,
+            entry,
+            client: client,
+            cancelado: () => _cancelRequested,
+          );
 
         case SqlStatementKind.unknown:
           entry
@@ -414,17 +623,32 @@ class SqlExecutorStateController extends ChangeNotifier {
             ..message = 'No se pudo determinar el tipo de sentencia';
           _switchTab(1);
       }
+    } on SirwebCancelledException {
+      entry
+        ..status = SqlLogStatus.warning
+        ..message = 'Operación cancelada por el usuario';
+      _switchTab(1);
     } on SqlServiceNotImplementedException catch (e) {
       entry
         ..status = SqlLogStatus.warning
         ..message = e.message;
       _switchTab(1);
     } catch (e) {
-      entry
-        ..status = SqlLogStatus.error
-        ..message = e.toString().replaceFirst('Exception: ', '');
+      if (_cancelRequested) {
+        entry
+          ..status = SqlLogStatus.warning
+          ..message = 'Operación cancelada por el usuario';
+      } else {
+        entry
+          ..status = SqlLogStatus.error
+          ..message = e.toString().replaceFirst('Exception: ', '');
+      }
       _switchTab(1);
     } finally {
+      client.close();
+      if (identical(_activeClient, client)) {
+        _activeClient = null;
+      }
       _running = false;
       _runStartedAt = null;
       _savePersistedLog();
@@ -432,9 +656,20 @@ class SqlExecutorStateController extends ChangeNotifier {
     }
   }
 
-  Future<void> _explainPlanFor(String sql, SqlExecutionLogEntry entry) async {
+  Future<void> _explainPlanFor(
+    String sql,
+    SqlExecutionLogEntry entry, {
+    http.Client? client,
+    bool Function()? cancelado,
+  }) async {
     try {
-      final explainRes = await _svc.explainPlan(sql, ambiente: _ambiente);
+      final explainRes = await _svc.explainPlan(
+        sql,
+        ambiente: _ambiente,
+        timeoutSegundos: _timeoutSeconds,
+        client: client,
+        cancelado: cancelado,
+      );
       _lastExplainResult = explainRes;
       _explainNodes = explainRes.rows.isNotEmpty
           ? explainRes.rows
@@ -445,14 +680,24 @@ class SqlExecutorStateController extends ChangeNotifier {
         ..message =
             'Plan generado (${_explainNodes?.length ?? 0} operaciones, ${explainRes.durationMs} ms)';
       _switchTab(2);
+    } on SirwebCancelledException {
+      entry
+        ..status = SqlLogStatus.warning
+        ..message = 'Operación cancelada por el usuario';
     } on SqlServiceNotImplementedException catch (e) {
       entry
         ..status = SqlLogStatus.warning
         ..message = e.message;
     } catch (e) {
-      entry
-        ..status = SqlLogStatus.error
-        ..message = e.toString().replaceFirst('Exception: ', '');
+      if (_cancelRequested) {
+        entry
+          ..status = SqlLogStatus.warning
+          ..message = 'Operación cancelada por el usuario';
+      } else {
+        entry
+          ..status = SqlLogStatus.error
+          ..message = e.toString().replaceFirst('Exception: ', '');
+      }
     } finally {
       _running = false;
       _runStartedAt = null;
@@ -469,6 +714,9 @@ class SqlExecutorStateController extends ChangeNotifier {
       return;
     }
     _running = true;
+    _cancelRequested = false;
+    final client = http.Client();
+    _activeClient = client;
     _resultsPanelVisible = true;
     _runStartedAt = DateTime.now();
     _lastRunText = _text;
@@ -482,7 +730,22 @@ class SqlExecutorStateController extends ChangeNotifier {
     );
     _log.add(entry);
     notifyListeners();
-    await _explainPlanFor(stmt.text, entry);
+    try {
+      await _explainPlanFor(
+        stmt.text,
+        entry,
+        client: client,
+        cancelado: () => _cancelRequested,
+      );
+    } finally {
+      client.close();
+      if (identical(_activeClient, client)) {
+        _activeClient = null;
+      }
+      _running = false;
+      _runStartedAt = null;
+      notifyListeners();
+    }
   }
 
   void clearOutput() {
@@ -495,6 +758,14 @@ class SqlExecutorStateController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Limpia únicamente el historial de logs/mensajes sin alterar los resultados
+  /// de consultas activas ni el árbol del Explain Plan.
+  void clearLog() {
+    _log.clear();
+    _savePersistedLog();
+    notifyListeners();
+  }
+
   /// Confirma la transacción abierta por el último DML/PL-SQL ejecutado.
   Future<void> commit() => _resolveSession('commit');
 
@@ -502,11 +773,14 @@ class SqlExecutorStateController extends ChangeNotifier {
   Future<void> rollback() => _resolveSession('rollback');
 
   Future<void> _resolveSession(String action) async {
-    final sessionId = _sessionId;
-    if (sessionId == null || _running) return;
+    final activeSessionId = sessionId;
+    if (activeSessionId == null || _running) return;
     final owner = await _requireOwner();
     if (owner == null) return;
     _running = true;
+    _cancelRequested = false;
+    final client = http.Client();
+    _activeClient = client;
     final entry = SqlExecutionLogEntry(
       id: _logSeq++,
       timestamp: DateTime.now(),
@@ -519,21 +793,46 @@ class SqlExecutorStateController extends ChangeNotifier {
     notifyListeners();
     try {
       if (action == 'commit') {
-        await _svc.commitSession(sessionId, owner: owner);
+        await _svc.commitSession(
+          activeSessionId,
+          owner: owner,
+          client: client,
+          cancelado: () => _cancelRequested,
+        );
       } else {
-        await _svc.rollbackSession(sessionId, owner: owner);
+        await _svc.rollbackSession(
+          activeSessionId,
+          owner: owner,
+          client: client,
+          cancelado: () => _cancelRequested,
+        );
       }
       _sessionId = null;
+      _sessionMgr.clearSession(_ambiente);
       entry
         ..status = SqlLogStatus.success
         ..message = action == 'commit'
             ? 'Cambios confirmados'
             : 'Cambios descartados';
-    } catch (e) {
+    } on SirwebCancelledException {
       entry
-        ..status = SqlLogStatus.error
-        ..message = e.toString().replaceFirst('Exception: ', '');
+        ..status = SqlLogStatus.warning
+        ..message = 'Operación cancelada por el usuario';
+    } catch (e) {
+      if (_cancelRequested) {
+        entry
+          ..status = SqlLogStatus.warning
+          ..message = 'Operación cancelada por el usuario';
+      } else {
+        entry
+          ..status = SqlLogStatus.error
+          ..message = e.toString().replaceFirst('Exception: ', '');
+      }
     } finally {
+      client.close();
+      if (identical(_activeClient, client)) {
+        _activeClient = null;
+      }
       _running = false;
       _savePersistedLog();
       notifyListeners();

@@ -1,9 +1,13 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:proc_dynamic_sirweb/models/sql_execution.dart';
 import 'package:proc_dynamic_sirweb/providers/procedimientos_provider.dart';
+import 'package:proc_dynamic_sirweb/services/sirweb_service.dart';
 import 'package:proc_dynamic_sirweb/services/sql_executor_service.dart';
 import 'package:proc_dynamic_sirweb/services/sql_executor_state_controller.dart';
+import 'package:proc_dynamic_sirweb/services/sql_session_manager.dart';
 
 class _FakeSqlExecutorService implements SqlExecutorService {
   int selectCalls = 0;
@@ -14,6 +18,8 @@ class _FakeSqlExecutorService implements SqlExecutorService {
   String? lastSql;
   String? lastSessionId;
   String? lastOwner;
+  int? lastSelectMaxRows;
+  int? lastDmlMaxRows;
   String? dmlSessionIdToReturn;
 
   @override
@@ -21,13 +27,17 @@ class _FakeSqlExecutorService implements SqlExecutorService {
     String sql, {
     required String ambiente,
     required String owner,
+    String? sessionId,
     int maxRows = 1000,
     int timeoutSegundos = 30,
+    http.Client? client,
     bool Function()? cancelado,
   }) async {
     selectCalls++;
     lastSql = sql;
     lastOwner = owner;
+    lastSessionId = sessionId;
+    lastSelectMaxRows = maxRows;
     return const SqlQueryResult(
       columns: [
         SqlColumn(name: 'ID', dataType: 'NUMBER'),
@@ -50,12 +60,14 @@ class _FakeSqlExecutorService implements SqlExecutorService {
     String? sessionId,
     int maxRows = 1000,
     int timeoutSegundos = 30,
+    http.Client? client,
     bool Function()? cancelado,
   }) async {
     dmlCalls++;
     lastSql = sql;
     lastSessionId = sessionId;
     lastOwner = owner;
+    lastDmlMaxRows = maxRows;
     return SqlDmlResult(
       rowsAffected: 3,
       durationMs: 15,
@@ -72,6 +84,7 @@ class _FakeSqlExecutorService implements SqlExecutorService {
     String? objectName,
     String? objectType,
     int timeoutSegundos = 30,
+    http.Client? client,
     bool Function()? cancelado,
   }) async {
     ddlCalls++;
@@ -92,6 +105,7 @@ class _FakeSqlExecutorService implements SqlExecutorService {
     required String owner,
     String? sessionId,
     int timeoutSegundos = 30,
+    http.Client? client,
     bool Function()? cancelado,
   }) async {
     lastSql = plsql;
@@ -104,6 +118,7 @@ class _FakeSqlExecutorService implements SqlExecutorService {
   Future<void> commitSession(
     String sessionId, {
     required String owner,
+    http.Client? client,
     bool Function()? cancelado,
   }) async {
     commitCalls++;
@@ -115,6 +130,7 @@ class _FakeSqlExecutorService implements SqlExecutorService {
   Future<void> rollbackSession(
     String sessionId, {
     required String owner,
+    http.Client? client,
     bool Function()? cancelado,
   }) async {
     rollbackCalls++;
@@ -129,6 +145,7 @@ class _FakeSqlExecutorService implements SqlExecutorService {
     String? owner,
     Map<String, dynamic>? binds,
     int timeoutSegundos = 30,
+    http.Client? client,
     bool Function()? cancelado,
   }) async {
     return const SqlExplainResult(
@@ -157,9 +174,76 @@ class _FakeSqlExecutorService implements SqlExecutorService {
   }
 }
 
+class _CancellableFakeSqlExecutorService extends _FakeSqlExecutorService {
+  final Completer<void> started = Completer<void>();
+  final Completer<SqlQueryResult> completer;
+
+  _CancellableFakeSqlExecutorService(this.completer);
+
+  @override
+  Future<SqlQueryResult> executeSelect(
+    String sql, {
+    required String ambiente,
+    required String owner,
+    String? sessionId,
+    int maxRows = 1000,
+    int timeoutSegundos = 30,
+    http.Client? client,
+    bool Function()? cancelado,
+  }) async {
+    selectCalls++;
+    if (!started.isCompleted) started.complete();
+    return completer.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () {
+        if (cancelado?.call() ?? false) {
+          throw const SirwebCancelledException();
+        }
+        throw Exception('Timeout');
+      },
+    );
+  }
+}
+
+class _BatchCancellableFakeSqlExecutorService extends _FakeSqlExecutorService {
+  final List<String> executed;
+  void Function(String sql)? onSelect;
+
+  _BatchCancellableFakeSqlExecutorService(this.executed);
+
+  @override
+  Future<SqlQueryResult> executeSelect(
+    String sql, {
+    required String ambiente,
+    required String owner,
+    String? sessionId,
+    int maxRows = 1000,
+    int timeoutSegundos = 30,
+    http.Client? client,
+    bool Function()? cancelado,
+  }) async {
+    executed.add(sql);
+    onSelect?.call(sql);
+    if (cancelado?.call() ?? false) {
+      throw const SirwebCancelledException();
+    }
+    return super.executeSelect(
+      sql,
+      ambiente: ambiente,
+      owner: owner,
+      sessionId: sessionId,
+      maxRows: maxRows,
+      timeoutSegundos: timeoutSegundos,
+      client: client,
+      cancelado: cancelado,
+    );
+  }
+}
+
 void main() {
   group('SqlExecutorStateController', () {
     setUp(() {
+      SqlSessionManager.instance.reset();
       // El backend exige 'owner' (cdUsuario) no vacío en /tools/sql/statement.
       procedimientosProvider.setCdUsuario('TESTUSER');
     });
@@ -502,6 +586,91 @@ void main() {
       },
     );
 
+    test(
+      'dos pestañas en el mismo ambiente comparten la sesión de transacción abierta (DML + SELECT)',
+      () async {
+        final fakeSvc = _FakeSqlExecutorService()
+          ..dmlSessionIdToReturn = 'session-compartida-123';
+
+        // Pestaña 1 (ejecuta INSERT/UPDATE)
+        final tab1 = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'INSERT INTO TEST_TABLE VALUES (1, "A");',
+          service: fakeSvc,
+        );
+        addTearDown(tab1.dispose);
+
+        // Pestaña 2 (abierta con la misma conexión / ambiente)
+        final tab2 = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'SELECT * FROM TEST_TABLE;',
+          service: fakeSvc,
+        );
+        addTearDown(tab2.dispose);
+
+        // Al inicio, ninguna tiene sesión abierta
+        expect(tab1.hasPendingChanges, isFalse);
+        expect(tab2.hasPendingChanges, isFalse);
+
+        // Pestaña 1 ejecuta DML sin commit
+        await tab1.runCurrentOrSelection();
+
+        expect(tab1.hasPendingChanges, isTrue);
+        expect(tab1.sessionId, 'session-compartida-123');
+
+        // Pestaña 2 detecta de inmediato la transacción pendiente gracias a SqlSessionManager
+        expect(tab2.hasPendingChanges, isTrue);
+        expect(tab2.sessionId, 'session-compartida-123');
+
+        // Pestaña 2 ejecuta SELECT: debe enviar el sessionId de la transacción
+        await tab2.runCurrentOrSelection();
+        expect(fakeSvc.selectCalls, 1);
+        expect(fakeSvc.lastSessionId, 'session-compartida-123');
+
+        // Pestaña 2 hace COMMIT
+        await tab2.commit();
+        expect(fakeSvc.commitCalls, 1);
+        expect(fakeSvc.lastSessionId, 'session-compartida-123');
+
+        // Ambas pestañas quedan limpias sin cambios pendientes
+        expect(tab1.hasPendingChanges, isFalse);
+        expect(tab2.hasPendingChanges, isFalse);
+      },
+    );
+
+    test(
+      'pestañas en ambientes diferentes mantienen sesiones aisladas e independientes',
+      () async {
+        final fakeSvc = _FakeSqlExecutorService()
+          ..dmlSessionIdToReturn = 'session-desa-999';
+
+        final tabDesa = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'UPDATE TEST_TABLE SET A = 2;',
+          service: fakeSvc,
+        );
+        addTearDown(tabDesa.dispose);
+
+        final tabQa = SqlExecutorStateController(
+          initialAmbiente: 'QA',
+          initialSql: 'SELECT * FROM TEST_TABLE;',
+          service: fakeSvc,
+        );
+        addTearDown(tabQa.dispose);
+
+        await tabDesa.runCurrentOrSelection();
+        expect(tabDesa.hasPendingChanges, isTrue);
+        expect(tabDesa.sessionId, 'session-desa-999');
+
+        // QA no debe ser afectado por la sesión de Desa
+        expect(tabQa.hasPendingChanges, isFalse);
+        expect(tabQa.sessionId, isNull);
+
+        await tabQa.runCurrentOrSelection();
+        expect(fakeSvc.lastSessionId, isNull);
+      },
+    );
+
     test('envía el cdUsuario configurado como owner al ejecutar', () async {
       final fakeSvc = _FakeSqlExecutorService();
       final ctrl = SqlExecutorStateController(
@@ -556,6 +725,150 @@ void main() {
 
         expect(fakeSvc.selectCalls, 1);
         expect(fakeSvc.lastOwner, 'NUEVOUSUARIO');
+      },
+    );
+
+    test(
+      'setMaxRows(-1) permite modo sin límite y lo propaga a executeSelect y executeDml',
+      () async {
+        final fakeSvc = _FakeSqlExecutorService();
+        final ctrl = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'SELECT * FROM DUAL;',
+          service: fakeSvc,
+        );
+        addTearDown(ctrl.dispose);
+
+        expect(ctrl.maxRows, 1000);
+
+        await ctrl.setMaxRows(-1);
+        expect(ctrl.maxRows, -1);
+
+        await ctrl.runCurrentOrSelection();
+        expect(fakeSvc.selectCalls, 1);
+        expect(fakeSvc.lastSelectMaxRows, -1);
+
+        ctrl.setText('UPDATE CLIENTES SET ACTIVO = 1;');
+        await ctrl.runCurrentOrSelection();
+        expect(fakeSvc.dmlCalls, 1);
+        expect(fakeSvc.lastDmlMaxRows, -1);
+      },
+    );
+
+    test('persistencia de maxRows en SharedPreferences admite -1', () async {
+      SharedPreferences.setMockInitialValues({'sql_executor_max_rows': -1});
+      final fakeSvc = _FakeSqlExecutorService();
+      final ctrl = SqlExecutorStateController(
+        initialAmbiente: 'Desa',
+        initialSql: 'SELECT 1 FROM dual;',
+        service: fakeSvc,
+      );
+      addTearDown(ctrl.dispose);
+
+      // Esperar a que _loadMaxRowsPreference complete
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(ctrl.maxRows, -1);
+    });
+
+    test(
+      'permite alternar desacople y fijación (pin) del panel de resultados',
+      () {
+        final ctrl = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'SELECT 1 FROM dual;',
+        );
+        addTearDown(ctrl.dispose);
+
+        expect(ctrl.resultsPanelDetached, isFalse);
+        expect(ctrl.resultsPanelPinned, isTrue);
+
+        ctrl.toggleResultsPanelDetached();
+        expect(ctrl.resultsPanelDetached, isTrue);
+
+        ctrl.setResultsPanelDetached(false);
+        expect(ctrl.resultsPanelDetached, isFalse);
+
+        ctrl.toggleResultsPanelPinned();
+        expect(ctrl.resultsPanelPinned, isFalse);
+
+        ctrl.setResultsPanelPinned(true);
+        expect(ctrl.resultsPanelPinned, isTrue);
+      },
+    );
+
+    test(
+      'cancel() detiene una ejecución en curso y registra advertencia en el log',
+      () async {
+        final completer = Completer<SqlQueryResult>();
+        final cancellableSvc = _CancellableFakeSqlExecutorService(completer);
+        final ctrl = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'SELECT * FROM big_table;',
+          service: cancellableSvc,
+        );
+        addTearDown(ctrl.dispose);
+
+        // Inicia ejecución asíncrona
+        final runFuture = ctrl.runCurrentOrSelection();
+        await cancellableSvc.started.future;
+        expect(ctrl.running, isTrue);
+
+        // Cancela mientras está corriendo
+        ctrl.cancel();
+        expect(ctrl.cancelRequested, isTrue);
+
+        await runFuture;
+        expect(ctrl.running, isFalse);
+        expect(ctrl.log, isNotEmpty);
+        expect(ctrl.log.last.status, SqlLogStatus.warning);
+        expect(ctrl.log.last.message, contains('cancelada por el usuario'));
+      },
+    );
+
+    test(
+      'cancel() durante runAll() aborta el lote y no ejecuta sentencias siguientes',
+      () async {
+        final executed = <String>[];
+        final stepSvc = _BatchCancellableFakeSqlExecutorService(executed);
+        final ctrl = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql:
+              'SELECT 1 FROM dual;\nSELECT 2 FROM dual;\nSELECT 3 FROM dual;',
+          service: stepSvc,
+        );
+        addTearDown(ctrl.dispose);
+
+        stepSvc.onSelect = (sql) {
+          if (sql.contains('1')) {
+            ctrl.cancel();
+          }
+        };
+
+        await ctrl.runAll();
+        expect(ctrl.running, isFalse);
+        expect(executed.length, 1);
+        expect(executed.first, contains('SELECT 1'));
+      },
+    );
+
+    test(
+      'clearLog() vacía solo el log sin borrar los resultados de queries',
+      () async {
+        final fakeSvc = _FakeSqlExecutorService();
+        final ctrl = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'SELECT 1 FROM dual;',
+          service: fakeSvc,
+        );
+        addTearDown(ctrl.dispose);
+
+        await ctrl.runCurrentOrSelection();
+        expect(ctrl.log, isNotEmpty);
+        expect(ctrl.results, isNotEmpty);
+
+        ctrl.clearLog();
+        expect(ctrl.log, isEmpty);
+        expect(ctrl.results, isNotEmpty);
       },
     );
   });

@@ -1,13 +1,8 @@
 part of 'code_editor_panel.dart';
 
-/// Abre el gestor de snippets del usuario.
-///
-/// Público para que cualquier editor de la app (no sólo el de procedimientos
-/// dinámicos) pueda ofrecer la misma administración de snippets.
-///
-/// Se monta como **ventana flotante** en el overlay raíz (no como diálogo con
-/// barrera) para que pueda moverse, redimensionarse y **minimizarse** dejando
-/// el editor utilizable por detrás. El `Future` se completa al cerrarla.
+/// Abre la estación de trabajo y consulta profesional de snippets de usuario:
+/// filtros avanzados, soporte para grandes volúmenes con paginación server-side,
+/// vista en cuadrícula y lista detallada, e inspector lateral interactivo.
 Future<void> showSnippetsManager(BuildContext context) {
   final done = Completer<void>();
   showFloatingWindow(
@@ -1066,6 +1061,71 @@ class _SnippetsManagerDialogState extends State<_SnippetsManagerDialog> {
     );
   }
 
+  /// Formatea la fecha de actualización de forma relativa o corta.
+  String _formatSnippetDate(DateTime? dt) {
+    if (dt == null) return '';
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inMinutes < 1) return 'hace un momento';
+    if (diff.inHours < 1) return 'hace ${diff.inMinutes}m';
+    if (diff.inDays < 1) return 'hace ${diff.inHours}h';
+    if (diff.inDays < 7) return 'hace ${diff.inDays}d';
+    return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+  }
+
+  Widget _buildAuditBadge({
+    required IconData icon,
+    required String label,
+    required String user,
+    String? extra,
+    required ColorScheme cs,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(
+          color: cs.outlineVariant.withValues(alpha: 0.4),
+          width: 0.5,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: cs.primary),
+          const SizedBox(width: 4),
+          Text(
+            '$label: ',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: cs.onSurfaceVariant.withValues(alpha: 0.8),
+            ),
+          ),
+          Text(
+            user.isNotEmpty ? user : '—',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              fontFamily: 'Consolas',
+              color: cs.onSurface,
+            ),
+          ),
+          if (extra != null && extra.isNotEmpty) ...[
+            Text(
+              ' ($extra)',
+              style: TextStyle(
+                fontSize: 9.5,
+                color: cs.onSurfaceVariant.withValues(alpha: 0.75),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildForm(ColorScheme cs, Color divColor) {
     final labelStyle = TextStyle(
       fontSize: 10.5,
@@ -1159,6 +1219,34 @@ class _SnippetsManagerDialogState extends State<_SnippetsManagerDialog> {
                   ),
                 ],
                 const Spacer(),
+                if (editing != null && editing.isPersisted) ...[
+                  if (editing.ownerUser.isNotEmpty)
+                    _buildAuditBadge(
+                      icon: Icons.person_outline_rounded,
+                      label: 'Registrado',
+                      user: editing.ownerUser,
+                      cs: cs,
+                    ),
+                  if ((editing.modifiedBy != null &&
+                          editing.modifiedBy!.isNotEmpty) ||
+                      editing.updatedAt != null) ...[
+                    const SizedBox(width: 6),
+                    _buildAuditBadge(
+                      icon: Icons.edit_note_rounded,
+                      label: 'Actualizado',
+                      user:
+                          (editing.modifiedBy != null &&
+                              editing.modifiedBy!.isNotEmpty)
+                          ? editing.modifiedBy!
+                          : (editing.ownerUser.isNotEmpty
+                                ? editing.ownerUser
+                                : '—'),
+                      extra: _formatSnippetDate(editing.updatedAt),
+                      cs: cs,
+                    ),
+                  ],
+                  const SizedBox(width: 8),
+                ],
                 if (editing != null)
                   Tooltip(
                     message: 'Duplicar snippet',
@@ -1624,6 +1712,20 @@ class _SnippetListTileState extends State<_SnippetListTile> {
         ? cs.onSurface.withValues(alpha: 0.05)
         : Colors.transparent;
 
+    final auditTooltip = StringBuffer();
+    if (s.ownerUser.isNotEmpty) {
+      auditTooltip.write('Registrado por: ${s.ownerUser}');
+    }
+    if (s.modifiedBy != null &&
+        s.modifiedBy!.isNotEmpty &&
+        s.modifiedBy != s.ownerUser) {
+      if (auditTooltip.isNotEmpty) auditTooltip.write('\n');
+      auditTooltip.write('Actualizado por: ${s.modifiedBy}');
+    }
+    final metaTooltip = auditTooltip.isNotEmpty
+        ? '${meta.label}\n$auditTooltip'
+        : meta.label;
+
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
@@ -1667,12 +1769,42 @@ class _SnippetListTileState extends State<_SnippetListTile> {
                       TextStyle(fontSize: 10.5, color: cs.onSurfaceVariant),
                       cs,
                     ),
+                    if (s.ownerUser.isNotEmpty ||
+                        (s.modifiedBy != null && s.modifiedBy!.isNotEmpty)) ...[
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.person_outline_rounded,
+                            size: 10,
+                            color: cs.onSurfaceVariant.withValues(alpha: 0.65),
+                          ),
+                          const SizedBox(width: 3),
+                          Flexible(
+                            child: Text(
+                              (s.modifiedBy != null &&
+                                      s.modifiedBy!.isNotEmpty &&
+                                      s.modifiedBy != s.ownerUser)
+                                  ? '${s.ownerUser} • Mod: ${s.modifiedBy}'
+                                  : s.ownerUser,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 9.5,
+                                color: cs.onSurfaceVariant.withValues(
+                                  alpha: 0.7,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
               const SizedBox(width: 6),
               Tooltip(
-                message: meta.label,
+                message: metaTooltip,
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 5,

@@ -76,46 +76,7 @@ extension _EditorNavigationMethods on _CodeEditorPanelState {
     try {
       final word = await _wordAtContextMenu();
       if (word == null || word.isEmpty) return;
-
-      final upperWord = word.toUpperCase();
-      final schema = SchemaService.instance.getCached(
-        ambiente: widget.ambiente,
-      );
-
-      String? name;
-      String? objectType;
-
-      if (schema != null) {
-        final obj = schema.objects
-            .where((o) => o.name == upperWord)
-            .firstOrNull;
-        if (obj != null) {
-          name = obj.name;
-          objectType = obj.type;
-        } else if (schema.tables.contains(upperWord)) {
-          name = upperWord;
-          objectType = 'TABLE';
-        } else if (schema.views.contains(upperWord)) {
-          name = upperWord;
-          objectType = 'VIEW';
-        }
-      }
-
-      debugPrint('[GotoDef] resolved: name=$name objectType=$objectType');
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        if (name != null && objectType != null) {
-          openSourceWindow(
-            context,
-            name: name,
-            objectType: objectType,
-            ambiente: widget.ambiente,
-          );
-        } else {
-          AppToast.info('No se encontró definición para "$word"');
-        }
-      });
+      await navigateToDefinition(context, word, ambiente: widget.ambiente);
     } catch (e, st) {
       debugPrint('[GotoDef] Error: $e\n$st');
     }

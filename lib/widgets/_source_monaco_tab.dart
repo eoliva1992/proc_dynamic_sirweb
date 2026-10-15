@@ -280,19 +280,16 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
         r'  try {'
         r'    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
         r'    if (aux) {'
-        r'      var start = aux.selectionStart, end = aux.selectionEnd;'
-        r'      if (start != null && end != null && start !== end) {'
-        r'        return aux.value.substring(start, end);'
-        r'      }'
-        r'      return null;'
+        r'      var s = aux.selectionStart, end = aux.selectionEnd;'
+        r'      if (s != null && end != null && s !== end) return aux.value.substring(s, end);'
         r'    }'
-        r'    const s = window.editor.getSelection();'
-        r'    if (!s || s.isEmpty()) return null;'
-        r'    return window.editor.getModel().getValueInRange(s) || null;'
-        r'  } catch(e) { return null; }'
+        r'    var s = window.editor ? window.editor.getModel().getValueInRange(window.editor.getSelection()) : "";'
+        r'    return s || "";'
+        r'  } catch(e) { return ""; }'
         r'})()',
       ),
     );
+
     if (selected == null || selected.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: selected));
     AppToast.info('Copiado al portapapeles');
@@ -305,29 +302,31 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
         r'  try {'
         r'    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
         r'    if (aux) {'
-        r'      var start = aux.selectionStart, end = aux.selectionEnd;'
-        r'      if (start != null && end != null && start !== end) {'
-        r'        var val = aux.value;'
-        r'        var text = val.substring(start, end);'
-        r'        aux.value = val.substring(0, start) + val.substring(end);'
-        r'        aux.selectionStart = aux.selectionEnd = start;'
-        r'        aux.dispatchEvent(new Event("input", { bubbles: true }));'
-        r'        return text;'
-        r'      }'
-        r'      return null;'
+        r'      var start = aux.selectionStart != null ? aux.selectionStart : aux.value.length;'
+        r'      var end = aux.selectionEnd != null ? aux.selectionEnd : aux.value.length;'
+        r'      var val = aux.value || "";'
+        r'      var cutText = val.substring(start, end);'
+        r'      aux.value = val.substring(0, start) + val.substring(end);'
+        r'      aux.selectionStart = aux.selectionEnd = start;'
+        r'      aux.focus();'
+        r'      aux.dispatchEvent(new Event("input", { bubbles: true }));'
+        r'      return cutText;'
         r'    }'
-        r'    const s = window.editor.getSelection();'
-        r'    if (!s || s.isEmpty()) return null;'
-        r'    const m = window.editor.getModel();'
-        r'    const t = m.getValueInRange(s) || null;'
-        r'    if (!t) return null;'
-        r'    window.editor.executeEdits("flutter-cut", [{ range: s, text: "", forceMoveMarkers: true }]);'
-        r'    window.editor.pushUndoStop();'
-        r'    return t;'
-        r'  } catch(e) { return null; }'
+        r'    const ed = window.editor;'
+        r'    if (!ed) return "";'
+        r'    ed.focus();'
+        r'    const s = ed.getSelection();'
+        r'    if (!s || s.isEmpty()) return "";'
+        r'    const cutText = ed.getModel().getValueInRange(s);'
+        r'    ed.pushUndoStop();'
+        r'    ed.executeEdits("flutter-cut", [{ range: s, text: "", forceMoveMarkers: true }]);'
+        r'    ed.pushUndoStop();'
+        r'    return cutText;'
+        r'  } catch(e) { return ""; }'
         r'})()',
       ),
     );
+
     if (selected == null || selected.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: selected));
     AppToast.info('Cortado al portapapeles');
@@ -352,11 +351,13 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
         '      var val = aux.value || "";'
         '      aux.value = val.substring(0, start) + t + val.substring(end);'
         '      aux.selectionStart = aux.selectionEnd = start + t.length;'
+        '      aux.focus();'
         '      aux.dispatchEvent(new Event("input", { bubbles: true }));'
         '      return "ok";'
         '    }'
         '    const ed = window.editor;'
         '    if (!ed) return "err";'
+        '    ed.focus();'
         '    let sels = ed.getSelections();'
         '    if (!sels || sels.length === 0) {'
         '      const s = ed.getSelection();'
@@ -579,32 +580,12 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
         '}catch(e){return null;}})()',
       );
       if (word == null || word.isEmpty || !mounted) return;
-      final upper = word.toUpperCase();
-      final schema = SchemaService.instance.getCached(
+      await navigateToDefinition(
+        context,
+        word,
         ambiente: widget.ambiente,
+        onOpenSchema: widget.onGotoDefinition,
       );
-      if (schema == null) return;
-
-      String? name;
-      String? objectType;
-      final obj = schema.objects.where((o) => o.name == upper).firstOrNull;
-      if (obj != null) {
-        name = obj.name;
-        objectType = obj.type;
-      } else if (schema.tables.contains(upper)) {
-        name = upper;
-        objectType = 'TABLE';
-      } else if (schema.views.contains(upper)) {
-        name = upper;
-        objectType = 'VIEW';
-      }
-
-      if (name == null || objectType == null) return;
-      final n = name;
-      final t = objectType;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) widget.onGotoDefinition?.call(n, t);
-      });
     } catch (_) {}
   }
 
@@ -1115,7 +1096,7 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
             initialText: widget.source.isNotEmpty ? widget.source : '',
             options: fm.EditorOptions(
               language: fm.MonacoLanguage.sql,
-              theme: widget.isDark ? fm.MonacoTheme.vsDark : fm.MonacoTheme.vs,
+              theme: editorThemeStore.monacoTheme,
               fontSize: widget.fontSize,
               minimap: fm.MonacoMinimapOptions(enabled: widget.minimap),
               lineNumbers: fm.MonacoLineNumbers.on,

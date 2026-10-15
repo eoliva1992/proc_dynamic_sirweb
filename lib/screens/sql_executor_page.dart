@@ -17,6 +17,7 @@ import '../services/backup_service.dart';
 import '../services/local_file_service.dart';
 import '../services/sql_executor_state_controller.dart';
 import '../widgets/constellation_background.dart' show ConstellationDialogTitle;
+import '../widgets/editor_split_container.dart';
 import '../widgets/monaco_editor_widget.dart';
 import '../widgets/plsql_tables.dart' show extractSqlTables;
 import '../widgets/slide_up_panel.dart';
@@ -34,13 +35,25 @@ class SqlExecutorPage extends StatefulWidget {
     required this.ambiente,
     required this.onAmbienteChanged,
     this.initialSql = '',
+    this.initialFilePath,
+    this.onCodeChanged,
+    this.onFilePathChanged,
   });
 
   final String ambiente;
   final ValueChanged<String> onAmbienteChanged;
 
-  /// Sólo para pruebas: siembra el editor sin depender del WebView de Monaco.
+  /// Siembra el editor con código SQL o contenido inicial.
   final String initialSql;
+
+  /// Ruta del archivo local en disco si la pestaña proviene de un archivo .sql abierto.
+  final String? initialFilePath;
+
+  /// Notifica cambios en el contenido del editor SQL para sincronización y persistencia.
+  final ValueChanged<String>? onCodeChanged;
+
+  /// Notifica cambios en la ruta del archivo local cuando se abre o guarda con nueva ruta.
+  final ValueChanged<String?>? onFilePathChanged;
 
   @override
   State<SqlExecutorPage> createState() => _SqlExecutorPageState();
@@ -61,6 +74,7 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
     _stateCtrl = SqlExecutorStateController(
       initialAmbiente: widget.ambiente,
       initialSql: widget.initialSql,
+      initialFilePath: widget.initialFilePath,
     );
     _stateCtrl.getSelectedText = _monacoCtrl.getSelectedText;
     _stateCtrl.ensureUsuario = () async {
@@ -168,8 +182,8 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
     );
     if (opened == null || !mounted) return;
     _stateCtrl.loadFromLocalFile(path: opened.path, content: opened.content);
-    _monacoCtrl.clearContent();
-    _monacoCtrl.insertTextAtCursor(opened.content);
+    widget.onFilePathChanged?.call(opened.path);
+    _monacoCtrl.setText(opened.content);
   }
 
   Future<void> _saveLocalSqlFile({bool saveAs = false}) async {
@@ -184,6 +198,7 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
     );
     if (savedPath != null && mounted) {
       _stateCtrl.setCurrentFilePath(savedPath);
+      widget.onFilePathChanged?.call(savedPath);
     }
   }
 
@@ -219,10 +234,48 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
       if (confirm != true || !mounted) return;
     }
 
-    _monacoCtrl.clearContent();
+    _monacoCtrl.setText('');
     _stateCtrl.setText('');
     _stateCtrl.setCurrentFilePath(null);
+    widget.onFilePathChanged?.call(null);
     _stateCtrl.clearOutput();
+  }
+
+  Future<void> _confirmClearOutput() async {
+    final hasResults = _stateCtrl.results.isNotEmpty;
+    final hasLog = _stateCtrl.log.isNotEmpty;
+    if (!hasResults && !hasLog && _stateCtrl.explainNodes == null) {
+      _stateCtrl.clearOutput();
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Limpiar salida'),
+        content: const Text(
+          '¿Deseas limpiar todos los resultados, mensajes y el plan de ejecución?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE5484D),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Limpiar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      _stateCtrl.clearOutput();
+    }
   }
 
   // Cachea el workspace (panel de resultados + Monaco) para que no se
@@ -249,6 +302,7 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
       onGenerateDml: _onGenerateDml,
       onSave: () => unawaited(_saveLocalSqlFile()),
       onSaveAs: () => unawaited(_saveLocalSqlFile(saveAs: true)),
+      onCodeChanged: widget.onCodeChanged,
     );
   }
 
@@ -267,6 +321,9 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
             const SingleActivator(LogicalKeyboardKey.enter, control: true):
                 _stateCtrl.runCurrentOrSelection,
             const SingleActivator(LogicalKeyboardKey.f5): _stateCtrl.runAll,
+            const SingleActivator(LogicalKeyboardKey.escape): () {
+              if (_stateCtrl.running) _stateCtrl.cancel();
+            },
             const SingleActivator(LogicalKeyboardKey.keyN, control: true): () =>
                 unawaited(_newSqlScript()),
             const SingleActivator(LogicalKeyboardKey.keyS, control: true): () =>
@@ -277,6 +334,16 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
               shift: true,
             ): () =>
                 unawaited(_saveLocalSqlFile(saveAs: true)),
+            const SingleActivator(
+              LogicalKeyboardKey.backslash,
+              control: true,
+            ): () {
+              if (_stateCtrl.splitMode == EditorSplitMode.none) {
+                _stateCtrl.setSplitMode(EditorSplitMode.vertical);
+              } else {
+                _stateCtrl.closeSplit();
+              }
+            },
           },
           child: Focus(
             autofocus: true,
@@ -293,7 +360,8 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
                   onExecuteCurrent: _stateCtrl.runCurrentOrSelection,
                   onExecuteAll: _stateCtrl.runAll,
                   onExplainPlan: _stateCtrl.runExplainPlan,
-                  onClearOutput: _stateCtrl.clearOutput,
+                  onCancel: _stateCtrl.cancel,
+                  onClearOutput: () => unawaited(_confirmClearOutput()),
                   onNewFile: () => unawaited(_newSqlScript()),
                   onOpenFile: () => unawaited(_openLocalSqlFile()),
                   onSaveFile: () => unawaited(_saveLocalSqlFile()),
@@ -312,6 +380,12 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
                   onRollback: _stateCtrl.rollback,
                   runStartedAt: _stateCtrl.runStartedAt,
                   hasUnexecutedChanges: _stateCtrl.hasUnexecutedChanges,
+                  timeoutSeconds: _stateCtrl.timeoutSeconds,
+                  onTimeoutChanged: _stateCtrl.setTimeoutSeconds,
+                  maxRows: _stateCtrl.maxRows,
+                  onMaxRowsChanged: _stateCtrl.setMaxRows,
+                  splitMode: _stateCtrl.splitMode,
+                  onSplitModeChanged: _stateCtrl.setSplitMode,
                 ),
                 _SqlProgressBar(
                   running: _stateCtrl.running,
@@ -363,7 +437,7 @@ class _SqlProgressBar extends StatelessWidget {
 }
 
 /// Área central de trabajo: Editor Monaco junto al panel flotante de resultados/salida.
-class _SqlEditorWorkspace extends StatelessWidget {
+class _SqlEditorWorkspace extends StatefulWidget {
   const _SqlEditorWorkspace({
     required this.monacoCtrl,
     required this.stateCtrl,
@@ -372,6 +446,7 @@ class _SqlEditorWorkspace extends StatelessWidget {
     required this.onGenerateDml,
     this.onSave,
     this.onSaveAs,
+    this.onCodeChanged,
   });
 
   final MonacoEditorController monacoCtrl;
@@ -381,67 +456,289 @@ class _SqlEditorWorkspace extends StatelessWidget {
   final ValueChanged<List<int>> onGenerateDml;
   final VoidCallback? onSave;
   final VoidCallback? onSaveAs;
+  final ValueChanged<String>? onCodeChanged;
+
+  @override
+  State<_SqlEditorWorkspace> createState() => _SqlEditorWorkspaceState();
+}
+
+class _SqlEditorWorkspaceState extends State<_SqlEditorWorkspace> {
+  Offset? _detachedPosition;
+  double _detachedWidth = 720;
+  double _detachedHeight = 380;
+  final MonacoEditorController _monacoCtrl2 = MonacoEditorController();
+  bool _isSyncing = false;
+
+  @override
+  void dispose() {
+    _monacoCtrl2.dispose();
+    super.dispose();
+  }
+
+  void _onWindowDrag(Offset delta, Size workspaceSize) {
+    setState(() {
+      final current =
+          _detachedPosition ??
+          Offset(
+            (workspaceSize.width - _detachedWidth).clamp(
+                  20.0,
+                  double.infinity,
+                ) /
+                2,
+            (workspaceSize.height - _detachedHeight).clamp(
+                  20.0,
+                  double.infinity,
+                ) /
+                2,
+          );
+      final maxX = (workspaceSize.width - 120).clamp(0.0, double.infinity);
+      final maxY = (workspaceSize.height - 60).clamp(0.0, double.infinity);
+      _detachedPosition = Offset(
+        (current.dx + delta.dx).clamp(0.0, maxX),
+        (current.dy + delta.dy).clamp(0.0, maxY),
+      );
+    });
+  }
+
+  void _onResizeDrag(DragUpdateDetails details) {
+    setState(() {
+      _detachedWidth = (_detachedWidth + details.delta.dx).clamp(360.0, 1600.0);
+      _detachedHeight = (_detachedHeight + details.delta.dy).clamp(
+        180.0,
+        900.0,
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        MonacoEditorWidget(
-          controller: monacoCtrl,
-          initialCode: stateCtrl.text,
-          language: 'plsql',
-          darkTheme: isDark,
-          ambiente: stateCtrl.ambiente,
-          onChanged: (code) => stateCtrl.setText(code),
-          onCursorChanged: (line, col) => stateCtrl.setCursor(line, col),
-          onExecuteCurrent: stateCtrl.runCurrentOrSelection,
-          onExecuteAll: stateCtrl.runAll,
-          onSave: onSave,
-          onSaveAs: onSaveAs,
-        ),
-        Positioned(
-          left: 12,
-          right: 12,
-          bottom: 12,
-          child: SlideUpPanel(
-            visible: stateCtrl.resultsPanelVisible,
-            height: stateCtrl.resultsPanelHeight,
-            child: SizedBox(
-              height: stateCtrl.resultsPanelHeight,
-              child: SqlExecutorResultsPanel(
-                tabController: resultTabCtrl,
-                visible: stateCtrl.resultsPanelVisible,
-                height: stateCtrl.resultsPanelHeight,
-                onHeightChanged: stateCtrl.setResultsPanelHeight,
-                onToggleVisible: stateCtrl.toggleResultsPanel,
-                results: stateCtrl.results,
-                selectedResultIndex: stateCtrl.selectedResultIndex,
-                onSelectResult: stateCtrl.selectResult,
-                log: stateCtrl.log,
-                explainNodes: stateCtrl.explainNodes,
-                explainText: stateCtrl.lastExplainResult?.text,
-                maxRows: stateCtrl.maxRows,
-                onMaxRowsChanged: stateCtrl.setMaxRows,
-                onGenerateDml: onGenerateDml,
-                onReplay: (e) {
-                  monacoCtrl.insertTextAtCursor(e.statementPreview);
+    final stateCtrl = widget.stateCtrl;
+    final isDark = widget.isDark;
+    final monacoCtrl = widget.monacoCtrl;
+    final resultTabCtrl = widget.resultTabCtrl;
+    final onGenerateDml = widget.onGenerateDml;
+    final onSave = widget.onSave;
+    final onSaveAs = widget.onSaveAs;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final workspaceSize = constraints.biggest;
+        final isDetached = stateCtrl.resultsPanelDetached;
+        final isPinned = stateCtrl.resultsPanelPinned;
+        final isVisible = stateCtrl.resultsPanelVisible;
+
+        final pos =
+            _detachedPosition ??
+            Offset(
+              ((workspaceSize.width - _detachedWidth) / 2).clamp(
+                12.0,
+                double.infinity,
+              ),
+              ((workspaceSize.height - _detachedHeight) / 2).clamp(
+                12.0,
+                double.infinity,
+              ),
+            );
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            EditorSplitContainer(
+              splitMode: stateCtrl.splitMode,
+              ratio: stateCtrl.splitRatio,
+              onRatioChanged: stateCtrl.setSplitRatio,
+              onCloseSecondary: stateCtrl.closeSplit,
+              primaryChild: MonacoEditorWidget(
+                controller: monacoCtrl,
+                initialCode: stateCtrl.text,
+                language: 'plsql',
+                darkTheme: isDark,
+                ambiente: stateCtrl.ambiente,
+                onChanged: (code) {
+                  stateCtrl.setText(code);
+                  widget.onCodeChanged?.call(code);
+                  if (stateCtrl.splitMode != EditorSplitMode.none &&
+                      !_isSyncing) {
+                    _isSyncing = true;
+                    _monacoCtrl2.setText(code);
+                    _isSyncing = false;
+                  }
                 },
+                onCursorChanged: (line, col) => stateCtrl.setCursor(line, col),
+                onExecuteCurrent: stateCtrl.runCurrentOrSelection,
+                onExecuteAll: stateCtrl.runAll,
+                onSave: onSave,
+                onSaveAs: onSaveAs,
+              ),
+              secondaryBuilder: (context) => MonacoEditorWidget(
+                controller: _monacoCtrl2,
+                initialCode: stateCtrl.text,
+                language: 'plsql',
+                darkTheme: isDark,
+                ambiente: stateCtrl.ambiente,
+                onChanged: (code) {
+                  stateCtrl.setText(code);
+                  widget.onCodeChanged?.call(code);
+                  if (!_isSyncing) {
+                    _isSyncing = true;
+                    monacoCtrl.setText(code);
+                    _isSyncing = false;
+                  }
+                },
+                onCursorChanged: (line, col) => stateCtrl.setCursor(line, col),
+                onExecuteCurrent: stateCtrl.runCurrentOrSelection,
+                onExecuteAll: stateCtrl.runAll,
+                onSave: onSave,
+                onSaveAs: onSaveAs,
               ),
             ),
-          ),
-        ),
-        if (!stateCtrl.resultsPanelVisible)
-          Positioned(
-            left: 12,
-            right: 12,
-            bottom: 12,
-            child: SqlExecutorCollapsedHandle(
-              onExpand: () => stateCtrl.setResultsPanelVisible(true),
-              lastResult: stateCtrl.lastResult,
-            ),
-          ),
-      ],
+            // Modo acoplado (anclado al borde inferior)
+            if (!isDetached) ...[
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: 12,
+                child: SlideUpPanel(
+                  visible: isVisible,
+                  height: stateCtrl.resultsPanelHeight,
+                  child: SizedBox(
+                    height: stateCtrl.resultsPanelHeight,
+                    child: TapRegion(
+                      groupId: 'sql_results_panel',
+                      onTapOutside: (_) {
+                        if (!isPinned && isVisible) {
+                          stateCtrl.setResultsPanelVisible(false);
+                        }
+                      },
+                      child: SqlExecutorResultsPanel(
+                        tabController: resultTabCtrl,
+                        visible: isVisible,
+                        height: stateCtrl.resultsPanelHeight,
+                        onHeightChanged: stateCtrl.setResultsPanelHeight,
+                        onToggleVisible: stateCtrl.toggleResultsPanel,
+                        results: stateCtrl.results,
+                        selectedResultIndex: stateCtrl.selectedResultIndex,
+                        onSelectResult: stateCtrl.selectResult,
+                        log: stateCtrl.log,
+                        explainNodes: stateCtrl.explainNodes,
+                        explainText: stateCtrl.lastExplainResult?.text,
+                        maxRows: stateCtrl.maxRows,
+                        onMaxRowsChanged: stateCtrl.setMaxRows,
+                        onGenerateDml: onGenerateDml,
+                        onReplay: (e) {
+                          monacoCtrl.insertTextAtCursor(e.statementPreview);
+                        },
+                        onClearLog: stateCtrl.clearLog,
+                        isDetached: false,
+                        onToggleDetached: stateCtrl.toggleResultsPanelDetached,
+                        isPinned: isPinned,
+                        onTogglePinned: stateCtrl.toggleResultsPanelPinned,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (!isVisible)
+                Positioned(
+                  left: 12,
+                  right: 12,
+                  bottom: 12,
+                  child: SqlExecutorCollapsedHandle(
+                    onExpand: () => stateCtrl.setResultsPanelVisible(true),
+                    lastResult: stateCtrl.lastResult,
+                  ),
+                ),
+            ],
+            // Modo desacoplado (ventana flotante libre dentro del workspace)
+            if (isDetached && isVisible)
+              Positioned(
+                left: pos.dx,
+                top: pos.dy,
+                width: _detachedWidth.clamp(320.0, workspaceSize.width),
+                height: _detachedHeight.clamp(160.0, workspaceSize.height),
+                child: TapRegion(
+                  groupId: 'sql_results_panel',
+                  onTapOutside: (_) {
+                    if (!isPinned && isVisible) {
+                      stateCtrl.setResultsPanelVisible(false);
+                    }
+                  },
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: SqlExecutorResultsPanel(
+                          tabController: resultTabCtrl,
+                          visible: true,
+                          height: _detachedHeight,
+                          onHeightChanged: (h) =>
+                              setState(() => _detachedHeight = h),
+                          onToggleVisible: () =>
+                              stateCtrl.setResultsPanelVisible(false),
+                          results: stateCtrl.results,
+                          selectedResultIndex: stateCtrl.selectedResultIndex,
+                          onSelectResult: stateCtrl.selectResult,
+                          log: stateCtrl.log,
+                          explainNodes: stateCtrl.explainNodes,
+                          explainText: stateCtrl.lastExplainResult?.text,
+                          maxRows: stateCtrl.maxRows,
+                          onMaxRowsChanged: stateCtrl.setMaxRows,
+                          onGenerateDml: onGenerateDml,
+                          onReplay: (e) {
+                            monacoCtrl.insertTextAtCursor(e.statementPreview);
+                          },
+                          onClearLog: stateCtrl.clearLog,
+                          isDetached: true,
+                          onToggleDetached:
+                              stateCtrl.toggleResultsPanelDetached,
+                          isPinned: isPinned,
+                          onTogglePinned: stateCtrl.toggleResultsPanelPinned,
+                          onHeaderDrag: (delta) =>
+                              _onWindowDrag(delta, workspaceSize),
+                        ),
+                      ),
+                      // Tirador para redimensionar en esquina inferior derecha
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onPanUpdate: _onResizeDrag,
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.resizeDownRight,
+                            child: Container(
+                              width: 18,
+                              height: 18,
+                              alignment: Alignment.bottomRight,
+                              padding: const EdgeInsets.all(3),
+                              child: Icon(
+                                Icons.filter_list_rounded,
+                                size: 12,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant
+                                    .withValues(alpha: 0.5),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            if (isDetached && !isVisible)
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: 12,
+                child: SqlExecutorCollapsedHandle(
+                  onExpand: () => stateCtrl.setResultsPanelVisible(true),
+                  lastResult: stateCtrl.lastResult,
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }

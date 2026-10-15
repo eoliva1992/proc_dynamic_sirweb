@@ -15,6 +15,10 @@ void main() {
       var saveAsCalled = false;
       var revealCalled = false;
 
+      tester.view.physicalSize = const Size(1280, 720);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(

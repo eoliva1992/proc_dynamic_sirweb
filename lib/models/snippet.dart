@@ -12,6 +12,12 @@ class Snippet {
   /// User that owns the snippet (server-side ownership).
   final String ownerUser;
 
+  /// User who last updated the snippet (optional/informative, managed by server).
+  final String? modifiedBy;
+
+  /// Timestamp of the last update (optional/informative, managed by server).
+  final DateTime? updatedAt;
+
   /// Logical delete flag.
   final bool isActive;
 
@@ -26,6 +32,8 @@ class Snippet {
     this.description = '',
     this.language = 'any',
     this.ownerUser = '',
+    this.modifiedBy,
+    this.updatedAt,
     this.isActive = true,
     this.version = 0,
   });
@@ -40,6 +48,8 @@ class Snippet {
     String? description,
     String? language,
     String? ownerUser,
+    String? modifiedBy,
+    DateTime? updatedAt,
     bool? isActive,
     int? version,
   }) => Snippet(
@@ -50,6 +60,8 @@ class Snippet {
     description: description ?? this.description,
     language: language ?? this.language,
     ownerUser: ownerUser ?? this.ownerUser,
+    modifiedBy: modifiedBy ?? this.modifiedBy,
+    updatedAt: updatedAt ?? this.updatedAt,
     isActive: isActive ?? this.isActive,
     version: version ?? this.version,
   );
@@ -73,6 +85,11 @@ class Snippet {
       return fallback;
     }
 
+    DateTime? parseDate(dynamic raw) {
+      if (raw == null) return null;
+      return DateTime.tryParse(raw.toString());
+    }
+
     final rawActive =
         json['isActive'] ?? json['is_active'] ?? json['IS_ACTIVE'];
     final rawVersion = json['version'] ?? json['VERSION'];
@@ -85,6 +102,31 @@ class Snippet {
       description: str(['description', 'DESCRIPTION']),
       language: str(['language', 'LANGUAGE'], 'any'),
       ownerUser: str(['ownerUser', 'owner_user', 'OWNER_USER']),
+      modifiedBy:
+          str([
+            'modifiedBy',
+            'modified_by',
+            'MODIFIED_BY',
+            'updatedBy',
+            'updated_by',
+            'UPDATED_BY',
+          ]).trim().isEmpty
+          ? null
+          : str([
+              'modifiedBy',
+              'modified_by',
+              'MODIFIED_BY',
+              'updatedBy',
+              'updated_by',
+              'UPDATED_BY',
+            ]).trim(),
+      updatedAt: parseDate(
+        json['updatedAt'] ??
+            json['updated_at'] ??
+            json['UPDATED_AT'] ??
+            json['feModificacion'] ??
+            json['FE_MODIFICACION'],
+      ),
       isActive: switch (rawActive) {
         bool b => b,
         num n => n != 0,
@@ -107,6 +149,7 @@ class Snippet {
     'description': description.isEmpty ? null : description,
     'language': language,
     'ownerUser': ownerUser,
+    if (modifiedBy != null && modifiedBy!.isNotEmpty) 'modifiedBy': modifiedBy,
     'isActive': isActive,
     'id': id.isEmpty ? null : id,
   };
@@ -120,6 +163,9 @@ class Snippet {
     'description': description.isEmpty ? null : description,
     'language': language,
     'ownerUser': ownerUser,
+    'modifiedBy': (modifiedBy != null && modifiedBy!.isNotEmpty)
+        ? modifiedBy
+        : ownerUser,
     'isActive': isActive,
   };
 
@@ -131,6 +177,8 @@ class Snippet {
     'description': description,
     'language': language,
     'ownerUser': ownerUser,
+    if (modifiedBy != null) 'modifiedBy': modifiedBy,
+    if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
     'isActive': isActive,
     'version': version,
   };

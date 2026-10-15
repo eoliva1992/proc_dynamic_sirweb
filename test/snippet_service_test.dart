@@ -75,4 +75,47 @@ void main() {
     expect(s.matches('inexistente'), isFalse);
     expect(s.matches(''), isTrue);
   });
+
+  test('Snippet serialización y deserialización de modifiedBy y updatedAt', () {
+    final now = DateTime.now();
+    final json = {
+      'id': 'snip-100',
+      'name': 'Test Snippet',
+      'prefix': 'test',
+      'body': 'SELECT 1 FROM dual;',
+      'description': 'Snippet con auditoría',
+      'language': 'sql',
+      'ownerUser': 'DEV_USER',
+      'modifiedBy': 'ADMIN_USER',
+      'updatedAt': now.toIso8601String(),
+      'isActive': true,
+      'version': 2,
+    };
+
+    final snippet = Snippet.fromJson(json);
+    expect(snippet.ownerUser, 'DEV_USER');
+    expect(snippet.modifiedBy, 'ADMIN_USER');
+    expect(snippet.updatedAt?.toIso8601String(), now.toIso8601String());
+
+    final updateJson = snippet.toUpdateJson();
+    expect(updateJson['modifiedBy'], 'ADMIN_USER');
+    expect(updateJson['ownerUser'], 'DEV_USER');
+
+    final copied = snippet.copyWith(modifiedBy: 'OTHER_USER');
+    expect(copied.modifiedBy, 'OTHER_USER');
+    expect(copied.ownerUser, 'DEV_USER');
+
+    // Comprobar que en Snippet los campos son opcionales y toUpdateJson asegura modifiedBy
+    const optionalSnippet = Snippet(
+      id: 'snip-101',
+      name: 'Sin auditoría explícita',
+      prefix: 'opt',
+      body: 'SELECT 2 FROM dual;',
+      ownerUser: 'DEV_USER',
+    );
+    expect(optionalSnippet.modifiedBy, isNull);
+    expect(optionalSnippet.updatedAt, isNull);
+    // toUpdateJson garantiza el envío de modifiedBy para cumplir con el backend
+    expect(optionalSnippet.toUpdateJson()['modifiedBy'], 'DEV_USER');
+  });
 }

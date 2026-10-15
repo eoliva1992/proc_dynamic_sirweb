@@ -545,32 +545,12 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
         '}catch(e){return null;}})()',
       );
       if (word == null || word.isEmpty || !mounted) return;
-      final upper = word.toUpperCase();
-      final schema = SchemaService.instance.getCached(
+      await navigateToDefinition(
+        context,
+        word,
         ambiente: widget.ambiente,
+        onOpenSchema: widget.onGotoDefinition,
       );
-      if (schema == null) return;
-
-      String? name;
-      String? objectType;
-      final obj = schema.objects.where((o) => o.name == upper).firstOrNull;
-      if (obj != null) {
-        name = obj.name;
-        objectType = obj.type;
-      } else if (schema.tables.contains(upper)) {
-        name = upper;
-        objectType = 'TABLE';
-      } else if (schema.views.contains(upper)) {
-        name = upper;
-        objectType = 'VIEW';
-      }
-
-      if (name == null || objectType == null) return;
-      final n = name;
-      final t = objectType;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) widget.onGotoDefinition?.call(n, t);
-      });
     } catch (_) {}
   }
 

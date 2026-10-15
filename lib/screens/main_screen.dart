@@ -12,6 +12,7 @@ import '../providers/procedimientos_provider.dart';
 import '../services/backup_service.dart';
 import '../services/connection_status_service.dart';
 import '../services/editor_draft_service.dart';
+import '../services/local_file_service.dart';
 import '../services/schema_service.dart';
 import '../services/session_service.dart';
 import '../services/single_instance_service.dart';
@@ -82,6 +83,20 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   final List<int> _lruTabIds = [];
   static const _maxLiveSearchTabs = 5;
 
+  Timer? _sessionSaveDebounceTimer;
+
+  /// Programa el guardado de la sesión de pestañas abiertas de manera preventiva
+  /// evitando escrituras excesivas ante tipeo continuo.
+  void _scheduleSaveSession({
+    Duration delay = const Duration(milliseconds: 300),
+  }) {
+    _sessionSaveDebounceTimer?.cancel();
+    _sessionSaveDebounceTimer = Timer(delay, () {
+      if (!mounted) return;
+      unawaited(SessionService.saveSession(tabs: _tabs, activeTab: _activeTab));
+    });
+  }
+
   /// Máximo de pestañas abiertas simultáneamente.
   static const _maxTabs = 18;
 
@@ -122,6 +137,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     // Handler global para abrir fuentes como tab desde contextos que no son
     // descendientes del SourceTabController (diálogos en el root navigator).
     SourceTabController.registerGlobal(_addSourceTab);
+    DynamicProcedureTabController.registerGlobal(_openDynamicProcedureTab);
     _markTabLive(0);
     // Restaurar sesión de pestañas previa estilo Notepad++
     unawaited(_restoreSavedSession());
@@ -224,6 +240,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
 
   @override
   void dispose() {
+    _sessionSaveDebounceTimer?.cancel();
     windowManager.removeListener(this);
     HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
     _tabReaction();
@@ -238,6 +255,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   @override
   void onWindowClose() async {
     if (_closePromptOpen) return;
+    _sessionSaveDebounceTimer?.cancel();
 
     final restoreEnabled = await SessionService.isRestoreEnabled();
     if (restoreEnabled) {
@@ -249,7 +267,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
 
     final dirtyTabs = _tabs.where((tab) {
       if (!tab.isDirty) return false;
-      return tab.procedimiento != null || tab.inSourceViewMode;
+      return tab.procedimiento != null ||
+          tab.inSourceViewMode ||
+          tab.inSqlExecutorMode;
     }).toList();
 
     if (dirtyTabs.isNotEmpty) {
@@ -327,6 +347,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         case LogicalKeyboardKey.keyK:
           _showSchemaCommandPalette(context);
           return true;
+        case LogicalKeyboardKey.keyO:
+          unawaited(_pickAndOpenLocalFile());
+          return true;
         default:
           break;
       }
@@ -338,6 +361,10 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       }
       if (event.logicalKey == LogicalKeyboardKey.keyN) {
         showNewNoteWindow(context);
+        return true;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.keyO) {
+        _openBlankDocumentTab();
         return true;
       }
     }
@@ -544,6 +571,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     procedimientosProvider.setProcedimientoActual(tab.procedimiento);
     procedimientosProvider.setAmbiente(tab.ambiente);
     _syncingActiveTab = false;
+    _scheduleSaveSession();
   }
 
   void _closeTab(int index) {
@@ -655,7 +683,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     procedimientosProvider.setAmbiente(now.ambiente);
 
     // Actualiza la sesión guardada para no reabrir pestañas cerradas deliberadamente
-    unawaited(SessionService.saveSession(tabs: _tabs, activeTab: _activeTab));
+    _scheduleSaveSession(delay: Duration.zero);
   }
 
   void _addSearchTab() {
@@ -667,6 +695,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     _markTabLive(_activeTab);
     procedimientosProvider.setProcedimientoActual(null);
     procedimientosProvider.setAmbiente(_tabs[_activeTab].ambiente);
+    _scheduleSaveSession();
   }
 
   /// Trae la ventana principal al frente (restaura si está minimizada, muestra y enfoca).
@@ -682,26 +711,83 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     }
   }
 
-  /// Abre un archivo local (.sql/.txt) como una nueva pestaña, sin persistir
-  /// en BD — guardar escribe de vuelta al mismo archivo en disco.
-  void _openLocalFileTab(String path, String content) {
+  /// Abre un documento en blanco para edición local (.txt, .yaml, etc.)
+  void _openBlankDocumentTab({String extension = 'txt'}) {
     if (!_ensureTabSlot()) return;
+    final ext = extension.startsWith('.') ? extension : '.$extension';
     final synthProc = Procedimiento(
-      cdProcedimiento: 'LOCAL_${DateTime.now().microsecondsSinceEpoch}',
-      deTexto: content,
+      cdProcedimiento: 'NUEVO_${DateTime.now().microsecondsSinceEpoch}',
+      deTexto: '',
       inConfiguracion: 'S',
       version: 0,
       stProcedimiento: '1',
     );
     final tab = AppTab(ambiente: procedimientosProvider.ambiente)
       ..procedimiento = synthProc
-      ..localFilePath = path
-      ..currentEditorCode = content;
+      ..localFilePath = 'documento$ext'
+      ..currentEditorCode = '';
     setState(() {
       _tabs.add(tab);
       _activeTab = _tabs.length - 1;
     });
     _markTabLive(_activeTab);
+    _scheduleSaveSession();
+    unawaited(_bringToFront());
+  }
+
+  /// Abre un selector de archivos locales que admite scripts SQL, archivos YAML y texto plano.
+  Future<void> _pickAndOpenLocalFile() async {
+    final opened = await LocalFileService.openFile(
+      dialogTitle: 'Abrir archivo local',
+      allowedExtensions: const [
+        'sql',
+        'yaml',
+        'yml',
+        'txt',
+        'pls',
+        'pkb',
+        'pks',
+      ],
+    );
+    if (opened == null || !mounted) return;
+    _openLocalFileTab(opened.path, opened.content);
+  }
+
+  /// Abre un archivo local como una nueva pestaña, sin persistir en BD:
+  /// - Si es extensión .sql o .pls, abre en el Ejecutor SQL/PL-SQL.
+  /// - Si es .txt, .yaml, .yml (u otro texto), abre en SimpleTextEditorPage.
+  void _openLocalFileTab(String path, String content) {
+    if (!_ensureTabSlot()) return;
+
+    final lowerPath = path.toLowerCase();
+    final isSql = lowerPath.endsWith('.sql') || lowerPath.endsWith('.pls');
+
+    final AppTab tab;
+    if (isSql) {
+      tab = AppTab(ambiente: procedimientosProvider.ambiente)
+        ..isSqlExecutor = true
+        ..localFilePath = path
+        ..currentEditorCode = content;
+    } else {
+      final synthProc = Procedimiento(
+        cdProcedimiento: 'LOCAL_${DateTime.now().microsecondsSinceEpoch}',
+        deTexto: content,
+        inConfiguracion: 'S',
+        version: 0,
+        stProcedimiento: '1',
+      );
+      tab = AppTab(ambiente: procedimientosProvider.ambiente)
+        ..procedimiento = synthProc
+        ..localFilePath = path
+        ..currentEditorCode = content;
+    }
+
+    setState(() {
+      _tabs.add(tab);
+      _activeTab = _tabs.length - 1;
+    });
+    _markTabLive(_activeTab);
+    _scheduleSaveSession();
     unawaited(_bringToFront());
   }
 
@@ -772,6 +858,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     if (tab.inSourceViewMode && tab.sourceViewer != null) {
       return tab.sourceViewer!.name;
     }
+    if (tab.inSqlExecutorMode) {
+      return 'Ejecutor SQL (${tab.ambiente})';
+    }
     return tab.procedimiento?.cdProcedimiento ?? 'Editor';
   }
 
@@ -820,7 +909,46 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       _activeTab = _tabs.length - 1;
     });
     _markTabLive(_activeTab);
+    _scheduleSaveSession();
     // No sync provider — los tabs de fuente son independientes del editor
+  }
+
+  /// Abre o activa una pestaña del editor para un procedimiento dinámico.
+  void _openDynamicProcedureTab({
+    required String cdProcedimiento,
+    required String ambiente,
+  }) {
+    final existing = _tabs.indexWhere(
+      (tab) =>
+          tab.procedimiento?.cdProcedimiento.toUpperCase() ==
+              cdProcedimiento.toUpperCase() &&
+          tab.ambiente == ambiente,
+    );
+    if (existing >= 0) {
+      _activateTab(existing);
+      return;
+    }
+    if (!_ensureTabSlot()) return;
+
+    final stub = Procedimiento(
+      cdProcedimiento: cdProcedimiento,
+      deTexto: '',
+      inConfiguracion: 'P',
+      version: 0,
+      stProcedimiento: '1',
+    );
+    final tab = AppTab(ambiente: ambiente)
+      ..procedimiento = stub
+      ..loading = true;
+    final index = _tabs.length;
+    setState(() {
+      _tabs.add(tab);
+      _activeTab = index;
+    });
+    _markTabLive(index);
+    _loadingTabIndex = index;
+    procedimientosProvider.setAmbiente(ambiente);
+    unawaited(procedimientosProvider.seleccionar(stub));
   }
 
   /// Abre el Ejecutor SQL/PL-SQL en un tab nuevo.
@@ -833,6 +961,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       _activeTab = _tabs.length - 1;
     });
     _markTabLive(_activeTab);
+    _scheduleSaveSession();
     // No sync provider — independiente del editor de procedimientos.
   }
 
@@ -939,6 +1068,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
 
   void _doTabAmbienteChanged(AppTab tab, String newAmbiente) {
     setState(() => tab.ambiente = newAmbiente);
+    _scheduleSaveSession();
     if (_tabs[_activeTab].tabId != tab.tabId) return;
     procedimientosProvider.setAmbiente(newAmbiente);
     final proc = tab.procedimiento;
@@ -1367,6 +1497,18 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       return SqlExecutorPage(
         key: ValueKey('sql_${tab.tabId}'),
         ambiente: tab.ambiente,
+        initialSql: tab.currentEditorCode ?? '',
+        initialFilePath: tab.localFilePath,
+        onCodeChanged: (code) {
+          tab.currentEditorCode = code;
+          _scheduleSaveSession();
+        },
+        onFilePathChanged: (newPath) {
+          setState(() {
+            tab.localFilePath = newPath;
+          });
+          _scheduleSaveSession();
+        },
         onAmbienteChanged: (v) => _onTabAmbienteChanged(tab, v),
       );
     }
@@ -1525,12 +1667,16 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                             }
                           },
                           onSave: (code) => _saveTabProcedure(tab, code),
-                          onCodeChanged: (code) => tab.currentEditorCode = code,
+                          onCodeChanged: (code) {
+                            tab.currentEditorCode = code;
+                            _scheduleSaveSession();
+                          },
                           onOpenLocalFile: _openLocalFileTab,
                           onFilePathChanged: (newPath) {
                             setState(() {
                               tab.localFilePath = newPath;
                             });
+                            _scheduleSaveSession();
                           },
                         )
                       else if (tab.procedimiento != null)
@@ -1538,6 +1684,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                           key: ValueKey('editor_${tab.tabId}'),
                           procedimiento: tab.procedimiento!,
                           ambiente: tab.ambiente,
+                          currentFilePath: tab.localFilePath,
                           onDirtyChanged: (dirty) {
                             if (tab.isDirty != dirty) {
                               setState(() => tab.isDirty = dirty);
@@ -1545,8 +1692,17 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                           },
                           onSave: (code) => _saveTabProcedure(tab, code),
                           onCompile: (code) => _compileTabProcedure(tab, code),
-                          onCodeChanged: (code) => tab.currentEditorCode = code,
+                          onCodeChanged: (code) {
+                            tab.currentEditorCode = code;
+                            _scheduleSaveSession();
+                          },
                           onOpenLocalFile: _openLocalFileTab,
+                          onFilePathChanged: (newPath) {
+                            setState(() {
+                              tab.localFilePath = newPath;
+                            });
+                            _scheduleSaveSession();
+                          },
                         ),
                       if (tab.loading)
                         _EditorLoadingOverlay(
@@ -1977,9 +2133,10 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           );
           if (mounted) setState(() => _suspendedTabs.add(tab.tabId));
           await Future<void>.delayed(const Duration(milliseconds: 80));
+          if (!mounted) return;
           await Navigator.of(context).push(
             PageRouteBuilder<void>(
-              pageBuilder: (_, __, ___) => EnvDiffPage(
+              pageBuilder: (_, _, _) => EnvDiffPage(
                 sourceProc: proc,
                 sourceAmbiente: tab.ambiente,
                 cdUsuario: procedimientosProvider.cdUsuario,
@@ -1990,8 +2147,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             ),
           );
         } catch (e) {
-          if (mounted)
+          if (mounted) {
             AppToast.error(e.toString().replaceFirst('Exception: ', ''));
+          }
         } finally {
           if (mounted) setState(() => _suspendedTabs.remove(tab.tabId));
         }
@@ -2251,6 +2409,13 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         _AppBarDivider(color: barFg),
 
         // --- Grupo 2: Herramientas de Base de Datos y Código ---
+        _DocumentActionMenu(
+          fgColor: barFg,
+          fgSoftColor: barFgSoft,
+          onOpenBlank: (ext) => _openBlankDocumentTab(extension: ext),
+          onOpenSqlSheet: _addSqlExecutorTab,
+          onOpenFile: () => unawaited(_pickAndOpenLocalFile()),
+        ),
         _AppBarActionBtn(
           tooltip: 'Ejecutar objeto PL/SQL',
           shortcutText: 'Ctrl+Shift+E',
@@ -2771,6 +2936,113 @@ class _MenuRow extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+enum _DocMenuAction { blankText, blankYaml, sqlSheet, openLocal }
+
+class _DocumentActionMenu extends StatelessWidget {
+  final Color fgColor;
+  final Color fgSoftColor;
+  final void Function(String ext) onOpenBlank;
+  final VoidCallback onOpenSqlSheet;
+  final VoidCallback onOpenFile;
+
+  const _DocumentActionMenu({
+    required this.fgColor,
+    required this.fgSoftColor,
+    required this.onOpenBlank,
+    required this.onOpenSqlSheet,
+    required this.onOpenFile,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _AppBarWrapper(
+      child: PopupMenuButton<_DocMenuAction>(
+        tooltip: 'Nuevo documento / Abrir archivo local (Ctrl+O)',
+        offset: const Offset(0, 38),
+        icon: Icon(Icons.note_add_outlined, size: 18, color: fgSoftColor),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(
+            color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
+          ),
+        ),
+        onSelected: (action) {
+          switch (action) {
+            case _DocMenuAction.blankText:
+              onOpenBlank('txt');
+              break;
+            case _DocMenuAction.blankYaml:
+              onOpenBlank('yaml');
+              break;
+            case _DocMenuAction.sqlSheet:
+              onOpenSqlSheet();
+              break;
+            case _DocMenuAction.openLocal:
+              onOpenFile();
+              break;
+          }
+        },
+        itemBuilder: (ctx) => [
+          const PopupMenuItem(
+            value: _DocMenuAction.blankText,
+            child: _MenuRow(
+              icon: Icons.description_outlined,
+              label: 'Documento en blanco (texto plano)',
+              subtitle: 'Editor rápido para notas o borradores',
+            ),
+          ),
+          const PopupMenuItem(
+            value: _DocMenuAction.blankYaml,
+            child: _MenuRow(
+              icon: Icons.integration_instructions_outlined,
+              label: 'Documento en blanco (.yaml)',
+              subtitle: 'Resaltado de sintaxis YAML / YML',
+            ),
+          ),
+          const PopupMenuItem(
+            value: _DocMenuAction.sqlSheet,
+            child: _MenuRow(
+              icon: Icons.dataset_outlined,
+              label: 'Hoja SQL / PL-SQL limpia',
+              subtitle: 'Ejecutor de consultas y sentencias Oracle',
+            ),
+          ),
+          const PopupMenuDivider(),
+          const PopupMenuItem(
+            value: _DocMenuAction.openLocal,
+            child: Row(
+              children: [
+                Icon(Icons.folder_open_outlined, size: 15),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Abrir archivo local…',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                      Text(
+                        '.sql, .yaml, .yml, .txt, .pls',
+                        style: TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  'Ctrl+O',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

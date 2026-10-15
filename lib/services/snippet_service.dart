@@ -114,8 +114,13 @@ class SnippetService {
 
   /// Creates (POST) or updates (PUT) a snippet and returns the persisted one.
   Future<Snippet> save(Snippet snippet) async {
+    final effectiveUser = currentUser.trim();
     final payload = snippet.copyWith(
-      ownerUser: snippet.ownerUser.isEmpty ? currentUser : snippet.ownerUser,
+      ownerUser: snippet.ownerUser.isEmpty ? effectiveUser : snippet.ownerUser,
+      modifiedBy:
+          (snippet.modifiedBy == null || snippet.modifiedBy!.trim().isEmpty)
+          ? effectiveUser
+          : snippet.modifiedBy!.trim(),
     );
     return payload.isPersisted ? _update(payload) : _create(payload);
   }
@@ -146,7 +151,16 @@ class SnippetService {
   /// Logical delete: sets `isActive = false` through the update endpoint.
   Future<void> delete(Snippet snippet) async {
     if (!snippet.isPersisted) return;
-    await _update(snippet.copyWith(isActive: false));
+    final effectiveUser = currentUser.trim();
+    await _update(
+      snippet.copyWith(
+        isActive: false,
+        modifiedBy:
+            (snippet.modifiedBy == null || snippet.modifiedBy!.trim().isEmpty)
+            ? effectiveUser
+            : snippet.modifiedBy!.trim(),
+      ),
+    );
   }
 
   // ------------------------------------------------------------ local cache

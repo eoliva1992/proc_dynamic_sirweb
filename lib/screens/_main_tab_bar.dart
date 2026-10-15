@@ -330,8 +330,13 @@ class _MainTabBarState extends State<_MainTabBar> {
     } else if (tab.isSqlExecutor) {
       accentColor = const Color(0xFF0078D4);
       icon = Icons.receipt_long_rounded;
-      label = 'SQL';
-      typeLabel = 'Ejecutor SQL';
+      if (tab.localFilePath != null) {
+        label = Uri.file(tab.localFilePath!).pathSegments.last;
+        typeLabel = 'Script SQL';
+      } else {
+        label = 'SQL';
+        typeLabel = 'Ejecutor SQL';
+      }
     } else if (inEditor && tab.localFilePath != null) {
       accentColor = const Color(0xFF6E7681);
       icon = Icons.insert_drive_file_outlined;

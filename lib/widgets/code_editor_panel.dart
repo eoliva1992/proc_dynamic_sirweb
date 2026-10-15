@@ -28,6 +28,8 @@ import '../models/chat_message.dart';
 import '../models/edit_blocks.dart';
 import '../models/line_diff.dart';
 import '../models/pending_change.dart';
+import 'snippets/snippets_browser_dialog.dart';
+import 'snippets/snippet_editor_window.dart';
 import '../models/chat_conversation.dart';
 import '../models/chat_plan.dart';
 import '../models/code_highlight.dart';
@@ -42,6 +44,7 @@ import '../services/sirweb_service.dart';
 import '../services/snippet_service.dart';
 import 'constellation_background.dart';
 import 'ambiente_selector.dart';
+import 'editor_split_container.dart';
 import '_editor_oracle_theme.dart';
 import '_editor_themes.dart';
 import '_editor_plsql_checker.dart';
@@ -51,6 +54,7 @@ import 'problems_output_console.dart';
 import '../services/editor_draft_service.dart';
 import '../services/local_file_service.dart';
 import 'app_toast.dart';
+import 'definition_navigation.dart';
 import 'floating_window.dart';
 import 'plsql_tables.dart' show extractSqlTables;
 import 'source_float_window.dart';
@@ -212,6 +216,8 @@ class CodeEditorPanel extends StatefulWidget {
   final ValueChanged<String>? onCodeChanged;
   final void Function(String path, String content)? onOpenLocalFile;
   final VoidCallback? onSaveAsLocal;
+  final String? currentFilePath;
+  final ValueChanged<String>? onFilePathChanged;
 
   const CodeEditorPanel({
     super.key,
@@ -223,6 +229,8 @@ class CodeEditorPanel extends StatefulWidget {
     this.onCodeChanged,
     this.onOpenLocalFile,
     this.onSaveAsLocal,
+    this.currentFilePath,
+    this.onFilePathChanged,
   });
 
   @override
@@ -347,6 +355,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   bool _links = true;
   bool _occurrencesHighlight = true;
   bool _contextMenu = true;
+  EditorSplitMode _splitMode = EditorSplitMode.none;
+  double _splitRatio = 0.5;
+  MonacoController? _ctrl2;
+  bool _isSyncingSplit = false;
 
   // ── Estado de sesión (no persiste entre reinicios) ─────────────────
   final Set<String> _modifiedProcs = {};
@@ -542,6 +554,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     // Se anula al final: los callbacks async pendientes que se resuelvan
     // después de esto verán null en vez de un controller destruido.
     _errorDecos = null;
+    _ctrl2 = null;
     _ctrl = null;
     super.dispose();
   }
@@ -1875,19 +1888,35 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         r'  try {'
         r'    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
         r'    if (aux) {'
-        r'      var start = aux.selectionStart, end = aux.selectionEnd;'
-        r'      if (start != null && end != null && start !== end) {'
-        r'        return aux.value.substring(start, end);'
-        r'      }'
-        r'      return null;'
+        r'      var start = aux.selectionStart != null ? aux.selectionStart : aux.value.length;'
+        r'      var end = aux.selectionEnd != null ? aux.selectionEnd : aux.value.length;'
+        r'      var val = aux.value || "";'
+        r'      aux.value = val.substring(0, start) + t + val.substring(end);'
+        r'      aux.selectionStart = aux.selectionEnd = start + t.length;'
+        r'      aux.focus();'
+        r'      aux.dispatchEvent(new Event("input", { bubbles: true }));'
+        r'      return "ok";'
         r'    }'
-        r'    const s = window.editor.getSelection();'
-        r'    if (!s || s.isEmpty()) return null;'
-        r'    return window.editor.getModel().getValueInRange(s) || null;'
-        r'  } catch(e) { return null; }'
+        r'    const ed = window.editor;'
+        r'    if (!ed) return "err";'
+        r'    ed.focus();'
+        r'    let sels = ed.getSelections();'
+        r'    if (!sels || sels.length === 0) {'
+        r'      const s = ed.getSelection();'
+        r'      sels = s ? [s] : [];'
+        r'    }'
+        r'    if (sels.length === 0) return "err";'
+        r'    ed.pushUndoStop();'
+        r'    ed.executeEdits("flutter-paste", sels.map(function(s){'
+        r'      return { range: s, text: t, forceMoveMarkers: true };'
+        r'    }));'
+        r'    ed.pushUndoStop();'
+        r'    return "ok";'
+        r'  } catch(e) { return "err"; }'
         r'})()',
       ),
     );
+
     if (selected == null || selected.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: selected));
     AppToast.info('Copiado al portapapeles');
@@ -1900,31 +1929,33 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         r'  try {'
         r'    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
         r'    if (aux) {'
-        r'      var start = aux.selectionStart, end = aux.selectionEnd;'
-        r'      if (start != null && end != null && start !== end) {'
-        r'        var val = aux.value;'
-        r'        var text = val.substring(start, end);'
-        r'        aux.value = val.substring(0, start) + val.substring(end);'
-        r'        aux.selectionStart = aux.selectionEnd = start;'
-        r'        aux.focus();'
-        r'        aux.dispatchEvent(new Event("input", { bubbles: true }));'
-        r'        return text;'
-        r'      }'
-        r'      return null;'
+        r'      var start = aux.selectionStart != null ? aux.selectionStart : aux.value.length;'
+        r'      var end = aux.selectionEnd != null ? aux.selectionEnd : aux.value.length;'
+        r'      var val = aux.value || "";'
+        r'      aux.value = val.substring(0, start) + t + val.substring(end);'
+        r'      aux.selectionStart = aux.selectionEnd = start + t.length;'
+        r'      aux.focus();'
+        r'      aux.dispatchEvent(new Event("input", { bubbles: true }));'
+        r'      return "ok";'
         r'    }'
-        r'    const s = window.editor.getSelection();'
-        r'    if (!s || s.isEmpty()) return null;'
-        r'    const m = window.editor.getModel();'
-        r'    const t = m.getValueInRange(s) || null;'
-        r'    if (!t) return null;'
-        r'    window.editor.focus();'
-        r'    window.editor.executeEdits("flutter-cut", [{ range: s, text: "", forceMoveMarkers: true }]);'
-        r'    window.editor.pushUndoStop();'
-        r'    return t;'
-        r'  } catch(e) { return null; }'
+        r'    const ed = window.editor;'
+        r'    if (!ed) return "err";'
+        r'    ed.focus();'
+        r'    let sels = ed.getSelections();'
+        r'    if (!sels || sels.length === 0) {'
+        r'      const s = ed.getSelection();'
+        r'      sels = s ? [s] : [];'
+        r'    }'
+        r'    if (sels.length === 0) return "err";'
+        r'    ed.pushUndoStop();'
+        r'    ed.executeEdits("flutter-cut", [{ range: s, text: "", forceMoveMarkers: true }]);'
+        r'    ed.pushUndoStop();'
+        r'    return "ok";'
+        r'  } catch(e) { return "err"; }'
         r'})()',
       ),
     );
+
     if (selected == null || selected.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: selected));
     AppToast.info('Cortado al portapapeles');
@@ -2188,6 +2219,13 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
   void _onEditorThemeChanged() {
     unawaited(_withCtrl((ctrl) => ctrl.setTheme(editorThemeStore.monacoTheme)));
+    if (_ctrl2 != null) {
+      unawaited(
+        EditorThemeStore.defineAllThemes(_ctrl2!)
+            .then((_) => _ctrl2!.setTheme(editorThemeStore.monacoTheme))
+            .catchError((_) {}),
+      );
+    }
   }
 
   Future<void> _registerVariableCompletions() async {
@@ -2287,9 +2325,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   }
 
   void _openSnippetsManager() {
-    // El gestor se monta como ventana flotante (movible y minimizable), no
-    // como diálogo con barrera: así el editor sigue usable por detrás.
-    showSnippetsManager(context).then((_) {
+    showSnippetsBrowser(context).then((_) {
       if (mounted) _registerSnippetCompletions();
     });
   }
@@ -2320,12 +2356,17 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     final code = await _withCtrl((ctrl) => ctrl.document.getText());
     if (code == null || !mounted) return;
     final procName = _activeProcId ?? widget.procedimiento.cdProcedimiento;
-    await LocalFileService.saveFile(
+    final savedPath = await LocalFileService.saveFile(
       content: code,
+      currentPath: widget.currentFilePath,
+      saveAs: true,
       defaultFileName: '${procName}_${widget.ambiente}.sql',
       dialogTitle: 'Guardar procedimiento como…',
       allowedExtensions: const ['sql', 'pls', 'txt'],
     );
+    if (savedPath != null && mounted) {
+      widget.onFilePathChanged?.call(savedPath);
+    }
   }
 
   Future<void> _saveCurrentDocument() async {
@@ -2358,7 +2399,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       // Apply Oracle compile errors returned by the server as Monaco markers
       final rawCompileErrors = procedimientosProvider.lastCompileErrors;
       final procId = _activeProcId ?? '';
-      if (rawCompileErrors.isNotEmpty && mounted) {
+      if (rawCompileErrors.isNotEmpty) {
         final compileIssues = parseOracleCompileErrors(rawCompileErrors);
         setState(() {
           _compileErrorsPerProc[procId] = compileIssues;
@@ -2761,69 +2802,155 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                     children: [
                       // Monaco editor — takes all remaining width
                       Expanded(
-                        child: MonacoEditor(
-                          initialText: widget.procedimiento.deTexto,
-                          options: EditorOptions(
-                            language: _langFor(widget.procedimiento),
-                            theme: oracleDarkTheme,
-                            fontSize: _fontSize,
-                            minimap: MonacoMinimapOptions(enabled: _minimap),
-                            wordWrap: _wordWrap
-                                ? MonacoWordWrap.on
-                                : MonacoWordWrap.off,
-                            lineNumbers: _lineNumbers
-                                ? MonacoLineNumbers.on
-                                : MonacoLineNumbers.off,
-                            renderWhitespace: _renderWhitespace
-                                ? RenderWhitespace.all
-                                : RenderWhitespace.none,
-                            tabSize: 2,
-                            bracketPairColorization: _bracketPairColorization,
-                            stickyScroll: MonacoStickyScroll(
-                              enabled: _stickyScroll,
+                        child: EditorSplitContainer(
+                          splitMode: _splitMode,
+                          ratio: _splitRatio,
+                          onRatioChanged: (r) {
+                            setState(() => _splitRatio = r);
+                            _savePrefs();
+                          },
+                          onCloseSecondary: () {
+                            setState(() {
+                              _splitMode = EditorSplitMode.none;
+                              _ctrl2 = null;
+                            });
+                            _savePrefs();
+                          },
+                          primaryChild: MonacoEditor(
+                            initialText: widget.procedimiento.deTexto,
+                            options: EditorOptions(
+                              language: _langFor(widget.procedimiento),
+                              theme: editorThemeStore.monacoTheme,
+                              fontSize: _fontSize,
+                              minimap: MonacoMinimapOptions(enabled: _minimap),
+                              wordWrap: _wordWrap
+                                  ? MonacoWordWrap.on
+                                  : MonacoWordWrap.off,
+                              lineNumbers: _lineNumbers
+                                  ? MonacoLineNumbers.on
+                                  : MonacoLineNumbers.off,
+                              renderWhitespace: _renderWhitespace
+                                  ? RenderWhitespace.all
+                                  : RenderWhitespace.none,
+                              tabSize: 2,
+                              bracketPairColorization: _bracketPairColorization,
+                              stickyScroll: MonacoStickyScroll(
+                                enabled: _stickyScroll,
+                              ),
+                              folding: _folding,
+                              readOnly: _readOnly,
+                              smoothScrolling: _smoothScrolling,
+                              mouseWheelZoom: _mouseWheelZoom,
+                              formatOnPaste: _formatOnPaste,
+                              quickSuggestions: _quickSuggestions,
+                              parameterHints: _parameterHints,
+                              hover: _hover,
+                              links: _links,
+                              occurrencesHighlight: _occurrencesHighlight,
+                              contextMenu: _contextMenu,
+                              extra: const {'fixedOverflowWidgets': true},
                             ),
-                            folding: _folding,
-                            readOnly: _readOnly,
-                            smoothScrolling: _smoothScrolling,
-                            mouseWheelZoom: _mouseWheelZoom,
-                            formatOnPaste: _formatOnPaste,
-                            quickSuggestions: _quickSuggestions,
-                            parameterHints: _parameterHints,
-                            hover: _hover,
-                            links: _links,
-                            occurrencesHighlight: _occurrencesHighlight,
-                            contextMenu: _contextMenu,
-                            // fixedOverflowWidgets: renderiza el menú
-                            // contextual, el widget de sugerencias y el hover
-                            // DENTRO del contenedor del editor en vez de
-                            // anclados a document.body con position:fixed.
-                            // Sin esto, en el WebView2 embebido como Texture
-                            // de Flutter los clics del mouse sobre esos
-                            // widgets no se registran (desajuste de mapeo de
-                            // coordenadas del puntero vs. el layout fixed de
-                            // página completa), aunque la navegación por
-                            // teclado sí funciona porque no depende de
-                            // coordenadas. Mismo fix aplicado en el HTML
-                            // legacy de Monaco (assets/monaco_editor.html).
-                            extra: const {'fixedOverflowWidgets': true},
+                            showStatusBar: true,
+                            page: const MonacoPageConfig(
+                              customCss:
+                                  '.plsql-error-line { background: rgba(255,68,68,0.1) !important; }'
+                                  '.copilot-change-line {'
+                                  ' background: rgba(63,185,80,0.12) !important;'
+                                  ' border-left: 2px solid rgba(63,185,80,0.85) !important;'
+                                  ' }',
+                            ),
+                            contentDebounce: const Duration(milliseconds: 600),
+                            onReady: _onReady,
+                            onContentChanged: (text) {
+                              _onContentChanged(text);
+                              if (_splitMode != EditorSplitMode.none &&
+                                  !_isSyncingSplit &&
+                                  _ctrl2 != null) {
+                                _isSyncingSplit = true;
+                                _ctrl2!.document.setText(text).whenComplete(() {
+                                  _isSyncingSplit = false;
+                                });
+                              }
+                            },
+                            onError: (err, _) =>
+                                debugPrint('Monaco error: $err'),
+                            interactionEnabled: true,
                           ),
-                          showStatusBar: true,
-                          page: const MonacoPageConfig(
-                            customCss:
-                                '.plsql-error-line { background: rgba(255,68,68,0.1) !important; }'
-                                // Verde de «línea añadida» de VS Code, con una
-                                // barra a la izquierda para que se distinga del
-                                // resaltado de la línea activa.
-                                '.copilot-change-line {'
-                                ' background: rgba(63,185,80,0.12) !important;'
-                                ' border-left: 2px solid rgba(63,185,80,0.85) !important;'
-                                ' }',
+                          secondaryBuilder: (context) => MonacoEditor(
+                            initialText: _editorFullText.isNotEmpty
+                                ? _editorFullText
+                                : widget.procedimiento.deTexto,
+                            options: EditorOptions(
+                              language: _langFor(widget.procedimiento),
+                              theme: editorThemeStore.monacoTheme,
+                              fontSize: _fontSize,
+                              minimap: MonacoMinimapOptions(enabled: _minimap),
+                              wordWrap: _wordWrap
+                                  ? MonacoWordWrap.on
+                                  : MonacoWordWrap.off,
+                              lineNumbers: _lineNumbers
+                                  ? MonacoLineNumbers.on
+                                  : MonacoLineNumbers.off,
+                              renderWhitespace: _renderWhitespace
+                                  ? RenderWhitespace.all
+                                  : RenderWhitespace.none,
+                              tabSize: 2,
+                              bracketPairColorization: _bracketPairColorization,
+                              stickyScroll: MonacoStickyScroll(
+                                enabled: _stickyScroll,
+                              ),
+                              folding: _folding,
+                              readOnly: _readOnly,
+                              smoothScrolling: _smoothScrolling,
+                              mouseWheelZoom: _mouseWheelZoom,
+                              formatOnPaste: _formatOnPaste,
+                              quickSuggestions: _quickSuggestions,
+                              parameterHints: _parameterHints,
+                              hover: _hover,
+                              links: _links,
+                              occurrencesHighlight: _occurrencesHighlight,
+                              contextMenu: _contextMenu,
+                              extra: const {'fixedOverflowWidgets': true},
+                            ),
+                            showStatusBar: true,
+                            page: const MonacoPageConfig(
+                              customCss:
+                                  '.plsql-error-line { background: rgba(255,68,68,0.1) !important; }'
+                                  '.copilot-change-line {'
+                                  ' background: rgba(63,185,80,0.12) !important;'
+                                  ' border-left: 2px solid rgba(63,185,80,0.85) !important;'
+                                  ' }',
+                            ),
+                            contentDebounce: const Duration(milliseconds: 600),
+                            onReady: (ctrl) {
+                              _ctrl2 = ctrl;
+                              EditorThemeStore.defineAllThemes(ctrl)
+                                  .then(
+                                    (_) => ctrl.setTheme(
+                                      editorThemeStore.monacoTheme,
+                                    ),
+                                  )
+                                  .catchError((_) {});
+                            },
+                            onContentChanged: (text) {
+                              if (!_isSyncingSplit) {
+                                _isSyncingSplit = true;
+                                _onContentChanged(text);
+                                if (_ctrl != null) {
+                                  _ctrl!.document.setText(text).whenComplete(
+                                    () {
+                                      _isSyncingSplit = false;
+                                    },
+                                  );
+                                } else {
+                                  _isSyncingSplit = false;
+                                }
+                              }
+                            },
+                            onError: (err, _) =>
+                                debugPrint('Monaco split error: $err'),
+                            interactionEnabled: true,
                           ),
-                          contentDebounce: const Duration(milliseconds: 600),
-                          onReady: _onReady,
-                          onContentChanged: _onContentChanged,
-                          onError: (err, _) => debugPrint('Monaco error: $err'),
-                          interactionEnabled: true,
                         ),
                       ),
                       // Docked variables panel

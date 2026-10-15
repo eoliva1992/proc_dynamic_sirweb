@@ -65,3 +65,25 @@ class SourceTabController extends InheritedWidget {
   @override
   bool updateShouldNotify(SourceTabController old) => openTab != old.openTab;
 }
+
+typedef OpenDynamicProcedureTab =
+    void Function({required String cdProcedimiento, required String ambiente});
+
+/// Handler global para abrir un procedimiento dinámico en una pestaña del
+/// editor principal, incluso desde diálogos o ventanas flotantes.
+class DynamicProcedureTabController {
+  static OpenDynamicProcedureTab? _global;
+
+  static void registerGlobal(OpenDynamicProcedureTab openTab) =>
+      _global = openTab;
+
+  static void unregisterGlobal(OpenDynamicProcedureTab openTab) {
+    if (_global == openTab) _global = null;
+  }
+
+  static OpenDynamicProcedureTab? openTabOf(BuildContext context) {
+    if (_global != null) return _global;
+    if (!context.mounted) return null;
+    return null;
+  }
+}

@@ -614,6 +614,7 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
             tooltip: 'Abrir archivo (.sql / .txt / .yaml)',
             onPressed: () => unawaited(_openLocalFile()),
           ),
+          _buildSplitMenu(cs, isDark),
           const Spacer(),
           _buildErrorBadge(cs),
           const SizedBox(width: 4),
@@ -650,6 +651,114 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSplitMenu(ColorScheme cs, bool isDark) {
+    final hasSplit = _splitMode != EditorSplitMode.none;
+    return PopupMenuButton<EditorSplitMode>(
+      tooltip: hasSplit
+          ? (_splitMode == EditorSplitMode.vertical
+                ? 'División vertical activa — Cambiar o cerrar'
+                : 'División horizontal activa — Cambiar o cerrar')
+          : 'Dividir editor en 2 vistas (mismo documento)',
+      icon: Icon(
+        _splitMode == EditorSplitMode.vertical
+            ? Icons.vertical_split_rounded
+            : (_splitMode == EditorSplitMode.horizontal
+                  ? Icons.horizontal_split_rounded
+                  : Icons.splitscreen_rounded),
+        size: 15,
+        color: hasSplit ? cs.primary : cs.onSurfaceVariant,
+      ),
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(
+          color: isDark ? const Color(0xFF30363D) : const Color(0xFFD0D7DE),
+          width: 0.8,
+        ),
+      ),
+      onSelected: (mode) {
+        _toggle(() {
+          _splitMode = mode;
+        });
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          value: EditorSplitMode.vertical,
+          child: Row(
+            children: [
+              Icon(
+                Icons.vertical_split_rounded,
+                size: 16,
+                color: _splitMode == EditorSplitMode.vertical
+                    ? cs.primary
+                    : cs.onSurfaceVariant,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Dividir a la derecha (Lado a lado)',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: _splitMode == EditorSplitMode.vertical
+                      ? FontWeight.bold
+                      : FontWeight.normal,
+                ),
+              ),
+              if (_splitMode == EditorSplitMode.vertical) ...[
+                const Spacer(),
+                Icon(Icons.check_rounded, size: 14, color: cs.primary),
+              ],
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: EditorSplitMode.horizontal,
+          child: Row(
+            children: [
+              Icon(
+                Icons.horizontal_split_rounded,
+                size: 16,
+                color: _splitMode == EditorSplitMode.horizontal
+                    ? cs.primary
+                    : cs.onSurfaceVariant,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Dividir abajo (Arriba y abajo)',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: _splitMode == EditorSplitMode.horizontal
+                      ? FontWeight.bold
+                      : FontWeight.normal,
+                ),
+              ),
+              if (_splitMode == EditorSplitMode.horizontal) ...[
+                const Spacer(),
+                Icon(Icons.check_rounded, size: 14, color: cs.primary),
+              ],
+            ],
+          ),
+        ),
+        if (hasSplit) ...[
+          const PopupMenuDivider(),
+          PopupMenuItem(
+            value: EditorSplitMode.none,
+            child: const Row(
+              children: [
+                Icon(Icons.close_rounded, size: 16, color: Color(0xFFE5484D)),
+                SizedBox(width: 8),
+                Text(
+                  'Cerrar división',
+                  style: TextStyle(fontSize: 12, color: Color(0xFFE5484D)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 

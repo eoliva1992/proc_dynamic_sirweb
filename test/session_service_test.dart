@@ -65,14 +65,22 @@ void main() {
           ..isDirty = true
           ..currentEditorCode = 'SELECT * FROM DUAL WHERE 1=1;';
 
-        final tab4 = AppTab(ambiente: 'Desa')..isSqlExecutor = true;
+        final tab4 = AppTab(ambiente: 'Desa')
+          ..isSqlExecutor = true
+          ..localFilePath = r'C:\scripts\analysis.sql'
+          ..currentEditorCode = 'SELECT sysdate FROM dual;';
 
-        final tabs = [tab1, tab2, tab3, tab4];
+        final tab5 = AppTab(ambiente: 'QA')
+          ..localFilePath = 'documento.txt'
+          ..currentEditorCode = 'Configuracion local sin proc'
+          ..isDirty = true;
+
+        final tabs = [tab1, tab2, tab3, tab4, tab5];
         await SessionService.saveSession(tabs: tabs, activeTab: 2);
 
         final loaded = await SessionService.loadSession();
         expect(loaded, isNotNull);
-        expect(loaded!.tabs.length, 4);
+        expect(loaded!.tabs.length, 5);
         expect(loaded.activeTab, 2);
 
         final restoredTabs = loaded.tabs.map((t) => t.toAppTab()).toList();
@@ -106,6 +114,20 @@ void main() {
         // Tab 4: SQL Executor
         expect(restoredTabs[3].isSqlExecutor, isTrue);
         expect(restoredTabs[3].inSqlExecutorMode, isTrue);
+        expect(restoredTabs[3].localFilePath, r'C:\scripts\analysis.sql');
+        expect(restoredTabs[3].currentEditorCode, 'SELECT sysdate FROM dual;');
+
+        // Tab 5: Local file tab without predefined procedure
+        expect(restoredTabs[4].localFilePath, 'documento.txt');
+        expect(
+          restoredTabs[4].currentEditorCode,
+          'Configuracion local sin proc',
+        );
+        expect(restoredTabs[4].procedimiento, isNotNull);
+        expect(
+          restoredTabs[4].procedimiento!.deTexto,
+          'Configuracion local sin proc',
+        );
       },
     );
 

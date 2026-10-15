@@ -240,19 +240,18 @@ Future<T?> showFloatingDialog<T>(
             child: ColoredBox(color: barrierColor),
           ),
         ),
-        Overlay(
-          initialEntries: [
-            OverlayEntry(
-              builder: (innerContext) => _FloatingDialogLayer<T>(
-                onDisposed: () {
-                  if (!completer.isCompleted) completer.complete(null);
-                },
-                onEscape: barrierDismissible ? () => finish(null) : null,
-                builder: builder,
-                close: finish,
-              ),
+        Navigator(
+          onGenerateRoute: (_) => PageRouteBuilder(
+            opaque: false,
+            pageBuilder: (innerContext, _, _) => _FloatingDialogLayer<T>(
+              onDisposed: () {
+                if (!completer.isCompleted) completer.complete(null);
+              },
+              onEscape: barrierDismissible ? () => finish(null) : null,
+              builder: builder,
+              close: finish,
             ),
-          ],
+          ),
         ),
       ],
     ),

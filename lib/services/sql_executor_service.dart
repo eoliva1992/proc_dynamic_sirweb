@@ -46,14 +46,16 @@ class SqlExecutorService {
     bool capturarDbmsOutput = false,
     int maxRows = 1000,
     int timeoutSegundos = 30,
+    http.Client? client,
     bool Function()? cancelado,
     required String contexto,
   }) async {
     final host = await SirwebService.getHost();
     final uri = Uri.parse('$host/tools/sql/statement');
 
+    final httpClient = client ?? _client;
     final response = await SirwebService.guardRequest(
-      () => _client.post(
+      () => httpClient.post(
         uri,
         headers: {
           'Content-Type': 'application/json',
@@ -70,12 +72,14 @@ class SqlExecutorService {
           'maxRows': maxRows,
           'timeoutSegundos': timeoutSegundos,
           'capturarDbmsOutput': capturarDbmsOutput,
-          if (sessionId != null) 'sessionId': sessionId,
-          if (binds != null) 'binds': binds,
-          if (maxRowsAffected != null) 'maxRowsAffected': maxRowsAffected,
-          if (objectName != null) 'objectName': objectName,
-          if (objectType != null) 'objectType': objectType,
-          if (plSqlBinds != null) 'plSqlBinds': plSqlBinds,
+          ...?sessionId == null ? null : {'sessionId': sessionId},
+          ...?binds == null ? null : {'binds': binds},
+          ...?maxRowsAffected == null
+              ? null
+              : {'maxRowsAffected': maxRowsAffected},
+          ...?objectName == null ? null : {'objectName': objectName},
+          ...?objectType == null ? null : {'objectType': objectType},
+          ...?plSqlBinds == null ? null : {'plSqlBinds': plSqlBinds},
         }),
       ),
       timeout: Duration(seconds: timeoutSegundos + 15),
@@ -115,16 +119,20 @@ class SqlExecutorService {
     String sql, {
     required String ambiente,
     required String owner,
+    String? sessionId,
     int maxRows = 1000,
     int timeoutSegundos = 30,
+    http.Client? client,
     bool Function()? cancelado,
   }) async {
     final data = await _postStatement(
       sql,
       ambiente: ambiente,
       owner: owner,
+      sessionId: sessionId,
       maxRows: maxRows,
       timeoutSegundos: timeoutSegundos,
+      client: client,
       cancelado: cancelado,
       contexto: 'el servidor SirWeb',
     );
@@ -142,6 +150,7 @@ class SqlExecutorService {
     String? sessionId,
     int maxRows = 1000,
     int timeoutSegundos = 30,
+    http.Client? client,
     bool Function()? cancelado,
   }) async {
     final data = await _postStatement(
@@ -152,6 +161,7 @@ class SqlExecutorService {
       maxRowsAffected: maxRows,
       maxRows: maxRows,
       timeoutSegundos: timeoutSegundos,
+      client: client,
       cancelado: cancelado,
       contexto: 'el servidor SirWeb',
     );
@@ -169,6 +179,7 @@ class SqlExecutorService {
     String? objectName,
     String? objectType,
     int timeoutSegundos = 30,
+    http.Client? client,
     bool Function()? cancelado,
   }) async {
     final data = await _postStatement(
@@ -178,6 +189,7 @@ class SqlExecutorService {
       objectName: objectName,
       objectType: objectType,
       timeoutSegundos: timeoutSegundos,
+      client: client,
       cancelado: cancelado,
       contexto: 'el servidor SirWeb',
     );
@@ -199,6 +211,7 @@ class SqlExecutorService {
     required String owner,
     String? sessionId,
     int timeoutSegundos = 30,
+    http.Client? client,
     bool Function()? cancelado,
   }) async {
     final data = await _postStatement(
@@ -208,6 +221,7 @@ class SqlExecutorService {
       sessionId: sessionId,
       capturarDbmsOutput: true,
       timeoutSegundos: timeoutSegundos,
+      client: client,
       cancelado: cancelado,
       contexto: 'el servidor SirWeb (PL/SQL)',
     );
@@ -221,29 +235,44 @@ class SqlExecutorService {
   Future<void> commitSession(
     String sessionId, {
     required String owner,
+    http.Client? client,
     bool Function()? cancelado,
-  }) => _sessionAction('commit', sessionId, owner: owner, cancelado: cancelado);
+  }) => _sessionAction(
+    'commit',
+    sessionId,
+    owner: owner,
+    client: client,
+    cancelado: cancelado,
+  );
 
   /// `POST /tools/sql/sessions/{sessionId}/rollback` — descarta la
   /// transacción abierta por un DML/DDL/PL-SQL previo.
   Future<void> rollbackSession(
     String sessionId, {
     required String owner,
+    http.Client? client,
     bool Function()? cancelado,
-  }) =>
-      _sessionAction('rollback', sessionId, owner: owner, cancelado: cancelado);
+  }) => _sessionAction(
+    'rollback',
+    sessionId,
+    owner: owner,
+    client: client,
+    cancelado: cancelado,
+  );
 
   Future<void> _sessionAction(
     String action,
     String sessionId, {
     required String owner,
+    http.Client? client,
     bool Function()? cancelado,
   }) async {
     final host = await SirwebService.getHost();
     final uri = Uri.parse('$host/tools/sql/sessions/$sessionId/$action');
 
+    final httpClient = client ?? _client;
     final response = await SirwebService.guardRequest(
-      () => _client.post(
+      () => httpClient.post(
         uri,
         headers: {
           'Content-Type': 'application/json',
@@ -277,13 +306,15 @@ class SqlExecutorService {
     String? owner,
     Map<String, dynamic>? binds,
     int timeoutSegundos = 30,
+    http.Client? client,
     bool Function()? cancelado,
   }) async {
     final host = await SirwebService.getHost();
     final uri = Uri.parse('$host/tools/sql/explain');
 
+    final httpClient = client ?? _client;
     final response = await SirwebService.guardRequest(
-      () => _client.post(
+      () => httpClient.post(
         uri,
         headers: {
           'Content-Type': 'application/json',

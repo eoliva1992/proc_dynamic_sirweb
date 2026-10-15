@@ -7,7 +7,6 @@ import 'package:flutter_monaco/flutter_monaco.dart';
 
 import '../services/backup_service.dart';
 import '../services/local_file_service.dart';
-import '../services/schema_navigation_helper.dart';
 import '_editor_themes.dart';
 import 'app_toast.dart';
 import 'code_editor_panel.dart'
@@ -18,7 +17,7 @@ import 'code_editor_panel.dart'
         showThemePickerDialog,
         showUsosProcedimientoWindow;
 import 'monaco_snippets.dart';
-import 'source_float_window.dart' show openSourceWindow;
+import 'definition_navigation.dart';
 
 /// Editor para archivos locales `.txt`/`.yaml`, alineado al tema de la aplicación
 /// y equipado con herramientas de productividad:
@@ -273,25 +272,7 @@ class _SimpleTextEditorPageState extends State<SimpleTextEditorPage> {
       return;
     }
 
-    final match = await resolveSchemaDefinition(
-      word,
-      ambiente: widget.ambiente,
-    );
-
-    if (!mounted) return;
-    if (match != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        openSourceWindow(
-          context,
-          name: match.name,
-          objectType: match.objectType,
-          ambiente: widget.ambiente,
-        );
-      });
-    } else {
-      AppToast.info('No se encontró definición para "$word"');
-    }
+    await navigateToDefinition(context, word, ambiente: widget.ambiente);
   }
 
   Future<void> _openInfoDatoWindow() async {
