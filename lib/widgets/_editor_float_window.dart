@@ -17,43 +17,6 @@ VoidCallback _showFloatingWindow(
   return showFloatingWindow(context, builder);
 }
 
-/// Reparte posiciones para las ventanas minimizadas, de modo que no se
-/// superpongan entre sí (se apilan como una barra de tareas).
-class _MinimizedSlots {
-  static final Set<int> _used = <int>{};
-
-  /// Ancho y alto de una ventana minimizada.
-  static const double barW = 300;
-  static const double barH = 44;
-  static const double _gap = 8;
-  static const double _margin = 12;
-
-  static int take() {
-    var i = 0;
-    while (_used.contains(i)) {
-      i++;
-    }
-    _used.add(i);
-    return i;
-  }
-
-  static void release(int? slot) {
-    if (slot != null) _used.remove(slot);
-  }
-
-  /// Posición (left, top) de la ventana minimizada [slot] en pantalla.
-  static (double, double) offsetFor(int slot, Size screen) {
-    final perRow = ((screen.width - _margin * 2) / (barW + _gap)).floor().clamp(
-      1,
-      12,
-    );
-    final col = slot % perRow;
-    final row = slot ~/ perRow;
-    final left = _margin + col * (barW + _gap);
-    final top = screen.height - _margin - barH - row * (barH + _gap);
-    return (
-      left.clamp(0.0, (screen.width - barW).clamp(0.0, double.infinity)),
-      top.clamp(0.0, (screen.height - barH).clamp(0.0, double.infinity)),
-    );
-  }
-}
+/// Reparte posiciones para las ventanas minimizadas.
+/// Redirige a [FloatingWindowSlots] para mantener sincronía global en un solo lugar.
+typedef _MinimizedSlots = FloatingWindowSlots;

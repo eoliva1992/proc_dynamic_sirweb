@@ -53,11 +53,7 @@ void main() {
       stProcedimiento: '1',
     );
 
-    const emptySchema = SchemaMetadata(
-      tables: [],
-      views: [],
-      objects: [],
-    );
+    const emptySchema = SchemaMetadata(tables: [], views: [], objects: []);
 
     setUp(() {
       SchemaService.instance.overrideCacheForTesting('Desa', emptySchema);
@@ -115,4 +111,3 @@ void main() {
     });
   });
 }
-

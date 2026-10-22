@@ -794,69 +794,91 @@ class _TransferDiffWindowState extends State<TransferDiffWindow> {
                         ],
                 ),
                 clipBehavior: Clip.antiAlias,
-                child: OverflowBox(
-                  alignment: Alignment.topLeft,
-                  minWidth: 0,
-                  maxWidth: double.infinity,
-                  minHeight: 0,
-                  maxHeight: double.infinity,
-                  child: SizedBox(
-                    width: _winW,
-                    height: _winH,
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: Column(
+                child: _minimized
+                    ? MinimizedWindowCard(
+                        title: widget.sourceProc.cdProcedimiento,
+                        icon: Icons.compare_arrows_rounded,
+                        accentColor: Colors.blue.shade400,
+                        badge: 'TRANSFER',
+                        onRestore: _toggleMinimized,
+                        onClose: _close,
+                      )
+                    : OverflowBox(
+                        alignment: Alignment.topLeft,
+                        minWidth: 0,
+                        maxWidth: double.infinity,
+                        minHeight: 0,
+                        maxHeight: double.infinity,
+                        child: SizedBox(
+                          width: _winW,
+                          height: _winH,
+                          child: Stack(
                             children: [
-                              const SizedBox(height: _kHeaderH),
-                              _buildToolbar(isDark, cs, srcColor, tgtColor),
-                              Expanded(
-                                child: _loadingTarget
-                                    ? Center(
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              color: tgtColor,
-                                            ),
-                                            const SizedBox(height: 12),
-                                            Text(
-                                              'Cargando versión de ${widget.targetAmbiente}…',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: cs.onSurfaceVariant,
+                              Positioned.fill(
+                                child: Column(
+                                  children: [
+                                    const SizedBox(height: _kHeaderH),
+                                    _buildToolbar(
+                                      isDark,
+                                      cs,
+                                      srcColor,
+                                      tgtColor,
+                                    ),
+                                    Expanded(
+                                      child: _loadingTarget
+                                          ? Center(
+                                              child: Column(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  CircularProgressIndicator(
+                                                    strokeWidth: 2,
+                                                    color: tgtColor,
+                                                  ),
+                                                  const SizedBox(height: 12),
+                                                  Text(
+                                                    'Cargando versión de ${widget.targetAmbiente}…',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color:
+                                                          cs.onSurfaceVariant,
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
+                                            )
+                                          : NativeDiffViewer(
+                                              origText: _currentOriginal,
+                                              modText: _targetCode,
+                                              sideBySide: _sideBySide,
+                                              showAllLines: _showAllLines,
+                                              controller: _diffCtrl,
+                                              onApplyLineToTarget:
+                                                  _applyLineToTarget,
+                                              onApplyLineToSource:
+                                                  _applyLineToSource,
+                                              searchQuery: _searchQuery,
+                                              editableSide: _editSide,
+                                              onEditLine: _editLine,
                                             ),
-                                          ],
-                                        ),
-                                      )
-                                    : NativeDiffViewer(
-                                        origText: _currentOriginal,
-                                        modText: _targetCode,
-                                        sideBySide: _sideBySide,
-                                        showAllLines: _showAllLines,
-                                        controller: _diffCtrl,
-                                        onApplyLineToTarget: _applyLineToTarget,
-                                        onApplyLineToSource: _applyLineToSource,
-                                        searchQuery: _searchQuery,
-                                        editableSide: _editSide,
-                                        onEditLine: _editLine,
-                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Positioned(
+                                left: 0,
+                                top: 0,
+                                width: w,
+                                child: _buildHeader(
+                                  isDark,
+                                  cs,
+                                  srcColor,
+                                  tgtColor,
+                                ),
                               ),
                             ],
                           ),
                         ),
-                        Positioned(
-                          left: 0,
-                          top: 0,
-                          width: w,
-                          child: _buildHeader(isDark, cs, srcColor, tgtColor),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                      ),
               ),
             ),
           ),

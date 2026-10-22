@@ -8,6 +8,7 @@ import '../../services/snippet_service.dart';
 import '../app_toast.dart';
 import '../constellation_background.dart';
 import '../floating_window.dart' show showFloatingDialog;
+import '../monaco_snippets.dart' show snippetsRevision;
 import 'snippet_editor_window.dart';
 
 /// Abre la estación de trabajo y consulta profesional de snippets de usuario:
@@ -227,9 +228,11 @@ class SnippetsBrowserDialogState extends State<SnippetsBrowserDialog> {
       context,
       initialSnippet: snippet,
       onSaved: (saved) {
+        snippetsRevision.value++;
         _loadSnippets();
       },
       onDeleted: () {
+        snippetsRevision.value++;
         _loadSnippets();
       },
     );

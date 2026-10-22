@@ -757,38 +757,51 @@ class _BatchTransferPageState extends State<BatchTransferPage>
                     ],
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    minWidth: 0,
-                    maxWidth: double.infinity,
-                    minHeight: 0,
-                    maxHeight: double.infinity,
-                    child: SizedBox(
-                      width: _winW,
-                      height: _winH,
-                      child: Stack(
-                        children: [
-                          Positioned.fill(
-                            child: Column(
+                  child: _minimized
+                      ? MinimizedWindowCard(
+                          title: 'Transferencia por Lotes',
+                          icon: Icons.drive_file_move_outlined,
+                          accentColor: cs.primary,
+                          badge: 'BATCH',
+                          onRestore: _toggleMinimized,
+                          onClose: _close,
+                        )
+                      : OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: 0,
+                          maxWidth: double.infinity,
+                          minHeight: 0,
+                          maxHeight: double.infinity,
+                          child: SizedBox(
+                            width: _winW,
+                            height: _winH,
+                            child: Stack(
                               children: [
-                                const SizedBox(height: _kHeaderH),
-                                _buildStepBreadcrumbs(context, isDark, cs),
-                                Expanded(
-                                  child: _buildBody(context, isDark, cs),
+                                Positioned.fill(
+                                  child: Column(
+                                    children: [
+                                      const SizedBox(height: _kHeaderH),
+                                      _buildStepBreadcrumbs(
+                                        context,
+                                        isDark,
+                                        cs,
+                                      ),
+                                      Expanded(
+                                        child: _buildBody(context, isDark, cs),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Positioned(
+                                  left: 0,
+                                  top: 0,
+                                  width: w,
+                                  child: _buildHeader(context, isDark, cs),
                                 ),
                               ],
                             ),
                           ),
-                          Positioned(
-                            left: 0,
-                            top: 0,
-                            width: w,
-                            child: _buildHeader(context, isDark, cs),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                        ),
                 ),
               ),
             ),

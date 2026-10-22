@@ -1,4 +1,5 @@
 class DatoInfo {
+  final int? version;
   final int? cdDato;
   final String? deDato;
   final String? tpDato;
@@ -14,6 +15,7 @@ class DatoInfo {
   final Map<String, dynamic> raw;
 
   const DatoInfo({
+    this.version,
     this.cdDato,
     this.deDato,
     this.tpDato,
@@ -50,6 +52,7 @@ class DatoInfo {
         .toList();
 
     return DatoInfo(
+      version: _n(datoMap['version']),
       cdDato: _n(datoMap['cdDato']),
       deDato: datoMap['deDato'] as String?,
       tpDato: datoMap['tpDato'] as String?,
@@ -217,6 +220,7 @@ class DatoProducto {
 }
 
 class TablaDefinicion {
+  final int? version;
   final int? cdTabla;
   final String? deTabla;
   final bool? inComboConsulta;
@@ -225,6 +229,7 @@ class TablaDefinicion {
   final Map<String, dynamic> raw;
 
   const TablaDefinicion({
+    this.version,
     this.cdTabla,
     this.deTabla,
     this.inComboConsulta,
@@ -236,6 +241,7 @@ class TablaDefinicion {
   factory TablaDefinicion.fromJson(Map<String, dynamic> json) {
     final list = json['datos'] as List<dynamic>? ?? const <dynamic>[];
     return TablaDefinicion(
+      version: _n(json['version']),
       cdTabla: _n(json['cdTabla']),
       deTabla: json['deTabla'] as String?,
       inComboConsulta: _b(json['inComboConsulta']),
@@ -272,6 +278,46 @@ class DatoColumna {
     deDato: json['deDato'] as String?,
     raw: json,
   );
+}
+
+class TablaDefinicionAdicional {
+  final int? version;
+  final int? cdTabla;
+  final int? cdDatoAdicional;
+  final String? deDatoAdicional;
+  final int? cdConsecutivoDatoAdicional;
+  final bool? inDatoAdicionalRequerido;
+  final Map<String, dynamic> raw;
+
+  const TablaDefinicionAdicional({
+    this.version,
+    this.cdTabla,
+    this.cdDatoAdicional,
+    this.deDatoAdicional,
+    this.cdConsecutivoDatoAdicional,
+    this.inDatoAdicionalRequerido,
+    required this.raw,
+  });
+
+  factory TablaDefinicionAdicional.fromJson(Map<String, dynamic> json) =>
+      TablaDefinicionAdicional(
+        version: _n(json['version']),
+        cdTabla: _n(json['cdTabla']),
+        cdDatoAdicional: _n(json['cdDatoAdicional']),
+        deDatoAdicional: json['deDatoAdicional'] as String?,
+        cdConsecutivoDatoAdicional: _n(json['cdConsecutivoDatoAdicional']),
+        inDatoAdicionalRequerido: _b(json['inDatoAdicionalRequerido']),
+        raw: json,
+      );
+
+  static int? _n(dynamic v) => v == null ? null : (v as num).toInt();
+  static bool? _b(dynamic v) {
+    if (v == null) return null;
+    if (v is bool) return v;
+    if (v is int) return v != 0;
+    if (v is String) return v == '1' || v.toLowerCase() == 'true';
+    return null;
+  }
 }
 
 class ValorTabla {

@@ -19,7 +19,9 @@ String _firstKeyword(String stripped) {
 
 final _reCreatePlsql = RegExp(
   r'^\s*CREATE\s+(OR\s+REPLACE\s+)?'
-  r'(PROCEDURE|FUNCTION|PACKAGE(\s+BODY)?|TRIGGER|TYPE\s+BODY)\b',
+  r'(NOFORCE\s+|FORCE\s+)?'
+  r'(EDITIONABLE\s+|NONEDITIONABLE\s+)?'
+  r'(PROCEDURE|FUNCTION|PACKAGE(\s+BODY)?|TRIGGER|TYPE(\s+BODY)?)\b',
   caseSensitive: false,
 );
 
@@ -47,7 +49,15 @@ SqlStatementKind detectStatementKind(String statement) {
   ).hasMatch(stripped)) {
     return SqlStatementKind.explainPlan;
   }
-  if (_reCreatePlsql.hasMatch(stripped)) return SqlStatementKind.plsql;
+
+  // Comandos cliente compatibles (SQL*Plus / SQL Developer), como DESC o DESCRIBE.
+  if (RegExp(r'^\s*(DESC|DESCRIBE)\b', caseSensitive: false).hasMatch(stripped)) {
+    return SqlStatementKind.command;
+  }
+
+  // CREATE de objetos almacenados es DDL, aunque su fuente contenga BEGIN/END.
+  // Enrutándolo por DDL, executeDdl envía confirmar=true al backend.
+  if (_reCreatePlsql.hasMatch(stripped)) return SqlStatementKind.ddl;
 
   final kw = _firstKeyword(stripped);
   if (kw == 'SELECT' || kw == 'WITH') return SqlStatementKind.select;
@@ -66,8 +76,11 @@ SqlStatementKind detectStatementKind(String statement) {
 
 /// Palabras que abren un bloque que debe cerrar con su propio `END`
 /// (para no cortar por el `;` interno de un bloque PL/SQL).
+///
+/// Nota: En un `PACKAGE` o `PACKAGE BODY`, la declaración del paquete abre
+/// un bloque de nivel superior que concluye con su propio `END [nombre];`.
 final _reBlockOpen = RegExp(
-  r'\b(BEGIN|CASE|LOOP)\b|\bIF\b(?!\s*\().*?\bTHEN\b',
+  r'\b(PACKAGE(\s+BODY)?|BEGIN|CASE|LOOP)\b|\bIF\b(?!\s*\().*?\bTHEN\b',
   caseSensitive: false,
 );
 final _reBlockClose = RegExp(r'\bEND\b', caseSensitive: false);
@@ -77,14 +90,19 @@ final _reBlockClose = RegExp(r'\bEND\b', caseSensitive: false);
 /// Reglas:
 /// - `;` cierra una sentencia sólo si no estamos dentro de un bloque PL/SQL
 ///   (se cuenta el anidamiento de `BEGIN/CASE/IF…THEN` vs `END`).
+/// - En sentencias de creación de objetos (`CREATE [OR REPLACE] ... PROCEDURE/FUNCTION/PACKAGE...`),
+///   los `;` de la sección declarativa (antes de `BEGIN` o de abrir bloques) no cortan la sentencia;
+///   la sentencia sólo concluye cuando se alcanza el cierre del cuerpo (`END;`) o un terminador `/`.
 /// - Una línea que contiene únicamente `/` (convención SQL*Plus) cierra la
-///   sentencia PL/SQL anterior sin necesitar `;`.
+///   sentencia PL/SQL o DDL anterior sin necesitar `;`.
 /// - Comentarios y literales de texto (incluso `q'[...]'`) no cuentan `;`.
 List<SqlStatement> splitStatements(String script) {
   final stripped = stripPlSqlNoise(script);
   final statements = <SqlStatement>[];
   var start = 0;
   var depth = 0;
+  var inCreateObject = false;
+  var objectHasSeenBlock = false;
 
   int lineAt(int offset) => '\n'.allMatches(script.substring(0, offset)).length;
 
@@ -104,11 +122,27 @@ List<SqlStatement> splitStatements(String script) {
       );
     }
     start = end;
+    depth = 0;
+    inCreateObject = false;
+    objectHasSeenBlock = false;
   }
 
   var i = 0;
   final n = stripped.length;
   while (i < n) {
+    // Si estamos al inicio de una nueva sentencia (o tras whitespace), detectamos
+    // si inicia la creación de un objeto PL/SQL almacenado.
+    if (!inCreateObject && depth == 0) {
+      final currentSlice = stripped.substring(start, i).trim();
+      if (currentSlice.isEmpty) {
+        final remainingFromI = stripped.substring(i);
+        if (_reCreatePlsql.hasMatch(remainingFromI)) {
+          inCreateObject = true;
+          objectHasSeenBlock = false;
+        }
+      }
+    }
+
     // Terminador SQL*Plus: línea que sólo contiene "/".
     if ((i == 0 || stripped[i - 1] == '\n') && stripped[i] == '/') {
       final rest = stripped.substring(i + 1);
@@ -118,7 +152,6 @@ List<SqlStatement> splitStatements(String script) {
         // Cierra cualquier sentencia pendiente (haya o no terminado ya en
         // ';'); si no queda nada pendiente, flush() es un no-op seguro.
         flush(i);
-        depth = 0;
         start = i + 1;
         i++;
         continue;
@@ -129,20 +162,35 @@ List<SqlStatement> splitStatements(String script) {
     final openMatch = _reBlockOpen.matchAsPrefix(remaining);
     if (openMatch != null && openMatch.start == 0) {
       depth++;
+      if (inCreateObject) {
+        objectHasSeenBlock = true;
+      }
       i += openMatch.end;
       continue;
     }
     final closeMatch = _reBlockClose.matchAsPrefix(remaining);
     if (closeMatch != null && closeMatch.start == 0) {
-      if (depth > 0) depth--;
+      if (depth > 0) {
+        depth--;
+      } else if (inCreateObject) {
+        // Caso de especificación de PACKAGE o TYPE que no tiene BEGIN pero cierra con `END [nombre];`
+        objectHasSeenBlock = true;
+      }
       i += closeMatch.end;
       continue;
     }
 
-    if (stripped[i] == ';' && depth == 0) {
-      flush(i + 1);
-      i++;
-      continue;
+    if (stripped[i] == ';') {
+      if (!inCreateObject && depth == 0) {
+        flush(i + 1);
+        i++;
+        continue;
+      } else if (inCreateObject && depth == 0 && objectHasSeenBlock) {
+        // En creación de objetos PL/SQL, solo cierra si ya se vio el bloque y depth retornó a 0.
+        flush(i + 1);
+        i++;
+        continue;
+      }
     }
     i++;
   }
@@ -157,4 +205,23 @@ SqlStatement? statementAtCursor(String script, int offset) {
     if (offset >= s.startOffset && offset <= s.endOffset) return s;
   }
   return statements.isNotEmpty ? statements.last : null;
+}
+
+final _reDdlObjectName = RegExp(
+  r'^\s*CREATE\s+(?:OR\s+REPLACE\s+)?'
+  r'(?:(?:NOFORCE|FORCE|EDITIONABLE|NONEDITIONABLE)\s+)*'
+  r'(PROCEDURE|FUNCTION|PACKAGE(?:\s+BODY)?|TRIGGER|TYPE(?:\s+BODY)?|TABLE|VIEW|INDEX|SEQUENCE|SYNONYM)\s+'
+  r'(?:("?[A-Za-z0-9_#$]+"?)?\s*\.\s*)?("?[A-Za-z0-9_#$]+"?)\b',
+  caseSensitive: false,
+);
+
+/// Extrae metadatos de tipo y nombre del objeto si la sentencia es DDL de creación.
+({String? objectType, String? objectName}) extractDdlTarget(String statement) {
+  final stripped = stripPlSqlNoise(statement).trim();
+  final m = _reDdlObjectName.firstMatch(stripped);
+  if (m == null) return (objectType: null, objectName: null);
+
+  final type = m.group(1)?.replaceAll(RegExp(r'\s+'), ' ').toUpperCase();
+  var name = m.group(3)?.replaceAll('"', '');
+  return (objectType: type, objectName: name);
 }

@@ -29,6 +29,8 @@ Color kindColor(SqlStatementKind kind, bool isDark) => switch (kind) {
     isDark ? const Color(0xFF4DB6AC) : const Color(0xFF00897B),
   SqlStatementKind.plsql =>
     isDark ? const Color(0xFFBA68C8) : const Color(0xFF7B1FA2),
+  SqlStatementKind.command =>
+    isDark ? const Color(0xFF80DEEA) : const Color(0xFF0097A7),
   SqlStatementKind.explainPlan =>
     isDark ? const Color(0xFF9FA8DA) : const Color(0xFF3F51B5),
   SqlStatementKind.unknown =>

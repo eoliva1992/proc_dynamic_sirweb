@@ -59,25 +59,38 @@ extension _EditorCompletionsMethods on _CodeEditorPanelState {
         ].where((e) => e.severity == MarkerSeverity.error).length;
       });
       if (_activeProcId == procId) {
-        await _withCtrl(
-          (ctrl) => ctrl.document.setMarkers([
-            for (final e in [
-              ...(_compileErrorsPerProc[procId] ?? []),
-              ...issues,
-            ])
-              MarkerData(
-                range: Range(
-                  startLine: e.line,
-                  startColumn: e.col,
-                  endLine: e.line,
-                  endColumn: e.endCol,
-                ),
-                message: e.message,
-                severity: e.severity,
-                source: e.source,
+        final markersToSet = [
+          for (final e in [
+            ...(_compileErrorsPerProc[procId] ?? []),
+            ...issues,
+          ])
+            MarkerData(
+              range: Range(
+                startLine: e.line,
+                startColumn: e.col,
+                endLine: e.line,
+                endColumn: e.endCol,
               ),
-          ], owner: 'plsql-checker'),
-        );
+              message: e.message,
+              severity: e.severity,
+              source: e.source,
+            ),
+        ];
+
+        void applyMarkers() {
+          unawaited(
+            _withCtrl(
+              (ctrl) => ctrl.document.setMarkers(markersToSet, owner: 'plsql-checker'),
+            ),
+          );
+        }
+
+        if (_isSuggestWidgetVisible) {
+          // Defer marker update until suggestion popup is dismissed to avoid interrupting user typing
+          _pendingMarkerUpdate = applyMarkers;
+        } else {
+          applyMarkers();
+        }
       }
     } finally {
       if (mounted && version == _backendCheckVersion) {
@@ -706,7 +719,7 @@ extension _EditorCompletionsMethods on _CodeEditorPanelState {
   }
 
   void _openSnippetsManager() {
-    showSnippetsManager(context).then((_) {
+    showSnippetsBrowser(context).then((_) {
       if (mounted) _registerSnippetCompletions();
     });
   }

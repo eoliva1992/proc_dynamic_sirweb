@@ -29,27 +29,66 @@ String _sqlLiteral(dynamic value, String dataType) {
   return "'$escaped'";
 }
 
-/// Normaliza el valor (típicamente ISO-8601, ej. `2026-10-06T00:00:00.123Z`)
-/// a `YYYY-MM-DD HH24:MI:SS[.FF6]` y lo envuelve en `TO_DATE`/`TO_TIMESTAMP`
-/// con la máscara correspondiente, para que no dependa del NLS de la sesión.
+/// Normaliza el valor a `YYYY-MM-DD HH24:MI:SS[.FF6]` o `DD/MM/YYYY HH24:MI:SS`
+/// y lo envuelve en `TO_DATE`/`TO_TIMESTAMP` con la máscara correspondiente,
+/// para que no dependa del NLS de la sesión.
 String _dateLiteral(dynamic value, String dataType) {
-  var s = value.toString().replaceFirst('T', ' ');
+  if (value == null) return 'NULL';
+  var s = value.toString().trim();
+  if (s.isEmpty) return 'NULL';
+
+  s = s.replaceFirst('T', ' ');
   final zIdx = s.indexOf('Z');
   if (zIdx != -1) s = s.substring(0, zIdx);
   final tzIdx = RegExp(r'[+-]\d{2}:\d{2}$').firstMatch(s)?.start;
   if (tzIdx != null) s = s.substring(0, tzIdx);
 
   final dotIdx = s.indexOf('.');
-  var datePart = dotIdx != -1 ? s.substring(0, dotIdx) : s;
-  if (!datePart.contains(' ')) datePart = '$datePart 00:00:00';
+  var datePart = (dotIdx != -1 ? s.substring(0, dotIdx) : s).trim();
+  if (datePart.isEmpty) return 'NULL';
+
+  // Separar fecha y hora
+  String dOnly;
+  String tOnly;
+  final parts = datePart
+      .split(RegExp(r'\s+'))
+      .where((p) => p.isNotEmpty)
+      .toList();
+  if (parts.isEmpty) {
+    return 'NULL';
+  } else if (parts.length == 1) {
+    if (parts[0].contains(':')) {
+      // Solo viene hora, sin parte de fecha válida (ej: ' 00:00:00') -> tratarse como NULL
+      return 'NULL';
+    }
+    dOnly = parts[0];
+    tOnly = '00:00:00';
+  } else {
+    // Al menos 2 tokens (ej. '01/01/2013' y '00:00:00')
+    if (parts[0].contains(':') && !parts[1].contains(':')) {
+      tOnly = parts[0];
+      dOnly = parts[1];
+    } else {
+      dOnly = parts[0];
+      tOnly = parts[1];
+    }
+  }
+
+  // Validar que la parte de fecha tenga al menos año/mes/día con separador '-' o '/'
+  if (!dOnly.contains('-') && !dOnly.contains('/')) {
+    return 'NULL';
+  }
+
+  final isSlash = dOnly.contains('/');
+  final formatMask = isSlash ? 'DD/MM/YYYY' : 'YYYY-MM-DD';
 
   if (dataType.toUpperCase().contains('TIMESTAMP')) {
     final frac = (dotIdx != -1 ? s.substring(dotIdx + 1) : '')
         .padRight(6, '0')
         .substring(0, 6);
-    return "TO_TIMESTAMP('$datePart.$frac', 'YYYY-MM-DD HH24:MI:SS.FF6')";
+    return "TO_TIMESTAMP('$dOnly $tOnly.$frac', '$formatMask HH24:MI:SS.FF6')";
   }
-  return "TO_DATE('$datePart', 'YYYY-MM-DD HH24:MI:SS')";
+  return "TO_DATE('$dOnly $tOnly', '$formatMask HH24:MI:SS')";
 }
 
 /// `INSERT INTO tabla (COL1, COL2) VALUES (v1, v2);` por cada fila indicada.

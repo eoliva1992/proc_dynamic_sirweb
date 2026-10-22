@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:proc_dynamic_sirweb/models/sql_execution.dart';
+import 'package:proc_dynamic_sirweb/models/sql_http_trace.dart';
 import 'package:proc_dynamic_sirweb/providers/procedimientos_provider.dart';
 import 'package:proc_dynamic_sirweb/services/sirweb_service.dart';
 import 'package:proc_dynamic_sirweb/services/sql_executor_service.dart';
@@ -10,9 +11,13 @@ import 'package:proc_dynamic_sirweb/services/sql_executor_state_controller.dart'
 import 'package:proc_dynamic_sirweb/services/sql_session_manager.dart';
 
 class _FakeSqlExecutorService implements SqlExecutorService {
+  @override
+  void Function(SqlHttpTraceEntry)? onHttpTrace;
+
   int selectCalls = 0;
   int dmlCalls = 0;
   int ddlCalls = 0;
+  List<SqlDdlError> ddlErrorsToReturn = const [];
   int commitCalls = 0;
   int rollbackCalls = 0;
   String? lastSql;
@@ -21,6 +26,11 @@ class _FakeSqlExecutorService implements SqlExecutorService {
   int? lastSelectMaxRows;
   int? lastDmlMaxRows;
   String? dmlSessionIdToReturn;
+  SqlQueryResult? selectResultToReturn;
+  void Function(String? sessionId)? onExecuteSelect;
+  void Function(String? sessionId)? onExecuteDml;
+  void Function(String sessionId)? onCommit;
+  void Function(String sessionId)? onRollback;
 
   @override
   Future<SqlQueryResult> executeSelect(
@@ -32,24 +42,27 @@ class _FakeSqlExecutorService implements SqlExecutorService {
     int timeoutSegundos = 30,
     http.Client? client,
     bool Function()? cancelado,
+    void Function(SqlHttpTraceEntry)? onTrace,
   }) async {
     selectCalls++;
     lastSql = sql;
     lastOwner = owner;
     lastSessionId = sessionId;
     lastSelectMaxRows = maxRows;
-    return const SqlQueryResult(
-      columns: [
-        SqlColumn(name: 'ID', dataType: 'NUMBER'),
-        SqlColumn(name: 'NAME', dataType: 'VARCHAR2'),
-      ],
-      rows: [
-        [1, 'TEST'],
-      ],
-      returnedRows: 1,
-      truncated: false,
-      durationMs: 42,
-    );
+    onExecuteSelect?.call(sessionId);
+    return selectResultToReturn ??
+        const SqlQueryResult(
+          columns: [
+            SqlColumn(name: 'ID', dataType: 'NUMBER'),
+            SqlColumn(name: 'NAME', dataType: 'VARCHAR2'),
+          ],
+          rows: [
+            [1, 'TEST'],
+          ],
+          returnedRows: 1,
+          truncated: false,
+          durationMs: 42,
+        );
   }
 
   @override
@@ -62,12 +75,14 @@ class _FakeSqlExecutorService implements SqlExecutorService {
     int timeoutSegundos = 30,
     http.Client? client,
     bool Function()? cancelado,
+    void Function(SqlHttpTraceEntry)? onTrace,
   }) async {
     dmlCalls++;
     lastSql = sql;
     lastSessionId = sessionId;
     lastOwner = owner;
     lastDmlMaxRows = maxRows;
+    onExecuteDml?.call(sessionId);
     return SqlDmlResult(
       rowsAffected: 3,
       durationMs: 15,
@@ -81,19 +96,23 @@ class _FakeSqlExecutorService implements SqlExecutorService {
     String sql, {
     required String ambiente,
     required String owner,
+    String? sessionId,
     String? objectName,
     String? objectType,
     int timeoutSegundos = 30,
     http.Client? client,
     bool Function()? cancelado,
+    void Function(SqlHttpTraceEntry)? onTrace,
   }) async {
     ddlCalls++;
     lastSql = sql;
     lastOwner = owner;
-    return const SqlDdlResult(
+    lastSessionId = sessionId;
+    return SqlDdlResult(
       ambiente: 'Desa',
       confirmed: true,
       autoCommitPossible: true,
+      errors: ddlErrorsToReturn,
       durationMs: 10,
     );
   }
@@ -107,6 +126,7 @@ class _FakeSqlExecutorService implements SqlExecutorService {
     int timeoutSegundos = 30,
     http.Client? client,
     bool Function()? cancelado,
+    void Function(SqlHttpTraceEntry)? onTrace,
   }) async {
     lastSql = plsql;
     lastSessionId = sessionId;
@@ -115,15 +135,38 @@ class _FakeSqlExecutorService implements SqlExecutorService {
   }
 
   @override
+  Future<SqlCommandResult> executeCommand(
+    String commandSql, {
+    required String ambiente,
+    required String owner,
+    String? sessionId,
+    int timeoutSegundos = 30,
+    http.Client? client,
+    bool Function()? cancelado,
+    void Function(SqlHttpTraceEntry)? onTrace,
+  }) async {
+    lastSql = commandSql;
+    lastOwner = owner;
+    lastSessionId = sessionId;
+    return SqlCommandResult(
+      command: commandSql.trim().split(RegExp(r'\s+')).first.toUpperCase(),
+      output: 'OK',
+      durationMs: 2,
+    );
+  }
+
+  @override
   Future<void> commitSession(
     String sessionId, {
     required String owner,
     http.Client? client,
     bool Function()? cancelado,
+    void Function(SqlHttpTraceEntry)? onTrace,
   }) async {
     commitCalls++;
     lastSessionId = sessionId;
     lastOwner = owner;
+    onCommit?.call(sessionId);
   }
 
   @override
@@ -132,10 +175,12 @@ class _FakeSqlExecutorService implements SqlExecutorService {
     required String owner,
     http.Client? client,
     bool Function()? cancelado,
+    void Function(SqlHttpTraceEntry)? onTrace,
   }) async {
     rollbackCalls++;
     lastSessionId = sessionId;
     lastOwner = owner;
+    onRollback?.call(sessionId);
   }
 
   @override
@@ -147,6 +192,7 @@ class _FakeSqlExecutorService implements SqlExecutorService {
     int timeoutSegundos = 30,
     http.Client? client,
     bool Function()? cancelado,
+    void Function(SqlHttpTraceEntry)? onTrace,
   }) async {
     return const SqlExplainResult(
       ambiente: 'Desa',
@@ -190,6 +236,7 @@ class _CancellableFakeSqlExecutorService extends _FakeSqlExecutorService {
     int timeoutSegundos = 30,
     http.Client? client,
     bool Function()? cancelado,
+    void Function(SqlHttpTraceEntry)? onTrace,
   }) async {
     selectCalls++;
     if (!started.isCompleted) started.complete();
@@ -221,6 +268,7 @@ class _BatchCancellableFakeSqlExecutorService extends _FakeSqlExecutorService {
     int timeoutSegundos = 30,
     http.Client? client,
     bool Function()? cancelado,
+    void Function(SqlHttpTraceEntry)? onTrace,
   }) async {
     executed.add(sql);
     onSelect?.call(sql);
@@ -236,6 +284,7 @@ class _BatchCancellableFakeSqlExecutorService extends _FakeSqlExecutorService {
       timeoutSegundos: timeoutSegundos,
       client: client,
       cancelado: cancelado,
+      onTrace: onTrace,
     );
   }
 }
@@ -310,6 +359,39 @@ void main() {
         expect(ctrl.log.length, 1);
         expect(ctrl.log.first.status, SqlLogStatus.success);
         expect(tabIndex, 0); // Pestaña 'Resultados'
+      },
+    );
+
+    test(
+      'runCurrentOrSelection ejecuta DDL con errores y reporta SqlLogStatus.error y onDdlCompilationErrors',
+      () async {
+        final fakeSvc = _FakeSqlExecutorService();
+        fakeSvc.ddlErrorsToReturn = [
+          const SqlDdlError(
+            line: 5,
+            position: 10,
+            text: 'PLS-00103: Encountered the symbol "X"',
+          ),
+        ];
+        final ctrl = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'CREATE OR REPLACE PROCEDURE pr_test AS BEGIN NULL; END;',
+          service: fakeSvc,
+        );
+        addTearDown(ctrl.dispose);
+
+        List<SqlDdlError>? reportedErrors;
+        ctrl.onDdlCompilationErrors = (stmt, errors) => reportedErrors = errors;
+
+        await ctrl.runCurrentOrSelection();
+
+        expect(fakeSvc.ddlCalls, 1);
+        expect(ctrl.log.length, 1);
+        expect(ctrl.log.first.status, SqlLogStatus.error);
+        expect(ctrl.log.first.message, contains('PLS-00103'));
+        expect(reportedErrors, isNotNull);
+        expect(reportedErrors, hasLength(1));
+        expect(reportedErrors!.first.line, 5);
       },
     );
 
@@ -525,7 +607,50 @@ void main() {
     );
 
     test(
-      'ejecutar un DML abre sesión y commit() la confirma y la cierra',
+      'recibe y acumula trazas HTTP en httpTraces y las limpia con clearHttpTraces',
+      () {
+        final fakeSvc = _FakeSqlExecutorService();
+        final ctrl = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'SELECT 1 FROM dual;',
+          service: fakeSvc,
+        );
+        addTearDown(ctrl.dispose);
+
+        expect(ctrl.httpTraces, isEmpty);
+
+        // Simula evento emitido por onHttpTrace
+        final trace1 = SqlHttpTraceEntry(
+          id: 1,
+          timestamp: DateTime.now(),
+          method: 'POST',
+          url: 'http://localhost:5000/tools/sql/statement',
+          endpoint: '/tools/sql/statement',
+          requestBody: '{"sql":"SELECT 1 FROM dual"}',
+          status: SqlHttpTraceStatus.running,
+        );
+        fakeSvc.onHttpTrace?.call(trace1);
+
+        expect(ctrl.httpTraces.length, 1);
+        expect(ctrl.httpTraces.first.status, SqlHttpTraceStatus.running);
+
+        // Actualización de la misma traza al completarse
+        trace1.statusCode = 200;
+        trace1.status = SqlHttpTraceStatus.success;
+        trace1.responseBody = '{"success":true}';
+        fakeSvc.onHttpTrace?.call(trace1);
+
+        expect(ctrl.httpTraces.length, 1);
+        expect(ctrl.httpTraces.first.statusCode, 200);
+        expect(ctrl.httpTraces.first.status, SqlHttpTraceStatus.success);
+
+        ctrl.clearHttpTraces();
+        expect(ctrl.httpTraces, isEmpty);
+      },
+    );
+
+    test(
+      'ejecutar un DML abre sesión y commit() la confirma manteniendo la sesión viva',
       () async {
         final fakeSvc = _FakeSqlExecutorService()
           ..dmlSessionIdToReturn = 'sess-1';
@@ -543,28 +668,34 @@ void main() {
         await ctrl.commit();
         expect(fakeSvc.commitCalls, 1);
         expect(fakeSvc.lastSessionId, 'sess-1');
+        // Tras commit, los cambios pendientes quedan limpios pero el sessionId NO se borra
         expect(ctrl.hasPendingChanges, isFalse);
+        expect(ctrl.sessionId, 'sess-1');
         expect(ctrl.log.last.message, contains('confirmados'));
       },
     );
 
-    test('rollback() descarta la sesión abierta', () async {
-      final fakeSvc = _FakeSqlExecutorService()
-        ..dmlSessionIdToReturn = 'sess-2';
-      final ctrl = SqlExecutorStateController(
-        initialAmbiente: 'Desa',
-        initialSql: 'UPDATE CLIENTES SET ACTIVO = 1;',
-        service: fakeSvc,
-      );
-      addTearDown(ctrl.dispose);
+    test(
+      'rollback() descarta cambios pendientes manteniendo la sesión viva',
+      () async {
+        final fakeSvc = _FakeSqlExecutorService()
+          ..dmlSessionIdToReturn = 'sess-2';
+        final ctrl = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'UPDATE CLIENTES SET ACTIVO = 1;',
+          service: fakeSvc,
+        );
+        addTearDown(ctrl.dispose);
 
-      await ctrl.runCurrentOrSelection();
-      await ctrl.rollback();
+        await ctrl.runCurrentOrSelection();
+        await ctrl.rollback();
 
-      expect(fakeSvc.rollbackCalls, 1);
-      expect(fakeSvc.lastSessionId, 'sess-2');
-      expect(ctrl.hasPendingChanges, isFalse);
-    });
+        expect(fakeSvc.rollbackCalls, 1);
+        expect(fakeSvc.lastSessionId, 'sess-2');
+        expect(ctrl.hasPendingChanges, isFalse);
+        expect(ctrl.sessionId, 'sess-2');
+      },
+    );
 
     test(
       'cambiar de ambiente descarta la sesión pendiente localmente',
@@ -632,9 +763,11 @@ void main() {
         expect(fakeSvc.commitCalls, 1);
         expect(fakeSvc.lastSessionId, 'session-compartida-123');
 
-        // Ambas pestañas quedan limpias sin cambios pendientes
+        // Ambas pestañas quedan limpias sin cambios pendientes, pero la sesión permanece viva
         expect(tab1.hasPendingChanges, isFalse);
         expect(tab2.hasPendingChanges, isFalse);
+        expect(tab1.sessionId, 'session-compartida-123');
+        expect(tab2.sessionId, 'session-compartida-123');
       },
     );
 
@@ -755,6 +888,73 @@ void main() {
       },
     );
 
+    test(
+      'cambiar de ambiente reutiliza la sesión si ya existía para ese ambiente y dueño',
+      () async {
+        final fakeSvc = _FakeSqlExecutorService();
+
+        // 1. Simular que previamente en QA se generó una sesión
+        SqlSessionManager.instance.setSessionId(
+          'QA',
+          'sess-qa-existente',
+          owner: 'TESTUSER',
+        );
+
+        final ctrl = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'SELECT 1 FROM DUAL;',
+          service: fakeSvc,
+        );
+        addTearDown(ctrl.dispose);
+
+        expect(ctrl.sessionId, isNull);
+
+        // 2. Cambiar de ambiente a QA
+        ctrl.setAmbiente('QA');
+
+        // 3. Debe adoptar inmediatamente la sesión ya existente de QA sin crear otra
+        expect(ctrl.sessionId, 'sess-qa-existente');
+
+        // 4. Ejecutar sentencia: envía la sesión existente
+        await ctrl.runCurrentOrSelection();
+        expect(fakeSvc.lastSessionId, 'sess-qa-existente');
+      },
+    );
+
+    test(
+      'cambiar de usuario (owner) alterna la sesión al par correspondiente',
+      () async {
+        final fakeSvc = _FakeSqlExecutorService();
+
+        SqlSessionManager.instance.setSessionId(
+          'Desa',
+          'sess-user-a',
+          owner: 'USER_A',
+        );
+        SqlSessionManager.instance.setSessionId(
+          'Desa',
+          'sess-user-b',
+          owner: 'USER_B',
+        );
+
+        procedimientosProvider.setCdUsuario('USER_A');
+
+        final ctrl = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'SELECT 1 FROM DUAL;',
+          service: fakeSvc,
+        );
+        addTearDown(ctrl.dispose);
+
+        expect(ctrl.sessionId, 'sess-user-a');
+
+        // Cambiar de usuario
+        procedimientosProvider.setCdUsuario('USER_B');
+
+        expect(ctrl.sessionId, 'sess-user-b');
+      },
+    );
+
     test('persistencia de maxRows en SharedPreferences admite -1', () async {
       SharedPreferences.setMockInitialValues({'sql_executor_max_rows': -1});
       final fakeSvc = _FakeSqlExecutorService();
@@ -871,5 +1071,184 @@ void main() {
         expect(ctrl.results, isNotEmpty);
       },
     );
+
+    test(
+      'reintenta automáticamente y obtiene nueva sesión si la sesión SQL expiró en el servidor',
+      () async {
+        final fakeSvc = _FakeSqlExecutorService();
+
+        // Inicializamos con una sesión existente en el gestor (simulando una sesión vieja/expirada)
+        SqlSessionManager.instance.setSessionId(
+          'Desa',
+          'sess-expirada-123',
+          owner: 'TESTUSER',
+        );
+
+        var firstCall = true;
+        fakeSvc.onExecuteSelect = (sessionId) {
+          if (firstCall) {
+            firstCall = false;
+            expect(sessionId, 'sess-expirada-123');
+            throw Exception(
+              'Error en EjecutarSentencia: La sesión SQL no existe o expiró.',
+            );
+          }
+          // En el reintento, la sesión debe haberse limpiado (null)
+          expect(sessionId, isNull);
+        };
+
+        final ctrl = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'SELECT 1 FROM dual;',
+          service: fakeSvc,
+        );
+        addTearDown(ctrl.dispose);
+
+        expect(ctrl.sessionId, 'sess-expirada-123');
+
+        // Ejecutar sentencia
+        await ctrl.runCurrentOrSelection();
+
+        // La ejecución debió reintentarse y terminar en éxito
+        expect(fakeSvc.selectCalls, 2);
+        expect(ctrl.log.last.status, SqlLogStatus.success);
+        expect(ctrl.log.last.message, 'OK');
+        expect(ctrl.results.length, 1);
+        expect(ctrl.sessionId, isNull);
+      },
+    );
+
+    test(
+      'en DML con sesión expirada, reintenta con sessionId null y asigna el nuevo sessionId devuelto',
+      () async {
+        final fakeSvc = _FakeSqlExecutorService();
+
+        SqlSessionManager.instance.setSessionId(
+          'Desa',
+          'sess-vieja-456',
+          owner: 'TESTUSER',
+        );
+
+        var firstDml = true;
+        fakeSvc.onExecuteDml = (sessionId) {
+          if (firstDml) {
+            firstDml = false;
+            expect(sessionId, 'sess-vieja-456');
+            throw Exception('La sesión SQL no existe o expiró.');
+          }
+          expect(sessionId, isNull);
+          fakeSvc.dmlSessionIdToReturn = 'sess-nueva-789';
+        };
+
+        final ctrl = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'UPDATE CLIENTES SET ACTIVO = 1;',
+          service: fakeSvc,
+        );
+        addTearDown(ctrl.dispose);
+
+        expect(ctrl.sessionId, 'sess-vieja-456');
+
+        await ctrl.runCurrentOrSelection();
+
+        expect(fakeSvc.dmlCalls, 2);
+        expect(ctrl.log.last.status, SqlLogStatus.success);
+        expect(ctrl.sessionId, 'sess-nueva-789');
+        expect(ctrl.hasPendingChanges, isTrue);
+      },
+    );
+
+    test(
+      'commit() con sesión expirada en servidor limpia la sesión y muestra advertencia sin error',
+      () async {
+        final fakeSvc = _FakeSqlExecutorService();
+
+        SqlSessionManager.instance.setSessionId(
+          'Desa',
+          'sess-vencida-999',
+          owner: 'TESTUSER',
+          hasPendingChanges: true,
+        );
+
+        fakeSvc.onCommit = (sessionId) {
+          throw Exception('La sesión SQL no existe o expiró.');
+        };
+
+        final ctrl = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'SELECT 1 FROM dual;',
+          service: fakeSvc,
+        );
+        addTearDown(ctrl.dispose);
+
+        expect(ctrl.hasPendingChanges, isTrue);
+
+        await ctrl.commit();
+
+        expect(ctrl.hasPendingChanges, isFalse);
+        expect(ctrl.sessionId, isNull);
+        expect(ctrl.log.last.status, SqlLogStatus.warning);
+        expect(
+          ctrl.log.last.message,
+          contains('La sesión expiró o ya no existe'),
+        );
+      },
+    );
+
+    test('loadMoreRows pagina y anexa filas al resultado truncado', () async {
+      final fakeSvc = _FakeSqlExecutorService();
+      // 1. La primera consulta devuelve resultado truncado con 2 filas
+      fakeSvc.selectResultToReturn = const SqlQueryResult(
+        columns: [
+          SqlColumn(name: 'ID', dataType: 'NUMBER'),
+          SqlColumn(name: 'NAME', dataType: 'VARCHAR2'),
+        ],
+        rows: [
+          [1, 'A'],
+          [2, 'B'],
+        ],
+        returnedRows: 2,
+        truncated: true,
+        durationMs: 20,
+      );
+
+      final ctrl = SqlExecutorStateController(
+        initialAmbiente: 'Desa',
+        initialSql: 'SELECT * FROM EMPLEADOS;',
+        service: fakeSvc,
+      );
+      addTearDown(ctrl.dispose);
+
+      await ctrl.runCurrentOrSelection();
+      expect(ctrl.results, hasLength(1));
+      expect(ctrl.lastResult?.truncated, isTrue);
+      expect(ctrl.lastResult?.rows, hasLength(2));
+
+      // 2. Para la siguiente página devolvemos 1 fila adicional sin truncar
+      fakeSvc.selectResultToReturn = const SqlQueryResult(
+        columns: [
+          SqlColumn(name: 'ID', dataType: 'NUMBER'),
+          SqlColumn(name: 'NAME', dataType: 'VARCHAR2'),
+        ],
+        rows: [
+          [3, 'C'],
+        ],
+        returnedRows: 1,
+        truncated: false,
+        durationMs: 15,
+      );
+
+      // Ejecutar loadMoreRows
+      final success = await ctrl.loadMoreRows();
+      expect(success, isTrue);
+
+      // Debe haber anexado la fila (total 3 filas)
+      expect(ctrl.lastResult?.rows, hasLength(3));
+      expect(ctrl.lastResult?.rows[0], [1, 'A']);
+      expect(ctrl.lastResult?.rows[1], [2, 'B']);
+      expect(ctrl.lastResult?.rows[2], [3, 'C']);
+      expect(ctrl.lastResult?.truncated, isFalse);
+      expect(fakeSvc.lastSql, contains('OFFSET 2 ROWS FETCH NEXT'));
+    });
   });
 }

@@ -6,7 +6,10 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_monaco/flutter_monaco.dart' as fm;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/bulk_backup_item.dart';
+import '../models/object_compilation_entry.dart';
+import '../models/sql_http_trace.dart';
 import '../services/app_log.dart';
 import '../services/backup_service.dart';
 import '../services/batch_transfer_service.dart'
@@ -29,14 +32,15 @@ import 'code_editor_panel.dart'
 import 'constellation_background.dart';
 import 'definition_navigation.dart';
 import 'monaco_snippets.dart';
+import 'object_source_results_panel.dart';
 import 'plsql_tables.dart' show extractSqlTables;
 import 'slide_up_panel.dart';
 import 'source_tab_controller.dart';
 import 'status_card.dart';
+import 'object_source/object_source_package_nav.dart';
 
 part '_source_widgets.dart';
 part '_source_backup_dialog.dart';
-part '_source_package_nav.dart';
 part '_source_problems_panel.dart';
 part '_source_monaco_tab.dart';
 part '_source_multidoc_editor.dart';
@@ -75,6 +79,8 @@ class _TransferStep {
 }
 
 enum _CtxMenuAction {
+  undo,
+  redo,
   gotoDef,
   infoEvento,
   infoDato,
@@ -266,8 +272,40 @@ const String _kFindAndFocusGuardJs =
     '    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="f"){'
     '      e.preventDefault();'
     '      window.__fmOpenFind();'
+    '    } else if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey&&e.key.toLowerCase()==="x"){'
+    '      e.preventDefault();'
+    '      if(window.FlutterMonaco&&window.FlutterMonaco.emit){'
+    '        window.FlutterMonaco.emit("fmClipboardCut",{});'
+    '      }'
+    '    } else if((e.ctrlKey||e.metaKey)&&!e.altKey&&e.key.toLowerCase()==="z"){'
+    '      e.preventDefault();'
+    '      if(e.shiftKey){'
+    '        if(window.__fmRedo) window.__fmRedo();'
+    '        else if(window.editor) window.editor.trigger("keyboard","redo");'
+    '      } else {'
+    '        if(window.__fmUndo) window.__fmUndo();'
+    '        else if(window.editor) window.editor.trigger("keyboard","undo");'
+    '      }'
+    '    } else if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey&&e.key.toLowerCase()==="y"){'
+    '      e.preventDefault();'
+    '      if(window.__fmRedo) window.__fmRedo();'
+    '      else if(window.editor) window.editor.trigger("keyboard","redo");'
     '    }'
     '  },true);'
+    '  window.__fmUndo = function(){'
+    '    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+    '    if(aux){'
+    '      try { document.execCommand("undo"); return; } catch(_){}'
+    '    }'
+    '    if(window.editor){ window.editor.focus(); window.editor.trigger("keyboard","undo"); }'
+    '  };'
+    '  window.__fmRedo = function(){'
+    '    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+    '    if(aux){'
+    '      try { document.execCommand("redo"); return; } catch(_){}'
+    '    }'
+    '    if(window.editor){ window.editor.focus(); window.editor.trigger("keyboard","redo"); }'
+    '  };'
     '})()';
 
 class ObjectSourcePage extends StatefulWidget {
@@ -341,6 +379,15 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
   bool _wordWrap = false;
   double _fontSize = 14;
   bool _showProblems = false;
+  bool _panelPinned = true;
+  static const _panelPinnedPreferenceKey = 'object_source_panel_pinned';
+  double _resultsPanelHeight = 220.0;
+  ObjectCompilationEntry? _lastCompilation;
+  late final TabController _resultsTabCtrl = TabController(
+    length: 2,
+    vsync: this,
+  );
+  final List<SqlHttpTraceEntry> _httpTraces = [];
   bool _backendChecking = false;
   bool _showPackageNav = true;
   String? _activeSubprogram;
@@ -358,10 +405,78 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
   String _tableDdlCreateTable = '';
   String? _tableDdlComments;
 
+  void _onResultsPanelHeightChanged(double newH) {
+    setState(() => _resultsPanelHeight = newH);
+  }
+
+  void _onToggleResultsPanel() {
+    setState(() => _showProblems = !_showProblems);
+  }
+
+  void _onTogglePanelPinned() {
+    setState(() {
+      _panelPinned = !_panelPinned;
+    });
+    SharedPreferences.getInstance()
+        .then((prefs) => prefs.setBool(_panelPinnedPreferenceKey, _panelPinned))
+        .catchError((_) => false);
+  }
+
+  void _onAutoHideResultsPanel() {
+    if (!_panelPinned && _showProblems) {
+      setState(() => _showProblems = false);
+    }
+  }
+
+  void _onCloseResultsPanel() {
+    setState(() => _showProblems = false);
+  }
+
+  void _onClearHttpTraces() {
+    setState(() => _httpTraces.clear());
+  }
+
+  void _onClearIssues() {
+    setState(() {
+      _specCompileIssues.clear();
+      _bodyCompileIssues.clear();
+      _lastCompilation = null;
+    });
+  }
+
   @override
   void initState() {
     super.initState();
+    _subscribeHttpTraces();
+    _loadPinnedPreference();
     _loadObjectSource();
+  }
+
+  void _loadPinnedPreference() {
+    SharedPreferences.getInstance()
+        .then((prefs) {
+          final pinned = prefs.getBool(_panelPinnedPreferenceKey);
+          if (pinned != null && mounted) {
+            setState(() => _panelPinned = pinned);
+          }
+        })
+        .catchError((_) {});
+  }
+
+  void _subscribeHttpTraces() {
+    final prevTrace = SchemaService.instance.onHttpTrace;
+    SchemaService.instance.onHttpTrace = (trace) {
+      prevTrace?.call(trace);
+      if (!mounted) return;
+      setState(() {
+        final idx = _httpTraces.indexWhere((t) => t.id == trace.id);
+        if (idx >= 0) {
+          _httpTraces[idx] = trace;
+        } else {
+          _httpTraces.add(trace);
+        }
+      });
+    };
   }
 
   @override
@@ -518,6 +633,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
   @override
   void dispose() {
     _tabCtrl?.dispose();
+    _resultsTabCtrl.dispose();
     _navSearchCtrl.dispose();
     super.dispose();
   }
@@ -613,8 +729,14 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
         : widget.objectType;
 
     if (text.isEmpty || ctrl == null) return;
+    final partName = widget.objectType == 'PACKAGE'
+        ? (isBody ? 'BODY' : 'SPEC')
+        : null;
+    final stopwatch = Stopwatch()..start();
     setState(() {
       _compileStatus = _ViewerCompileStatus.compiling;
+      _showProblems = true;
+      _resultsTabCtrl.index = 0;
       if (isBody) {
         _bodyCompileIssues = [];
       } else {
@@ -628,6 +750,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
         objType,
         ambiente: widget.ambiente,
       );
+      stopwatch.stop();
       await ctrl.document.clearMarkers(owner: 'oracle-compile');
       if (errors.isNotEmpty) {
         await ctrl.document.setMarkers([
@@ -662,6 +785,13 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
           )
           .toList();
       if (mounted) {
+        final errCount = compileIssues
+            .where((i) => i.severity == fm.MarkerSeverity.error)
+            .length;
+        final warnCount = compileIssues
+            .where((i) => i.severity == fm.MarkerSeverity.warning)
+            .length;
+
         setState(() {
           if (isBody) {
             _bodyCompileIssues = compileIssues;
@@ -671,6 +801,23 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
           _compileStatus = errors.isEmpty
               ? _ViewerCompileStatus.ok
               : _ViewerCompileStatus.error;
+          _lastCompilation = ObjectCompilationEntry(
+            id: DateTime.now().millisecondsSinceEpoch,
+            timestamp: DateTime.now(),
+            objectName: widget.name,
+            objectType: widget.objectType,
+            part: partName,
+            ambiente: widget.ambiente,
+            status: errors.isEmpty
+                ? ObjectCompilationStatus.success
+                : ObjectCompilationStatus.error,
+            durationMs: stopwatch.elapsedMilliseconds,
+            errorCount: errCount,
+            warningCount: warnCount,
+            message: errors.isEmpty
+                ? 'Compilado exitosamente'
+                : '${errors.length} error(es) detectados',
+          );
           if (errors.isEmpty) {
             if (isBody) {
               _originalBodyText = text;
@@ -679,7 +826,7 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
             }
             _refreshDirtyState();
           }
-          if (errors.isNotEmpty) _showProblems = true;
+          _showProblems = true;
         });
         AppLog.instance.compilation(
           objectName: widget.name,
@@ -701,8 +848,59 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _compileStatus = _ViewerCompileStatus.error);
-        AppToast.error('Error: $e', source: 'Compilación');
+        final rawMsg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+        var parsedIssues = parseOracleCompileErrors(rawMsg);
+        if (parsedIssues.isEmpty) {
+          parsedIssues = [
+            PlSqlIssue(
+              line: 1,
+              col: 1,
+              endCol: 2,
+              message: rawMsg,
+              severity: fm.MarkerSeverity.error,
+              source: 'Oracle',
+            ),
+          ];
+        }
+
+        await ctrl.document.clearMarkers(owner: 'oracle-compile');
+        await ctrl.document.setMarkers([
+          for (final issue in parsedIssues)
+            fm.MarkerData(
+              range: fm.Range(
+                startLine: issue.line,
+                startColumn: issue.col,
+                endLine: issue.line,
+                endColumn: issue.endCol,
+              ),
+              message: issue.message,
+              severity: issue.severity,
+              source: 'Oracle',
+            ),
+        ], owner: 'oracle-compile');
+
+        setState(() {
+          if (isBody) {
+            _bodyCompileIssues = parsedIssues;
+          } else {
+            _specCompileIssues = parsedIssues;
+          }
+          _compileStatus = _ViewerCompileStatus.error;
+          _lastCompilation = ObjectCompilationEntry(
+            id: DateTime.now().millisecondsSinceEpoch,
+            timestamp: DateTime.now(),
+            objectName: widget.name,
+            objectType: widget.objectType,
+            part: partName,
+            ambiente: widget.ambiente,
+            status: ObjectCompilationStatus.error,
+            durationMs: stopwatch.elapsedMilliseconds,
+            errorCount: parsedIssues.length,
+            message: rawMsg,
+          );
+          _showProblems = true;
+        });
+        AppToast.error('Error: $rawMsg', source: 'Compilación');
       }
     }
   }
@@ -1522,6 +1720,13 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
                   bottom: 0,
                   child: _buildProblemsPanel(isDark),
                 ),
+                if (!_showProblems)
+                  ObjectSourceCollapsedHandle(
+                    onExpand: _onToggleResultsPanel,
+                    issues: _allActiveIssues,
+                    lastCompilation: _lastCompilation,
+                    httpTraceCount: _httpTraces.length,
+                  ),
               ],
             ),
           ),
@@ -1950,6 +2155,13 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
                 bottom: 0,
                 child: _buildProblemsPanel(isDark),
               ),
+              if (!_showProblems)
+                ObjectSourceCollapsedHandle(
+                  onExpand: _onToggleResultsPanel,
+                  issues: _allActiveIssues,
+                  lastCompilation: _lastCompilation,
+                  httpTraceCount: _httpTraces.length,
+                ),
             ],
           ),
         ),
@@ -2036,7 +2248,21 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
       final showNav = _showPackageNav && _subprograms.isNotEmpty;
       return Row(
         children: [
-          if (showNav) _buildPackageNav(isDark),
+          if (showNav)
+            ObjectSourcePackageNav(
+              subprograms: _subprograms,
+              specSubprograms: _specSubprograms,
+              activeSubprogram: _activeSubprogram,
+              objectType: widget.objectType,
+              objectName: widget.name,
+              ambiente: widget.ambiente,
+              isDark: isDark,
+              specCtrl: _specCtrl,
+              tabCtrl: _tabCtrl,
+              onSubprogramSelected: (name) {
+                setState(() => _activeSubprogram = name);
+              },
+            ),
           Expanded(child: editor),
         ],
       );
@@ -2186,11 +2412,11 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
                 ),
               ),
             ),
-          if (errCount > 0 || warnCount > 0)
+          if (errCount > 0 || warnCount > 0 || _httpTraces.isNotEmpty)
             Tooltip(
               message: _showProblems
-                  ? 'Ocultar problemas'
-                  : 'Mostrar problemas',
+                  ? 'Ocultar panel de resultados'
+                  : 'Mostrar panel de resultados',
               waitDuration: const Duration(milliseconds: 400),
               child: GestureDetector(
                 onTap: () => setState(() => _showProblems = !_showProblems),
@@ -2203,12 +2429,16 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
                   decoration: BoxDecoration(
                     color: errCount > 0
                         ? Colors.red.shade400.withValues(alpha: 0.12)
-                        : Colors.orange.shade400.withValues(alpha: 0.12),
+                        : (warnCount > 0
+                              ? Colors.orange.shade400.withValues(alpha: 0.12)
+                              : cs.primary.withValues(alpha: 0.12)),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
                       color: errCount > 0
                           ? Colors.red.shade400.withValues(alpha: 0.4)
-                          : Colors.orange.shade400.withValues(alpha: 0.4),
+                          : (warnCount > 0
+                                ? Colors.orange.shade400.withValues(alpha: 0.4)
+                                : cs.primary.withValues(alpha: 0.4)),
                       width: 0.5,
                     ),
                   ),
@@ -2244,6 +2474,20 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
                           style: TextStyle(
                             fontSize: 11,
                             color: Colors.orange.shade400,
+                          ),
+                        ),
+                      ],
+                      if (errCount == 0 &&
+                          warnCount == 0 &&
+                          _httpTraces.isNotEmpty) ...[
+                        Icon(Icons.dns_outlined, size: 13, color: cs.primary),
+                        const SizedBox(width: 3),
+                        Text(
+                          '${_httpTraces.length}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: cs.primary,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],

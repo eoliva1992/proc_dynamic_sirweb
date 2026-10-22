@@ -342,44 +342,51 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
                     ],
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    minWidth: 0,
-                    maxWidth: double.infinity,
-                    minHeight: 0,
-                    maxHeight: double.infinity,
-                    // El contenido se mantiene SIEMPRE montado con el tamaño
-                    // de la ventana restaurada: al minimizar sólo se recorta.
-                    // Si se quitara del árbol, el editor Monaco se destruiría
-                    // y al restaurar se recargaría perdiendo lo escrito.
-                    child: SizedBox(
-                      width: _winW,
-                      height: _winH,
-                      child: Stack(
-                        children: [
-                          Positioned.fill(
-                            child: Column(
+                  child: _minimized
+                      ? MinimizedWindowCard(
+                          title: 'Nuevo Procedimiento',
+                          icon: Icons.add_circle_outline_rounded,
+                          accentColor: const Color(0xFF0E8A4E),
+                          badge: 'NUEVO',
+                          onRestore: _toggleMinimized,
+                          onClose: _close,
+                        )
+                      : OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: 0,
+                          maxWidth: double.infinity,
+                          minHeight: 0,
+                          maxHeight: double.infinity,
+                          child: SizedBox(
+                            width: _winW,
+                            height: _winH,
+                            child: Stack(
                               children: [
-                                // Hueco reservado para la barra de título.
-                                const SizedBox(height: _kHeaderH),
-                                _buildForm(isDark, cs),
-                                Expanded(child: _buildCodeSection(isDark, cs)),
-                                _buildFooter(isDark, cs),
+                                Positioned.fill(
+                                  child: Column(
+                                    children: [
+                                      // Hueco reservado para la barra de título.
+                                      const SizedBox(height: _kHeaderH),
+                                      _buildForm(isDark, cs),
+                                      Expanded(
+                                        child: _buildCodeSection(isDark, cs),
+                                      ),
+                                      _buildFooter(isDark, cs),
+                                    ],
+                                  ),
+                                ),
+                                // La barra de título usa el ancho *visible* para que
+                                // al minimizar siga viéndose completa.
+                                Positioned(
+                                  left: 0,
+                                  top: 0,
+                                  width: w,
+                                  child: _buildHeader(isDark, cs),
+                                ),
                               ],
                             ),
                           ),
-                          // La barra de título usa el ancho *visible* para que
-                          // al minimizar siga viéndose completa.
-                          Positioned(
-                            left: 0,
-                            top: 0,
-                            width: w,
-                            child: _buildHeader(isDark, cs),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                        ),
                 ),
               ),
             ),

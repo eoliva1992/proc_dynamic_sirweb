@@ -304,15 +304,17 @@ class _FloatingDialogLayerState<T> extends State<_FloatingDialogLayer<T>> {
 }
 
 /// Reparte posiciones para las ventanas minimizadas, de modo que no se
-/// superpongan entre sí (se apilan como una barra de tareas).
+/// superpongan entre sí. Se ubican en la esquina inferior DERECHA en forma de dock/cards
+/// apiladas ordenadamente de derecha a izquierda, evitando colisionar con
+/// [SchemaStatusOverlay] u otros elementos anclados abajo a la izquierda.
 class FloatingWindowSlots {
   static final Set<int> _used = <int>{};
 
   /// Ancho y alto de una ventana minimizada.
-  static const double barW = 300;
-  static const double barH = 44;
-  static const double _gap = 8;
-  static const double _margin = 12;
+  static const double barW = 280;
+  static const double barH = 40;
+  static const double _gap = 10;
+  static const double _margin = 16;
 
   static int take() {
     var i = 0;
@@ -328,6 +330,7 @@ class FloatingWindowSlots {
   }
 
   /// Posición (left, top) de la ventana minimizada [slot] en pantalla.
+  /// Se calcula de DERECHA a IZQUIERDA para formar un Dock natural en la esquina inferior derecha.
   static (double, double) offsetFor(int slot, Size screen) {
     final perRow = ((screen.width - _margin * 2) / (barW + _gap)).floor().clamp(
       1,
@@ -335,7 +338,7 @@ class FloatingWindowSlots {
     );
     final col = slot % perRow;
     final row = slot ~/ perRow;
-    final left = _margin + col * (barW + _gap);
+    final left = screen.width - _margin - barW - col * (barW + _gap);
     final top = screen.height - _margin - barH - row * (barH + _gap);
     return (
       left.clamp(0.0, (screen.width - barW).clamp(0.0, double.infinity)),
@@ -456,6 +459,165 @@ class _WindowButtonState extends State<WindowButton> {
                   height: double.infinity,
                   child: button,
                 ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Barra o tarjeta visualmente estilizada y uniforme para representar
+/// una ventana minimizada en el dock inferior derecho.
+class MinimizedWindowCard extends StatefulWidget {
+  const MinimizedWindowCard({
+    super.key,
+    required this.title,
+    required this.icon,
+    this.accentColor,
+    this.badge,
+    this.badgeColor,
+    required this.onRestore,
+    required this.onClose,
+  });
+
+  final String title;
+  final IconData icon;
+  final Color? accentColor;
+  final String? badge;
+  final Color? badgeColor;
+  final VoidCallback onRestore;
+  final VoidCallback onClose;
+
+  @override
+  State<MinimizedWindowCard> createState() => _MinimizedWindowCardState();
+}
+
+class _MinimizedWindowCardState extends State<MinimizedWindowCard> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final accent =
+        widget.accentColor ??
+        (isDark ? Colors.blue.shade400 : Colors.blue.shade600);
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onRestore,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOutCubic,
+          height: FloatingWindowSlots.barH,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: isDark
+                ? (_hovered ? const Color(0xFF2D2D2D) : const Color(0xFF222224))
+                : (_hovered ? const Color(0xFFF3F6FA) : Colors.white),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: _hovered
+                  ? accent.withValues(alpha: 0.7)
+                  : (isDark
+                        ? const Color(0xFF38383A)
+                        : const Color(0xFFD6DCE5)),
+              width: _hovered ? 1.2 : 0.9,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.12),
+                blurRadius: _hovered ? 14 : 8,
+                offset: Offset(0, _hovered ? 3 : 2),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 24,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: Icon(widget.icon, size: 14, color: accent),
+              ),
+              const SizedBox(width: 8),
+              if (widget.badge != null && widget.badge!.isNotEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: (widget.badgeColor ?? accent).withValues(
+                      alpha: 0.14,
+                    ),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    widget.badge!,
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      color: widget.badgeColor ?? accent,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              Expanded(
+                child: Text(
+                  widget.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isDark
+                        ? const Color(0xFFE0E0E0)
+                        : const Color(0xFF222222),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Tooltip(
+                message: 'Restaurar',
+                waitDuration: const Duration(milliseconds: 300),
+                child: InkWell(
+                  onTap: widget.onRestore,
+                  borderRadius: BorderRadius.circular(4),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.open_in_new_rounded,
+                      size: 14,
+                      color: isDark ? Colors.white70 : Colors.black54,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 2),
+              Tooltip(
+                message: 'Cerrar',
+                waitDuration: const Duration(milliseconds: 300),
+                child: InkWell(
+                  onTap: widget.onClose,
+                  borderRadius: BorderRadius.circular(4),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 14,
+                      color: isDark ? Colors.white60 : Colors.black45,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

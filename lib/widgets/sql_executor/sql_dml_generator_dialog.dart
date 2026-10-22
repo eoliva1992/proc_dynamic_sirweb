@@ -9,6 +9,7 @@ import '../../services/schema_service.dart';
 import '../../services/sql_dml_generator.dart';
 import '../app_toast.dart';
 import '../constellation_background.dart';
+import '../floating_window.dart';
 
 enum _DmlKind { insert, update, merge }
 
@@ -20,30 +21,20 @@ Future<void> showSqlDmlGeneratorDialog(
   required String ambiente,
   void Function(String sql)? onInsert,
 }) {
-  return showGeneralDialog(
-    context: context,
-    barrierDismissible: true,
-    barrierLabel: 'sql-dml-generator',
+  showFloatingWindow(
+    context,
     barrierColor: Colors.black45,
-    transitionDuration: const Duration(milliseconds: 260),
-    transitionBuilder: (ctx, anim, _, child) {
-      final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
-      return FadeTransition(
-        opacity: curved,
-        child: ScaleTransition(
-          scale: Tween<double>(begin: 0.94, end: 1).animate(curved),
-          child: child,
-        ),
-      );
-    },
-    pageBuilder: (ctx, _, _) => _SqlDmlGeneratorDialog(
+    barrierDismissible: true,
+    (close) => _SqlDmlGeneratorDialog(
       result: result,
       rowIndexes: rowIndexes,
       suggestedTable: suggestedTable,
       ambiente: ambiente,
       onInsert: onInsert,
+      onClose: close,
     ),
   );
+  return Future.value();
 }
 
 class _SqlDmlGeneratorDialog extends StatefulWidget {
@@ -53,6 +44,7 @@ class _SqlDmlGeneratorDialog extends StatefulWidget {
     required this.suggestedTable,
     required this.ambiente,
     this.onInsert,
+    required this.onClose,
   });
 
   final SqlQueryResult result;
@@ -60,6 +52,7 @@ class _SqlDmlGeneratorDialog extends StatefulWidget {
   final String suggestedTable;
   final String ambiente;
   final void Function(String sql)? onInsert;
+  final VoidCallback onClose;
 
   @override
   State<_SqlDmlGeneratorDialog> createState() => _SqlDmlGeneratorDialogState();
@@ -630,7 +623,7 @@ class _SqlDmlGeneratorDialogState extends State<_SqlDmlGeneratorDialog> {
           IconButton(
             tooltip: 'Cerrar',
             icon: const Icon(Icons.close, size: 18),
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: widget.onClose,
             style: IconButton.styleFrom(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(7),
@@ -656,16 +649,14 @@ class _SqlDmlGeneratorDialogState extends State<_SqlDmlGeneratorDialog> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cerrar'),
-          ),
+          TextButton(onPressed: widget.onClose, child: const Text('Cerrar')),
           const SizedBox(width: 8),
           _DmlActionButton(
             icon: Icons.content_copy_rounded,
             label: 'Copiar',
             filled: false,
             enabled: _generatedSql.isNotEmpty,
+            onClose: widget.onClose,
             onPressed: () async {
               await Clipboard.setData(ClipboardData(text: _generatedSql));
               AppToast.success('SQL copiado al portapapeles');
@@ -678,6 +669,7 @@ class _SqlDmlGeneratorDialogState extends State<_SqlDmlGeneratorDialog> {
               label: 'Insertar en editor',
               filled: true,
               enabled: _generatedSql.isNotEmpty,
+              onClose: widget.onClose,
               onPressed: () async {
                 widget.onInsert!(_generatedSql);
                 AppToast.success('SQL insertado en el editor');
@@ -699,6 +691,7 @@ class _DmlActionButton extends StatefulWidget {
     required this.filled,
     required this.enabled,
     required this.onPressed,
+    required this.onClose,
   });
 
   final IconData icon;
@@ -706,6 +699,7 @@ class _DmlActionButton extends StatefulWidget {
   final bool filled;
   final bool enabled;
   final Future<void> Function() onPressed;
+  final VoidCallback onClose;
 
   @override
   State<_DmlActionButton> createState() => _DmlActionButtonState();
@@ -719,7 +713,7 @@ class _DmlActionButtonState extends State<_DmlActionButton> {
     if (!mounted) return;
     setState(() => _success = true);
     await Future.delayed(const Duration(milliseconds: 500));
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) widget.onClose();
   }
 
   @override

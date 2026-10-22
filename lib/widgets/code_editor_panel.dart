@@ -13,6 +13,7 @@ import 'package:flutter_monaco/flutter_monaco.dart';
 import 'package:http/http.dart' as http;
 import 'package:mobx/mobx.dart' show reaction, ReactionDisposer;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:two_dimensional_scrollables/two_dimensional_scrollables.dart';
 
 import '../models/dato_info.dart';
 import '../models/autorizacion_proceso.dart';
@@ -21,15 +22,14 @@ import '../models/evento_info.dart';
 import '../models/llamada_plsql.dart';
 import '../models/procedimiento.dart';
 import '../models/snippet.dart';
+import '../models/sql_execution.dart';
 import '../models/uso_procedimiento.dart';
 import '../models/variable_dinamica.dart';
 import '../models/auto_apply.dart';
 import '../models/chat_message.dart';
 import '../models/edit_blocks.dart';
 import '../models/line_diff.dart';
-import '../models/pending_change.dart';
 import 'snippets/snippets_browser_dialog.dart';
-import 'snippets/snippet_editor_window.dart';
 import '../models/chat_conversation.dart';
 import '../models/chat_plan.dart';
 import '../models/code_highlight.dart';
@@ -45,7 +45,6 @@ import '../services/snippet_service.dart';
 import 'constellation_background.dart';
 import 'ambiente_selector.dart';
 import 'editor_split_container.dart';
-import '_editor_oracle_theme.dart';
 import '_editor_themes.dart';
 import '_editor_plsql_checker.dart';
 import '_editor_plsql_completions.dart';
@@ -58,6 +57,8 @@ import 'definition_navigation.dart';
 import 'floating_window.dart';
 import 'plsql_tables.dart' show extractSqlTables;
 import 'source_float_window.dart';
+import 'source_tab_controller.dart';
+import 'sql_executor/sql_dml_generator_dialog.dart';
 
 part '_editor_toolbar_widgets.dart';
 part '_editor_variables_overlay.dart';
@@ -79,6 +80,26 @@ part '_editor_ai_chat_panel.dart';
 
 // Máximo de caracteres permitidos para validación backend de Oracle DDL.
 const _kBackendSizeLimit = 100 * 1024; // 100 KB
+
+/// Límite máximo de caracteres permitido para procedimientos dinámicos.
+const int kDynamicProcMaxChars = 32500;
+
+/// Umbral a partir del cual se advierte cercanía al límite máximo.
+const int kDynamicProcWarnChars = 30000;
+
+/// Formatea un número entero con separador de miles (ej: 32500 -> '32,500').
+String formatDynamicProcCharCount(int number) {
+  final s = number.abs().toString();
+  final buffer = StringBuffer();
+  final len = s.length;
+  for (int i = 0; i < len; i++) {
+    if (i > 0 && (len - i) % 3 == 0) {
+      buffer.write(',');
+    }
+    buffer.write(s[i]);
+  }
+  return number < 0 ? '-$buffer' : buffer.toString();
+}
 
 /// Formatea una duración en milisegundos y segundos, ej: `1450 ms (1.45 s)`.
 String _formatearTiempoMsYSeg(int ms, {String prefix = ''}) {
@@ -202,8 +223,10 @@ enum _CtxMenuAction {
   infoDato,
   ejecutar,
   ejecutarLlamada,
-  copy,
+  undo,
+  redo,
   cut,
+  copy,
   paste,
 }
 
@@ -311,15 +334,6 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   // Decoraciones para resaltar líneas con errores (independientes de markers)
   MonacoDecorationSet? _errorDecos;
 
-  /// Cambio de Copilot aplicado y **pendiente de que el usuario decida**.
-  ///
-  /// Mientras existe, el editor muestra la barra de revisión y las líneas
-  /// afectadas van resaltadas.
-  PendingChange? _pendiente;
-
-  /// Tramo sobre el que está puesta la revisión.
-  int _pendienteActual = 0;
-
   /// Marcas verdes sobre las líneas que escribió Copilot.
   MonacoDecorationSet? _aiDecos;
   Timer? _aiHighlightTimer;
@@ -328,7 +342,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   MonacoCompletionRegistration? _schemaReg; // tablas, columnas, objetos Oracle
   MonacoCompletionRegistration? _snippetsReg;
   MonacoCompletionRegistration? _declareVarsReg; // variables del bloque DECLARE
+  String? _lastDeclareVarsSignature;
+  bool _isSuggestWidgetVisible = false;
+  VoidCallback? _pendingMarkerUpdate;
   String _editorFullText = '';
+  int _charCount = 0;
   // Cache for _extractFromTables — avoids regex on full text for each keystroke
   int? _fromExtractHash;
   Map<String, String> _fromExtractResult = {};
@@ -379,6 +397,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   MonacoActionRegistration? _ejecutarAction;
   MonacoActionRegistration? _llamadaAction;
   MonacoActionRegistration? _findAction;
+  MonacoActionRegistration? _undoAction;
+  MonacoActionRegistration? _redoAction;
   MonacoActionRegistration? _copyAction;
   MonacoActionRegistration? _cutAction;
   MonacoActionRegistration? _pasteAction;
@@ -456,6 +476,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     CodeEditorPanel._activeState = this;
     _openProcs.add(widget.procedimiento);
     _activeProcId = widget.procedimiento.cdProcedimiento;
+    _editorFullText = widget.procedimiento.deTexto;
+    _charCount = widget.procedimiento.deTexto.length;
     _loadPrefs();
     _tabsScrollCtrl.addListener(_onTabsScroll);
     editorThemeStore.addListener(_onEditorThemeChanged);
@@ -503,7 +525,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     if (doc == null) return;
     await _withCtrl((_) => doc.setText(proc.deTexto));
     if (!mounted) return;
-    _editorFullText = proc.deTexto;
+    setState(() {
+      _editorFullText = proc.deTexto;
+      _charCount = proc.deTexto.length;
+    });
     widget.onCodeChanged?.call(proc.deTexto);
   }
 
@@ -543,6 +568,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _disposeQuietly(() => _ejecutarAction?.dispose());
     _disposeQuietly(() => _llamadaAction?.dispose());
     _disposeQuietly(() => _findAction?.dispose());
+    _disposeQuietly(() => _undoAction?.dispose());
+    _disposeQuietly(() => _redoAction?.dispose());
     _disposeQuietly(() => _copyAction?.dispose());
     _disposeQuietly(() => _cutAction?.dispose());
     _disposeQuietly(() => _pasteAction?.dispose());
@@ -720,6 +747,35 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       '}); } catch(e) {}',
     );
 
+    // Monitor Monaco suggestion widget visibility to prevent background timers
+    // (markers, completion registrations) from invalidating and closing open autocompletion.
+    await ctrl.runJavaScript(
+      '(function(){'
+      '  var lastState = false;'
+      '  function checkSuggestState() {'
+      '    try {'
+      '      var isVis = false;'
+      '      var sw = document.querySelector(".suggest-widget");'
+      '      if (sw) {'
+      '        var style = window.getComputedStyle(sw);'
+      '        if (sw.classList.contains("visible") || (style.display !== "none" && style.visibility !== "hidden" && sw.offsetHeight > 0)) {'
+      '          isVis = true;'
+      '        }'
+      '      }'
+      '      if (isVis !== lastState) {'
+      '        lastState = isVis;'
+      '        if (window.FlutterMonaco && window.FlutterMonaco.emit) {'
+      '          window.FlutterMonaco.emit("fmSuggestVisibility", { visible: isVis });'
+      '        }'
+      '      }'
+      '    } catch(_) {}'
+      '  }'
+      '  var obs = new MutationObserver(checkSuggestState);'
+      '  obs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });'
+      '  setInterval(checkSuggestState, 200);'
+      '})()',
+    );
+
     // forceFocus (editor-api.js) calls window.focus → document.body.focus →
     // ed.focus → ta.focus in that order. Block forceFocus only while an auxiliary
     // input is active or the search widget is opening.
@@ -795,10 +851,33 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       '      }'
       '    }, 25);'
       '  };'
+      '  window.__fmUndo = function(){'
+      '    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+      '    if (aux) { document.execCommand("undo"); return; }'
+      '    if (window.editor) { try { window.editor.trigger("keyboard", "undo"); } catch(e){} }'
+      '  };'
+      '  window.__fmRedo = function(){'
+      '    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+      '    if (aux) { document.execCommand("redo"); return; }'
+      '    if (window.editor) { try { window.editor.trigger("keyboard", "redo"); } catch(e){} }'
+      '  };'
       '  document.addEventListener("keydown",function(e){'
-      '    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="f"){'
+      '    var isMod = e.ctrlKey || e.metaKey;'
+      '    if (!isMod) return;'
+      '    var key = e.key.toLowerCase();'
+      '    if (key === "f" && !e.shiftKey) {'
       '      e.preventDefault();'
       '      window.__fmOpenFind();'
+      '    } else if (key === "x" && !e.shiftKey) {'
+      '      e.preventDefault();'
+      '      var bridge = window.FlutterMonaco || window.flutterMonaco;'
+      '      if (bridge && bridge.emit) { bridge.emit("fmClipboardCut", {}); }'
+      '    } else if (key === "z" && !e.shiftKey) {'
+      '      e.preventDefault();'
+      '      window.__fmUndo();'
+      '    } else if ((key === "y" && !e.shiftKey) || (key === "z" && e.shiftKey)) {'
+      '      e.preventDefault();'
+      '      window.__fmRedo();'
       '    }'
       '  },true);'
       '})()',
@@ -832,7 +911,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       '    if (pos) {'
       '      var w = window.editor.getModel().getWordAtPosition(pos);'
       '      word = w ? w.word : "";'
-      '      window.editor.setPosition(pos);'
+      '      var sel = window.editor.getSelection();'
+      '      var withinSel = sel && !sel.isEmpty() && sel.containsPosition(pos);'
+      '      if (!withinSel) {'
+      '        window.editor.setPosition(pos);'
+      '      }'
       '    } else if (isAux && window.__fmContextMenuAux) {'
       '      var aux = window.__fmContextMenuAux;'
       '      var s = aux.selectionStart, end = aux.selectionEnd;'
@@ -1107,6 +1190,35 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       ctrl
           .addAction(
             MonacoActionDescriptor(
+              id: MonacoAction('custom.undo'),
+              label: 'Deshacer',
+              keybindings: [
+                MonacoKeybinding(ctrlCmd: true, key: MonacoKey.keyZ),
+              ],
+            ),
+            () async => _undo(),
+          )
+          .then((a) => _undoAction = a),
+      ctrl
+          .addAction(
+            MonacoActionDescriptor(
+              id: MonacoAction('custom.redo'),
+              label: 'Rehacer',
+              keybindings: [
+                MonacoKeybinding(ctrlCmd: true, key: MonacoKey.keyY),
+                MonacoKeybinding(
+                  ctrlCmd: true,
+                  shift: true,
+                  key: MonacoKey.keyZ,
+                ),
+              ],
+            ),
+            () async => _redo(),
+          )
+          .then((a) => _redoAction = a),
+      ctrl
+          .addAction(
+            MonacoActionDescriptor(
               id: MonacoAction('custom.clipboard.copy'),
               label: 'Copiar',
               keybindings: [
@@ -1154,10 +1266,20 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       }
     });
 
-    // Escucha fmMenuOpening (emitido por el listener 'contextmenu' de arriba)
-    // para abrir nuestro menú contextual Flutter en el lugar del clic.
+    // Escucha eventos emitidos desde los parches DOM del WebView
     _contextMenuEventSub = ctrl.events.listen((event) {
-      if (event is MonacoUnknownEvent && event.name == 'fmMenuOpening') {
+      if (event is! MonacoUnknownEvent) return;
+      if (event.name == 'fmClipboardCut') {
+        unawaited(_cutSelectionToClipboard());
+      } else if (event.name == 'fmSuggestVisibility') {
+        final vis = (event.data['visible'] as bool?) ?? false;
+        _isSuggestWidgetVisible = vis;
+        if (!vis && _pendingMarkerUpdate != null) {
+          final cb = _pendingMarkerUpdate;
+          _pendingMarkerUpdate = null;
+          cb?.call();
+        }
+      } else if (event.name == 'fmMenuOpening') {
         final data = event.data;
         final word = (data['word'] as String?) ?? '';
         final line = (data['line'] as num?)?.toInt() ?? 0;
@@ -1583,7 +1705,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     if (mounted) {
       final text = await _withCtrl((c) => c.document.getText());
       if (text != null) {
-        _editorFullText = text;
+        setState(() {
+          _editorFullText = text;
+          _charCount = text.length;
+        });
         widget.onCodeChanged?.call(text);
         if (_showOutline) {
           compute(_parseOutlineItems, text).then((items) {
@@ -1881,6 +2006,44 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     return match?.group(1) ?? '';
   }
 
+  Future<void> _undo() async {
+    await _withCtrl(
+      (ctrl) => ctrl.evaluateJavaScript<void>(
+        '(()=>{'
+        '  try {'
+        '    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+        '    if (aux) {'
+        '      document.execCommand("undo");'
+        '      return;'
+        '    }'
+        '    if (window.editor) {'
+        '      window.editor.trigger("keyboard", "undo");'
+        '    }'
+        '  } catch(e) {}'
+        '})()',
+      ),
+    );
+  }
+
+  Future<void> _redo() async {
+    await _withCtrl(
+      (ctrl) => ctrl.evaluateJavaScript<void>(
+        '(()=>{'
+        '  try {'
+        '    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+        '    if (aux) {'
+        '      document.execCommand("redo");'
+        '      return;'
+        '    }'
+        '    if (window.editor) {'
+        '      window.editor.trigger("keyboard", "redo");'
+        '    }'
+        '  } catch(e) {}'
+        '})()',
+      ),
+    );
+  }
+
   Future<void> _copySelectionToClipboard() async {
     final selected = await _withCtrl(
       (ctrl) => ctrl.evaluateJavaScript<String>(
@@ -1888,31 +2051,12 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         r'  try {'
         r'    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
         r'    if (aux) {'
-        r'      var start = aux.selectionStart != null ? aux.selectionStart : aux.value.length;'
-        r'      var end = aux.selectionEnd != null ? aux.selectionEnd : aux.value.length;'
-        r'      var val = aux.value || "";'
-        r'      aux.value = val.substring(0, start) + t + val.substring(end);'
-        r'      aux.selectionStart = aux.selectionEnd = start + t.length;'
-        r'      aux.focus();'
-        r'      aux.dispatchEvent(new Event("input", { bubbles: true }));'
-        r'      return "ok";'
+        r'      var s = aux.selectionStart, end = aux.selectionEnd;'
+        r'      if (s != null && end != null && s !== end) return aux.value.substring(s, end);'
         r'    }'
-        r'    const ed = window.editor;'
-        r'    if (!ed) return "err";'
-        r'    ed.focus();'
-        r'    let sels = ed.getSelections();'
-        r'    if (!sels || sels.length === 0) {'
-        r'      const s = ed.getSelection();'
-        r'      sels = s ? [s] : [];'
-        r'    }'
-        r'    if (sels.length === 0) return "err";'
-        r'    ed.pushUndoStop();'
-        r'    ed.executeEdits("flutter-paste", sels.map(function(s){'
-        r'      return { range: s, text: t, forceMoveMarkers: true };'
-        r'    }));'
-        r'    ed.pushUndoStop();'
-        r'    return "ok";'
-        r'  } catch(e) { return "err"; }'
+        r'    var s = window.editor ? window.editor.getModel().getValueInRange(window.editor.getSelection()) : "";'
+        r'    return s || "";'
+        r'  } catch(e) { return ""; }'
         r'})()',
       ),
     );
@@ -1931,27 +2075,35 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         r'    if (aux) {'
         r'      var start = aux.selectionStart != null ? aux.selectionStart : aux.value.length;'
         r'      var end = aux.selectionEnd != null ? aux.selectionEnd : aux.value.length;'
+        r'      if (start === end) return "";'
         r'      var val = aux.value || "";'
-        r'      aux.value = val.substring(0, start) + t + val.substring(end);'
-        r'      aux.selectionStart = aux.selectionEnd = start + t.length;'
+        r'      var cutText = val.substring(start, end);'
+        r'      aux.value = val.substring(0, start) + val.substring(end);'
+        r'      aux.selectionStart = aux.selectionEnd = start;'
         r'      aux.focus();'
         r'      aux.dispatchEvent(new Event("input", { bubbles: true }));'
-        r'      return "ok";'
+        r'      return cutText;'
         r'    }'
         r'    const ed = window.editor;'
-        r'    if (!ed) return "err";'
+        r'    if (!ed) return "";'
         r'    ed.focus();'
         r'    let sels = ed.getSelections();'
         r'    if (!sels || sels.length === 0) {'
         r'      const s = ed.getSelection();'
         r'      sels = s ? [s] : [];'
         r'    }'
-        r'    if (sels.length === 0) return "err";'
+        r'    const activeSels = sels.filter(function(s){ return s && !s.isEmpty(); });'
+        r'    if (activeSels.length === 0) return "";'
+        r'    const model = ed.getModel();'
+        r'    const cutText = activeSels.map(function(s){ return model.getValueInRange(s); }).join("\n");'
+        r'    if (!cutText) return "";'
         r'    ed.pushUndoStop();'
-        r'    ed.executeEdits("flutter-cut", [{ range: s, text: "", forceMoveMarkers: true }]);'
+        r'    ed.executeEdits("flutter-cut", activeSels.map(function(s){'
+        r'      return { range: s, text: "", forceMoveMarkers: true };'
+        r'    }));'
         r'    ed.pushUndoStop();'
-        r'    return "ok";'
-        r'  } catch(e) { return "err"; }'
+        r'    return cutText;'
+        r'  } catch(e) { return ""; }'
         r'})()',
       ),
     );
@@ -2139,6 +2291,35 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         ],
         const PopupMenuDivider(),
         const PopupMenuItem(
+          value: _CtxMenuAction.undo,
+          child: Row(
+            children: [
+              Icon(Icons.undo_rounded, size: 16),
+              SizedBox(width: 8),
+              Expanded(child: Text('Deshacer')),
+              Text(
+                'Ctrl+Z',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: _CtxMenuAction.redo,
+          child: Row(
+            children: [
+              Icon(Icons.redo_rounded, size: 16),
+              SizedBox(width: 8),
+              Expanded(child: Text('Rehacer')),
+              Text(
+                'Ctrl+Y',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
           value: _CtxMenuAction.cut,
           child: Row(
             children: [
@@ -2203,6 +2384,12 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           break;
         case _CtxMenuAction.ejecutarLlamada:
           unawaited(_ejecutarLlamadaPlsql());
+          break;
+        case _CtxMenuAction.undo:
+          unawaited(_undo());
+          break;
+        case _CtxMenuAction.redo:
+          unawaited(_redo());
           break;
         case _CtxMenuAction.cut:
           unawaited(_cutSelectionToClipboard());
@@ -2289,13 +2476,16 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
   Future<void> _registerDeclareVarCompletions() async {
     if (_ctrl == null || _disposed || _isActiveJs) return;
+    // Don't re-register completions while the autocomplete popup is open to avoid dismissing it
+    if (_isSuggestWidgetVisible) {
+      _scheduleDeclareVarCompletions();
+      return;
+    }
     final code = _editorFullText.isNotEmpty
         ? _editorFullText
         : widget.procedimiento.deTexto;
     // Reuse the outline parser — already handles all DECLARE formats correctly
     final outlineItems = await compute(_parseOutlineItems, code);
-    await _disposeRegQuietly(_declareVarsReg);
-    _declareVarsReg = null;
     final seen = <String>{};
     final items = <CompletionItem>[];
     for (final item in outlineItems) {
@@ -2313,6 +2503,15 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         ),
       );
     }
+    final newSignature = seen.toList()..sort();
+    final signatureStr = newSignature.join(',');
+    // If outline variables didn't change, avoid disposing and re-registering
+    if (_declareVarsReg != null && signatureStr == _lastDeclareVarsSignature) {
+      return;
+    }
+    _lastDeclareVarsSignature = signatureStr;
+    await _disposeRegQuietly(_declareVarsReg);
+    _declareVarsReg = null;
     if (items.isEmpty) return;
     _declareVarsReg = await _withCtrl(
       (ctrl) => ctrl.registerStaticCompletions(
@@ -2633,6 +2832,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   void _onContentChanged(String code) {
     _editorFullText =
         code; // mantener texto completo para el completion por FROM
+    if (_charCount != code.length) {
+      setState(() => _charCount = code.length);
+    }
     widget.onCodeChanged?.call(code);
     final id = _activeProcId;
     if (id != null && !_modifiedProcs.contains(id)) {
@@ -2680,8 +2882,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     setState(() {
       _draftVisible.remove(procId);
       _modifiedProcs.remove(procId);
+      _editorFullText = proc.deTexto;
+      _charCount = proc.deTexto.length;
     });
     widget.onDirtyChanged?.call(false);
+    widget.onCodeChanged?.call(proc.deTexto);
   }
 
   // ── Opciones & Preferencias → _editor_options_prefs.dart ─────────────

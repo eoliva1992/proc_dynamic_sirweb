@@ -1670,24 +1670,35 @@ class _LlamadaPlsqlModalState extends State<_LlamadaPlsqlModal> {
                     ],
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    minWidth: 0,
-                    maxWidth: double.infinity,
-                    minHeight: 0,
-                    maxHeight: double.infinity,
-                    child: SizedBox(
-                      width: w,
-                      height: h,
-                      child: Column(
-                        children: [
-                          _buildHeader(isDark),
-                          if (!_minimized)
-                            Expanded(child: _buildBody(isDark, w)),
-                        ],
-                      ),
-                    ),
-                  ),
+                  child: _minimized
+                      ? MinimizedWindowCard(
+                          title: _objetoSel != null
+                              ? '${_objetoSel!.name}${_miembroSel != null ? '.${_miembroSel!.name}' : ''}'
+                              : 'Llamada PL/SQL',
+                          icon: Icons.call_outlined,
+                          accentColor: const Color(0xFF673AB7),
+                          badge: _ambiente,
+                          onRestore: _toggleMinimize,
+                          onClose: _cerrar,
+                        )
+                      : OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: 0,
+                          maxWidth: double.infinity,
+                          minHeight: 0,
+                          maxHeight: double.infinity,
+                          child: SizedBox(
+                            width: w,
+                            height: h,
+                            child: Column(
+                              children: [
+                                _buildHeader(isDark),
+                                if (!_minimized)
+                                  Expanded(child: _buildBody(isDark, w)),
+                              ],
+                            ),
+                          ),
+                        ),
                 ),
               ),
             ),

@@ -12,10 +12,17 @@ import '../widgets/constellation_background.dart';
 
 typedef _Hunk = ({int origStart, int origEnd, int modStart, int modEnd});
 
+/// Normaliza terminaciones de línea (CRLF / CR -> LF) para evitar falsos positivos
+/// o discrepancias al comparar textos provenientes de la base de datos o el editor.
+String _normalizeEol(String text) =>
+    text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+
 // LCS-based line diff; returns contiguous change blocks between orig and mod
 List<_Hunk> _computeHunks(String orig, String mod) {
-  final a = orig.split('\n');
-  final b = mod.split('\n');
+  final cleanOrig = _normalizeEol(orig);
+  final cleanMod = _normalizeEol(mod);
+  final a = cleanOrig.split('\n');
+  final b = cleanMod.split('\n');
   final n = a.length;
   final m = b.length;
   final dp = List.generate(n + 1, (_) => List.filled(m + 1, 0));
@@ -98,7 +105,7 @@ class _EnvDiffPageState extends State<EnvDiffPage> {
       );
       if (!mounted) return;
       setState(() {
-        _targetCode = proc.deTexto;
+        _targetCode = _normalizeEol(proc.deTexto);
         _loading = false;
       });
     } catch (e) {
@@ -114,7 +121,7 @@ class _EnvDiffPageState extends State<EnvDiffPage> {
       widget.sourceProc.inConfiguracion == 'J' ? 'javascript' : 'sql';
 
   String get _sourceCode =>
-      widget.currentSourceCode ?? widget.sourceProc.deTexto;
+      _normalizeEol(widget.currentSourceCode ?? widget.sourceProc.deTexto);
 
   Future<void> _saveToAmbiente(String ambiente, String code) async {
     final result = await TransferService.transfer(
@@ -275,16 +282,21 @@ class _EnvDiffPageState extends State<EnvDiffPage> {
 
     if (_targetCode != null) {
       // ORIGEN on left, DESTINO on right — bidirectional comparison
+      final src = _sourceCode;
+      final tgt = _targetCode!;
+      final diffKey = ValueKey(
+        '${widget.sourceAmbiente}_${_targetAmbiente}_${src.hashCode}_${tgt.hashCode}',
+      );
       return _InlineDiff(
+        key: diffKey,
         title:
             '${widget.sourceProc.cdProcedimiento}: ${widget.sourceAmbiente} ↔ $_targetAmbiente',
-        original: _sourceCode,
-        modified: _targetCode!,
+        original: src,
+        modified: tgt,
         language: _language,
         sourceAmbiente: widget.sourceAmbiente,
         targetAmbiente: _targetAmbiente,
-        onSaveOriginal: () =>
-            _saveToAmbiente(widget.sourceAmbiente, _sourceCode),
+        onSaveOriginal: () => _saveToAmbiente(widget.sourceAmbiente, src),
         onSaveModified: (code) => _saveToAmbiente(_targetAmbiente, code),
       );
     }
@@ -327,6 +339,7 @@ class _InlineDiff extends StatefulWidget {
   final Future<void> Function(String code)? onSaveModified;
 
   const _InlineDiff({
+    super.key,
     required this.title,
     required this.original,
     required this.modified,
@@ -358,10 +371,17 @@ class _InlineDiffState extends State<_InlineDiff> {
   void initState() {
     super.initState();
     _currentOriginal = widget.original;
+    editorThemeStore.addListener(_onThemeStoreChanged);
+  }
+
+  void _onThemeStoreChanged() {
+    if (!mounted || _disposed) return;
+    _withCtrl((ctrl) => ctrl.setTheme(editorThemeStore.monacoTheme));
   }
 
   @override
   void dispose() {
+    editorThemeStore.removeListener(_onThemeStoreChanged);
     _disposed = true;
     _ctrl = null;
     super.dispose();
@@ -501,104 +521,138 @@ class _InlineDiffState extends State<_InlineDiff> {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final srcColor = AmbienteSelector.colorForAmbiente(widget.sourceAmbiente);
-    final tgtColor = AmbienteSelector.colorForAmbiente(widget.targetAmbiente);
-    return CallbackShortcuts(
-      bindings: {
-        SingleActivator(LogicalKeyboardKey.keyZ, control: true):
-            _history.isEmpty ? () {} : _undo,
-        SingleActivator(LogicalKeyboardKey.arrowUp, alt: true): () =>
-            _ctrl?.revealPreviousChange(),
-        SingleActivator(LogicalKeyboardKey.arrowDown, alt: true): () =>
-            _ctrl?.revealNextChange(),
-        SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
-            _applyOneToOriginal,
-        SingleActivator(LogicalKeyboardKey.arrowRight, alt: true):
-            _applyOneToModified,
-        SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true, shift: true):
-            _applyAllToOriginal,
-        SingleActivator(LogicalKeyboardKey.arrowRight, alt: true, shift: true):
-            _applyAllToModified,
-      },
-      child: Focus(
-        autofocus: false,
-        child: Column(
-          children: [
-            Container(
-              height: 36,
-              color: isDark ? cs.surfaceContainerHigh : cs.surfaceContainerLow,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Row(
-                children: [
-                  Text(
-                    widget.title,
-                    style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
-                  ),
-                  const Spacer(),
-                  if (widget.onSaveOriginal != null)
-                    TextButton.icon(
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        minimumSize: const Size(0, 28),
-                        foregroundColor: srcColor,
-                        textStyle: const TextStyle(fontSize: 11),
+    return ListenableBuilder(
+      listenable: editorThemeStore,
+      builder: (context, _) {
+        final cs = Theme.of(context).colorScheme;
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final srcColor = AmbienteSelector.colorForAmbiente(widget.sourceAmbiente);
+        final tgtColor = AmbienteSelector.colorForAmbiente(widget.targetAmbiente);
+        final hunks = _computeHunks(_currentOriginal, widget.modified);
+        final diffCount = hunks.length;
+
+        return CallbackShortcuts(
+          bindings: {
+            SingleActivator(LogicalKeyboardKey.keyZ, control: true):
+                _history.isEmpty ? () {} : _undo,
+            SingleActivator(LogicalKeyboardKey.arrowUp, alt: true): () =>
+                _ctrl?.revealPreviousChange(),
+            SingleActivator(LogicalKeyboardKey.arrowDown, alt: true): () =>
+                _ctrl?.revealNextChange(),
+            SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
+                diffCount == 0 ? () {} : _applyOneToOriginal,
+            SingleActivator(LogicalKeyboardKey.arrowRight, alt: true):
+                diffCount == 0 ? () {} : _applyOneToModified,
+            SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true, shift: true):
+                diffCount == 0 ? () {} : _applyAllToOriginal,
+            SingleActivator(LogicalKeyboardKey.arrowRight, alt: true, shift: true):
+                diffCount == 0 ? () {} : _applyAllToModified,
+          },
+          child: Focus(
+            autofocus: false,
+            child: Column(
+              children: [
+                Container(
+                  height: 36,
+                  color: isDark ? cs.surfaceContainerHigh : cs.surfaceContainerLow,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Row(
+                    children: [
+                      Text(
+                        widget.title,
+                        style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
                       ),
-                      onPressed: _savingOriginal ? null : _handleSaveOriginal,
-                      icon: _savingOriginal
-                          ? SizedBox(
-                              width: 12,
-                              height: 12,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 1.5,
-                                color: srcColor,
-                              ),
-                            )
-                          : const Icon(Icons.save_outlined, size: 13),
-                      label: Text('Guardar ${widget.sourceAmbiente}'),
-                    ),
-                  if (widget.onSaveModified != null)
-                    TextButton.icon(
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        minimumSize: const Size(0, 28),
-                        foregroundColor: tgtColor,
-                        textStyle: const TextStyle(fontSize: 11),
+                      const SizedBox(width: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: diffCount == 0
+                              ? Colors.green.withValues(alpha: 0.12)
+                              : Colors.amber.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: diffCount == 0
+                                ? Colors.green.shade400
+                                : Colors.amber.shade400,
+                            width: 0.8,
+                          ),
+                        ),
+                        child: Text(
+                          diffCount == 0
+                              ? 'Sin diferencias'
+                              : '$diffCount ${diffCount == 1 ? "diferencia" : "diferencias"}',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: diffCount == 0
+                                ? Colors.green.shade400
+                                : Colors.amber.shade400,
+                          ),
+                        ),
                       ),
-                      onPressed: _savingModified ? null : _handleSaveModified,
-                      icon: _savingModified
-                          ? SizedBox(
-                              width: 12,
-                              height: 12,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 1.5,
-                                color: tgtColor,
-                              ),
-                            )
-                          : const Icon(Icons.save_outlined, size: 13),
-                      label: Text('Guardar ${widget.targetAmbiente}'),
-                    ),
-                  TextButton.icon(
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      minimumSize: const Size(0, 28),
-                      textStyle: const TextStyle(fontSize: 11),
-                    ),
-                    icon: Icon(
-                      _sideBySide
-                          ? Icons.view_agenda_outlined
-                          : Icons.view_sidebar_outlined,
-                      size: 14,
-                    ),
-                    label: Text(
-                      _sideBySide ? 'Vista dividida' : 'Vista lineal',
-                    ),
-                    onPressed: _toggleLayout,
+                      const Spacer(),
+                      if (widget.onSaveOriginal != null)
+                        TextButton.icon(
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            minimumSize: const Size(0, 28),
+                            foregroundColor: srcColor,
+                            textStyle: const TextStyle(fontSize: 11),
+                          ),
+                          onPressed: _savingOriginal ? null : _handleSaveOriginal,
+                          icon: _savingOriginal
+                              ? SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 1.5,
+                                    color: srcColor,
+                                  ),
+                                )
+                              : const Icon(Icons.save_outlined, size: 13),
+                          label: Text('Guardar ${widget.sourceAmbiente}'),
+                        ),
+                      if (widget.onSaveModified != null)
+                        TextButton.icon(
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            minimumSize: const Size(0, 28),
+                            foregroundColor: tgtColor,
+                            textStyle: const TextStyle(fontSize: 11),
+                          ),
+                          onPressed: _savingModified ? null : _handleSaveModified,
+                          icon: _savingModified
+                              ? SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 1.5,
+                                    color: tgtColor,
+                                  ),
+                                )
+                              : const Icon(Icons.save_outlined, size: 13),
+                          label: Text('Guardar ${widget.targetAmbiente}'),
+                        ),
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: const Size(0, 28),
+                          textStyle: const TextStyle(fontSize: 11),
+                        ),
+                        icon: Icon(
+                          _sideBySide
+                              ? Icons.view_agenda_outlined
+                              : Icons.view_sidebar_outlined,
+                          size: 14,
+                        ),
+                        label: Text(
+                          _sideBySide ? 'Vista dividida' : 'Vista lineal',
+                        ),
+                        onPressed: _toggleLayout,
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ),
+                ),
             // Column labels with bidirectional copy buttons
             Container(
               color: isDark
@@ -666,14 +720,16 @@ class _InlineDiffState extends State<_InlineDiff> {
                                 icon: Icon(
                                   Icons.chevron_left,
                                   size: 18,
-                                  color: srcColor,
+                                  color: diffCount == 0
+                                      ? srcColor.withValues(alpha: 0.3)
+                                      : srcColor,
                                 ),
                                 padding: EdgeInsets.zero,
                                 constraints: const BoxConstraints(
                                   minWidth: 18,
                                   minHeight: 24,
                                 ),
-                                onPressed: _applyOneToOriginal,
+                                onPressed: diffCount == 0 ? null : _applyOneToOriginal,
                               ),
                             ),
                             Tooltip(
@@ -683,14 +739,16 @@ class _InlineDiffState extends State<_InlineDiff> {
                                 icon: Icon(
                                   Icons.keyboard_double_arrow_left,
                                   size: 14,
-                                  color: srcColor,
+                                  color: diffCount == 0
+                                      ? srcColor.withValues(alpha: 0.3)
+                                      : srcColor,
                                 ),
                                 padding: EdgeInsets.zero,
                                 constraints: const BoxConstraints(
                                   minWidth: 18,
                                   minHeight: 24,
                                 ),
-                                onPressed: _applyAllToOriginal,
+                                onPressed: diffCount == 0 ? null : _applyAllToOriginal,
                               ),
                             ),
                             Tooltip(
@@ -750,14 +808,16 @@ class _InlineDiffState extends State<_InlineDiff> {
                                 icon: Icon(
                                   Icons.keyboard_double_arrow_right,
                                   size: 14,
-                                  color: tgtColor,
+                                  color: diffCount == 0
+                                      ? tgtColor.withValues(alpha: 0.3)
+                                      : tgtColor,
                                 ),
                                 padding: EdgeInsets.zero,
                                 constraints: const BoxConstraints(
                                   minWidth: 18,
                                   minHeight: 24,
                                 ),
-                                onPressed: _applyAllToModified,
+                                onPressed: diffCount == 0 ? null : _applyAllToModified,
                               ),
                             ),
                             Tooltip(
@@ -767,14 +827,16 @@ class _InlineDiffState extends State<_InlineDiff> {
                                 icon: Icon(
                                   Icons.chevron_right,
                                   size: 18,
-                                  color: tgtColor,
+                                  color: diffCount == 0
+                                      ? tgtColor.withValues(alpha: 0.3)
+                                      : tgtColor,
                                 ),
                                 padding: EdgeInsets.zero,
                                 constraints: const BoxConstraints(
                                   minWidth: 18,
                                   minHeight: 24,
                                 ),
-                                onPressed: _applyOneToModified,
+                                onPressed: diffCount == 0 ? null : _applyOneToModified,
                               ),
                             ),
                             Tooltip(
@@ -849,12 +911,24 @@ class _InlineDiffState extends State<_InlineDiff> {
                   wordWrap: MonacoWordWrap.off,
                   readOnly: false,
                 ),
-                onReady: (ctrl) => _ctrl = ctrl,
+                onReady: (ctrl) async {
+                  _ctrl = ctrl;
+                  try {
+                    await EditorThemeStore.defineAllThemes(ctrl);
+                    if (!_disposed && mounted) {
+                      await ctrl.setTheme(editorThemeStore.monacoTheme);
+                    }
+                  } catch (_) {
+                    // Si el editor ya no está listo o fue destruido, se ignora
+                  }
+                },
               ),
             ),
           ],
         ),
       ),
+    );
+      },
     );
   }
 }

@@ -42,9 +42,21 @@ void main() {
         detectStatementKind('GRANT SELECT ON t TO u'),
         SqlStatementKind.ddl,
       );
+      expect(
+        detectStatementKind(
+          'CREATE OR REPLACE PROCEDURE PRODUCTO.CALCULA_VALOR AS BEGIN NULL; END;',
+        ),
+        SqlStatementKind.ddl,
+      );
+      expect(
+        detectStatementKind(
+          'CREATE OR REPLACE EDITIONABLE PROCEDURE PRODUCTO.CALCULA_VALOR AS BEGIN NULL; END;',
+        ),
+        SqlStatementKind.ddl,
+      );
     });
 
-    test('PL/SQL: bloque anónimo, CREATE OR REPLACE y DECLARE', () {
+    test('PL/SQL anónimo y DECLARE; CREATE de objeto es DDL', () {
       expect(detectStatementKind('BEGIN NULL; END;'), SqlStatementKind.plsql);
       expect(
         detectStatementKind('DECLARE v NUMBER; BEGIN v := 1; END;'),
@@ -54,13 +66,13 @@ void main() {
         detectStatementKind(
           'CREATE OR REPLACE PROCEDURE p IS BEGIN NULL; END;',
         ),
-        SqlStatementKind.plsql,
+        SqlStatementKind.ddl,
       );
       expect(
         detectStatementKind(
           'CREATE OR REPLACE FUNCTION f RETURN NUMBER IS BEGIN RETURN 1; END;',
         ),
-        SqlStatementKind.plsql,
+        SqlStatementKind.ddl,
       );
     });
 
@@ -139,8 +151,82 @@ SELECT * FROM dual;
 ''';
       final stmts = splitStatements(script);
       expect(stmts, hasLength(2));
-      expect(stmts[0].kind, SqlStatementKind.plsql);
+      expect(stmts[0].kind, SqlStatementKind.ddl);
       expect(stmts[1].kind, SqlStatementKind.select);
+    });
+
+    test(
+      'CREATE OR REPLACE PROCEDURE con variables antes de BEGIN no se fragmenta',
+      () {
+        const script = '''
+CREATE OR REPLACE PROCEDURE pr_test (p_id IN NUMBER) IS
+  v_num NUMBER := 10;
+  v_texto VARCHAR2(50);
+BEGIN
+  v_texto := 'Hola mundo';
+  NULL;
+END pr_test;
+SELECT 1 FROM dual;
+''';
+        final stmts = splitStatements(script);
+        expect(stmts, hasLength(2));
+        expect(stmts[0].kind, SqlStatementKind.ddl);
+        expect(stmts[0].text, contains('v_num NUMBER := 10;'));
+        expect(stmts[0].text, contains('v_texto := \'Hola mundo\';'));
+        expect(stmts[1].kind, SqlStatementKind.select);
+      },
+    );
+
+    test(
+      'CREATE OR REPLACE FUNCTION con variables y múltiples BEGIN anidados',
+      () {
+        const script = '''
+CREATE OR REPLACE FUNCTION fn_calculo(p_x IN NUMBER) RETURN NUMBER IS
+  v_res NUMBER := 0;
+BEGIN
+  BEGIN
+    v_res := p_x * 2;
+  EXCEPTION
+    WHEN OTHERS THEN
+      v_res := -1;
+  END;
+  RETURN v_res;
+END;
+''';
+        final stmts = splitStatements(script);
+        expect(stmts, hasLength(1));
+        expect(stmts[0].kind, SqlStatementKind.ddl);
+      },
+    );
+
+    test('CREATE OR REPLACE PACKAGE y PACKAGE BODY se clasifican como DDL', () {
+      const spec = '''
+CREATE OR REPLACE PACKAGE pck_test AS
+  PROCEDURE do_something;
+  FUNCTION get_value RETURN VARCHAR2;
+END pck_test;
+''';
+      final specStmts = splitStatements(spec);
+      expect(specStmts, hasLength(1));
+      expect(specStmts[0].kind, SqlStatementKind.ddl);
+
+      const body = '''
+CREATE OR REPLACE PACKAGE BODY pck_test AS
+  PROCEDURE do_something IS
+    v_dummy VARCHAR2(10);
+  BEGIN
+    NULL;
+  END do_something;
+
+  FUNCTION get_value RETURN VARCHAR2 IS
+  BEGIN
+    RETURN 'VAL';
+  END get_value;
+END pck_test;
+''';
+      final bodyStmts = splitStatements(body);
+      expect(bodyStmts, hasLength(1));
+      expect(bodyStmts[0].kind, SqlStatementKind.ddl);
     });
   });
 
@@ -150,6 +236,86 @@ SELECT * FROM dual;
       final stmt = statementAtCursor(script, 25);
       expect(stmt, isNotNull);
       expect(stmt!.text, 'SELECT 2 FROM dual;');
+    });
+  });
+
+  group('extractDdlTarget', () {
+    test('extrae nombre y tipo de procedimiento o función', () {
+      final proc = extractDdlTarget(
+        'CREATE OR REPLACE PROCEDURE schema1.pr_demo (p_id NUMBER) IS BEGIN NULL; END;',
+      );
+      expect(proc.objectType, 'PROCEDURE');
+      expect(proc.objectName, 'pr_demo');
+
+      final fn = extractDdlTarget(
+        'CREATE OR REPLACE EDITIONABLE FUNCTION "FN_TOTAL" RETURN NUMBER IS BEGIN RETURN 1; END;',
+      );
+      expect(fn.objectType, 'FUNCTION');
+      expect(fn.objectName, 'FN_TOTAL');
+    });
+
+    test('extrae nombre y tipo de package body', () {
+      final pkg = extractDdlTarget(
+        'CREATE OR REPLACE PACKAGE BODY PCK_TEST AS END PCK_TEST;',
+      );
+      expect(pkg.objectType, 'PACKAGE BODY');
+      expect(pkg.objectName, 'PCK_TEST');
+    });
+
+    test('soporta múltiples modificadores y esquemas entrecomillados', () {
+      final proc = extractDdlTarget(
+        'CREATE OR REPLACE NONEDITIONABLE PROCEDURE "MY_SCHEMA" . "DO_ACTION" (p_val NUMBER) IS BEGIN NULL; END;',
+      );
+      expect(proc.objectType, 'PROCEDURE');
+      expect(proc.objectName, 'DO_ACTION');
+    });
+  });
+
+  group('Comandos cliente (DESC / DESCRIBE)', () {
+    test('detectStatementKind clasifica DESC y DESCRIBE como command', () {
+      expect(detectStatementKind('DESC emp;'), SqlStatementKind.command);
+      expect(detectStatementKind('describe SCOTT.EMP'), SqlStatementKind.command);
+      expect(detectStatementKind('DESC "SCHEMA"."TABLA";'), SqlStatementKind.command);
+    });
+
+    test('SqlCommandResult deserializa JSON y mapea a SqlQueryResult', () {
+      final json = {
+        'command': 'DESC',
+        'output': 'SCOTT.EMP (TABLE): 2 columna(s).',
+        'data': [
+          {
+            'columnName': 'EMPNO',
+            'dataType': 'NUMBER',
+            'dataLength': 22,
+            'dataPrecision': 4,
+            'dataScale': 0,
+            'nullable': false,
+          },
+          {
+            'columnName': 'ENAME',
+            'dataType': 'VARCHAR2',
+            'dataLength': 10,
+            'dataPrecision': null,
+            'dataScale': null,
+            'nullable': true,
+          },
+        ],
+      };
+
+      final cmdResult = SqlCommandResult.fromJson(json, durationMs: 15);
+      expect(cmdResult.command, 'DESC');
+      expect(cmdResult.output, 'SCOTT.EMP (TABLE): 2 columna(s).');
+      expect(cmdResult.columns, hasLength(2));
+      expect(cmdResult.columns[0].columnName, 'EMPNO');
+      expect(cmdResult.columns[0].nullable, false);
+
+      final queryResult = cmdResult.toSqlQueryResult();
+      expect(queryResult.columns, hasLength(6));
+      expect(queryResult.rows, hasLength(2));
+      expect(queryResult.rows[0][0], 'EMPNO');
+      expect(queryResult.rows[0][1], 'NUMBER');
+      expect(queryResult.rows[0][5], 'N');
+      expect(queryResult.rows[1][5], 'Y');
     });
   });
 }

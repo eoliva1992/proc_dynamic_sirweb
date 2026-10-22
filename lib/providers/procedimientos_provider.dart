@@ -10,6 +10,7 @@ import '../services/note_service.dart';
 import '../services/notification_service.dart';
 import '../services/sirweb_service.dart';
 import '../services/snippet_service.dart';
+import '../services/sql_session_manager.dart';
 
 part 'procedimientos_provider.g.dart';
 
@@ -136,6 +137,7 @@ abstract class _ProcedimientosProvider with Store {
       NoteService.resetForUser(normalized);
       SnippetService.currentUser = normalized;
       NotificationService.instance.updateUser(normalized);
+      SqlSessionManager.instance.notifyExternalChange();
     }
   }
 
@@ -384,7 +386,7 @@ abstract class _ProcedimientosProvider with Store {
         },
       );
       AppLog.instance.transaction(
-        'Compilar ' + procedimientoActual!.cdProcedimiento,
+        'Compilar ${procedimientoActual!.cdProcedimiento}',
         source: 'Procedimientos',
         datos: {'Ambiente': ambiente, 'Usuario': cdUsuario},
       );
@@ -443,7 +445,7 @@ abstract class _ProcedimientosProvider with Store {
             'Compilado correctamente. Versión ${procedimientoActual!.version}';
       });
       AppLog.instance.transaction(
-        'Compilar ' + procedimientoActual!.cdProcedimiento,
+        'Compilar ${procedimientoActual!.cdProcedimiento}',
         source: 'Procedimientos',
         datos: {'Ambiente': ambiente, 'Usuario': cdUsuario},
       );
@@ -530,7 +532,7 @@ abstract class _ProcedimientosProvider with Store {
         mensaje = 'Procedimiento "$cdProcedimiento" creado correctamente.';
       });
       AppLog.instance.transaction(
-        'Crear ' + cdProcedimiento,
+        'Crear $cdProcedimiento',
         source: 'Procedimientos',
         datos: {
           'Ambiente': ambiente,

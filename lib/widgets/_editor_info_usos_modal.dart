@@ -252,28 +252,39 @@ class _UsosProcedimientoModalState extends State<_UsosProcedimientoModal> {
                     ],
                   ),
                   clipBehavior: Clip.antiAlias,
-                  // El contenido se maqueta siempre con el tamaño final y se
-                  // recorta mientras corre la animación de minimizar/restaurar.
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    minWidth: 0,
-                    maxWidth: double.infinity,
-                    minHeight: 0,
-                    maxHeight: double.infinity,
-                    child: SizedBox(
-                      width: w,
-                      height: h,
-                      child: Column(
-                        children: [
-                          _buildHeader(context, isDark, accentColor),
-                          if (!_minimized)
-                            Expanded(
-                              child: _buildBody(context, isDark, accentColor),
+                  child: _minimized
+                      ? MinimizedWindowCard(
+                          title: 'Usos ${widget.cdProcedimiento}',
+                          icon: Icons.hub_outlined,
+                          accentColor: accentColor,
+                          badge: 'USOS',
+                          onRestore: _toggleMinimize,
+                          onClose: _cerrar,
+                        )
+                      : OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: 0,
+                          maxWidth: double.infinity,
+                          minHeight: 0,
+                          maxHeight: double.infinity,
+                          child: SizedBox(
+                            width: w,
+                            height: h,
+                            child: Column(
+                              children: [
+                                _buildHeader(context, isDark, accentColor),
+                                if (!_minimized)
+                                  Expanded(
+                                    child: _buildBody(
+                                      context,
+                                      isDark,
+                                      accentColor,
+                                    ),
+                                  ),
+                              ],
                             ),
-                        ],
-                      ),
-                    ),
-                  ),
+                          ),
+                        ),
                 ),
               ),
             ),

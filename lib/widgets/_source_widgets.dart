@@ -114,39 +114,3 @@ class _ViewerIconBtn extends StatelessWidget {
   }
 }
 
-class _ProblemBadge extends StatelessWidget {
-  final int count;
-  final bool isError;
-  const _ProblemBadge({required this.count, required this.isError});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isError ? Colors.red[400]! : Colors.orange[400]!;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            isError ? Icons.error_outline : Icons.warning_amber_rounded,
-            size: 11,
-            color: color,
-          ),
-          const SizedBox(width: 3),
-          Text(
-            '$count',
-            style: TextStyle(
-              fontSize: 11,
-              color: color,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}

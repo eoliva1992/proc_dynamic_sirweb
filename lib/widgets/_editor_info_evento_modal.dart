@@ -44,12 +44,17 @@ class _InfoEventoModal extends StatefulWidget {
 }
 
 class _InfoEventoModalState extends State<_InfoEventoModal> {
+  static const _kPrefTopEventoValor = 'info_evento_top_limit';
+
+  late String _ambiente;
   late Future<EventoInfo>? _headerFuture;
   Future<List<EventoValor>>? _valoresFuture;
   final _indexCtrl = TextEditingController();
+  final _topCtrl = TextEditingController(text: '50');
   bool _hasText = false;
   Offset _position = Offset.zero;
   Set<String> _hiddenCols = {};
+  final Set<int> _selectedRowIndices = {};
   double? _modalW;
   double? _modalH;
   final _tableVertCtrl = ScrollController();
@@ -107,6 +112,7 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
   @override
   void initState() {
     super.initState();
+    _ambiente = widget.ambiente;
     _cdEvento = widget.cdEvento.trim();
     if (_cdEvento.isEmpty) {
       // Abierto desde la toolbar sin evento: arranca en modo búsqueda.
@@ -118,24 +124,66 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
     } else {
       _headerFuture = SirwebService().infoEventoHeader(
         _cdEvento,
-        ambiente: widget.ambiente,
+        ambiente: _ambiente,
       );
     }
     _indexCtrl.addListener(() {
       final v = _indexCtrl.text.isNotEmpty;
       if (v != _hasText) setState(() => _hasText = v);
     });
+    _cargarTopGuardado();
+  }
+
+  Future<void> _cargarTopGuardado() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedTop = prefs.getInt(_kPrefTopEventoValor);
+      if (savedTop != null && savedTop > 0 && mounted) {
+        _topCtrl.text = savedTop.toString();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _guardarTop(int top) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_kPrefTopEventoValor, top);
+    } catch (_) {}
   }
 
   @override
   void dispose() {
     _MinimizedSlots.release(_slot);
     _indexCtrl.dispose();
+    _topCtrl.dispose();
     _eventoCtrl.dispose();
     _eventoFocus.dispose();
     _tableVertCtrl.dispose();
     _tableHorizCtrl.dispose();
     super.dispose();
+  }
+
+  void _onToggleSelectAll(List<EventoValor> valores, bool? allSelected) {
+    setState(() {
+      if (allSelected == true) {
+        _selectedRowIndices.clear();
+        for (var i = 0; i < valores.length; i++) {
+          _selectedRowIndices.add(i);
+        }
+      } else {
+        _selectedRowIndices.clear();
+      }
+    });
+  }
+
+  void _onToggleRow(int index, bool? selected) {
+    setState(() {
+      if (selected == true) {
+        _selectedRowIndices.add(index);
+      } else {
+        _selectedRowIndices.remove(index);
+      }
+    });
   }
 
   void _toggleCambiarEvento() {
@@ -168,10 +216,11 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
       _editandoEvento = false;
       _headerFuture = SirwebService().infoEventoHeader(
         _cdEvento,
-        ambiente: widget.ambiente,
+        ambiente: _ambiente,
       );
       _valoresFuture = null;
       _hiddenCols = {};
+      _selectedRowIndices.clear();
       _indexCtrl.clear();
     });
   }
@@ -179,13 +228,35 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
   void _buscarValores() {
     final texto = _indexCtrl.text.trim();
     if (texto.isEmpty || _cdEvento.isEmpty) return;
+    final topLimit = int.tryParse(_topCtrl.text.trim()) ?? 50;
+    final effectiveTop = topLimit > 0 ? topLimit : 50;
+    _guardarTop(effectiveTop);
     setState(() {
       _valoresFuture = SirwebService().valoresEvento(
         _cdEvento,
         deIndiceEvento: texto,
-        ambiente: widget.ambiente,
+        ambiente: _ambiente,
+        top: effectiveTop,
       );
       _hiddenCols = {};
+      _selectedRowIndices.clear();
+    });
+  }
+
+  void _cambiarAmbiente(String nuevo) {
+    if (nuevo == _ambiente) return;
+    setState(() {
+      _ambiente = nuevo;
+      _selectedRowIndices.clear();
+      if (_cdEvento.isNotEmpty) {
+        _headerFuture = SirwebService().infoEventoHeader(
+          _cdEvento,
+          ambiente: _ambiente,
+        );
+        if (_valoresFuture != null) {
+          _buscarValores();
+        }
+      }
     });
   }
 
@@ -194,6 +265,7 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
     setState(() {
       _valoresFuture = null;
       _hiddenCols = {};
+      _selectedRowIndices.clear();
     });
   }
 
@@ -288,28 +360,39 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
                     ],
                   ),
                   clipBehavior: Clip.antiAlias,
-                  // El contenido se maqueta siempre con el tamaño final y se
-                  // recorta mientras corre la animación de minimizar/restaurar.
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    minWidth: 0,
-                    maxWidth: double.infinity,
-                    minHeight: 0,
-                    maxHeight: double.infinity,
-                    child: SizedBox(
-                      width: w,
-                      height: h,
-                      child: Column(
-                        children: [
-                          _buildHeader(context, isDark, accentColor),
-                          if (!_minimized)
-                            Expanded(
-                              child: _buildBody(context, isDark, accentColor),
+                  child: _minimized
+                      ? MinimizedWindowCard(
+                          title: 'Evento ${widget.cdEvento}',
+                          icon: Icons.flash_on_rounded,
+                          accentColor: accentColor,
+                          badge: 'EVENTO DML',
+                          onRestore: _toggleMinimize,
+                          onClose: _cerrar,
+                        )
+                      : OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: 0,
+                          maxWidth: double.infinity,
+                          minHeight: 0,
+                          maxHeight: double.infinity,
+                          child: SizedBox(
+                            width: w,
+                            height: h,
+                            child: Column(
+                              children: [
+                                _buildHeader(context, isDark, accentColor),
+                                if (!_minimized)
+                                  Expanded(
+                                    child: _buildBody(
+                                      context,
+                                      isDark,
+                                      accentColor,
+                                    ),
+                                  ),
+                              ],
                             ),
-                        ],
-                      ),
-                    ),
-                  ),
+                          ),
+                        ),
                 ),
               ),
             ),
@@ -551,6 +634,10 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
                     minHeight: 32,
                   ),
                 ),
+              if (!_minimized) ...[
+                AmbienteSelector(value: _ambiente, onChanged: _cambiarAmbiente),
+                const SizedBox(width: 8),
+              ],
               IconButton(
                 tooltip: _minimized ? 'Restaurar' : 'Minimizar',
                 icon: Icon(
@@ -826,7 +913,7 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
                         onTap: () => showInfoDatoWindow(
                           context,
                           d.cdDato.toString(),
-                          widget.ambiente,
+                          _ambiente,
                         ),
                       ),
                     ],
@@ -968,6 +1055,53 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
           ),
           const SizedBox(width: 8),
           SizedBox(
+            width: 95,
+            height: 34,
+            child: TextField(
+              controller: _topCtrl,
+              keyboardType: TextInputType.number,
+              style: const TextStyle(fontSize: 13),
+              onChanged: (val) {
+                final n = int.tryParse(val.trim());
+                if (n != null && n > 0) {
+                  _guardarTop(n);
+                }
+              },
+              onSubmitted: (_) => _buscarValores(),
+              decoration: InputDecoration(
+                prefixText: 'Top: ',
+                prefixStyle: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white60 : Colors.black54,
+                ),
+                hintText: '50',
+                hintStyle: TextStyle(
+                  fontSize: 12,
+                  color: isDark ? Colors.white38 : Colors.black38,
+                ),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 8,
+                ),
+                filled: true,
+                fillColor: isDark
+                    ? const Color(0xFF2D2D30)
+                    : const Color(0xFFF0F2F5),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(6),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(6),
+                  borderSide: BorderSide(color: accent.withValues(alpha: 0.6)),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
             height: 34,
             child: FilledButton.icon(
               onPressed: _buscarValores,
@@ -1056,58 +1190,129 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
             ),
           );
         }
-        final allCols = _detectColumns(valores);
-        final effectiveCols = _hiddenCols.isEmpty
-            ? allCols
-            : allCols.where((c) => !_hiddenCols.contains(c)).toList();
-        return Column(
-          children: [
-            _buildTableToolbar(
-              context,
-              isDark,
-              borderColor,
-              allCols,
-              effectiveCols,
-              valores,
-            ),
-            Expanded(
-              child: _buildDataTable(
-                isDark,
-                borderColor,
-                effectiveCols,
-                valores,
-              ),
-            ),
-          ],
+        return FutureBuilder<List<({String name, String dataType})>>(
+          future: SchemaService.instance.getColumns(
+            'EVENTOVALOR',
+            ambiente: _ambiente,
+          ),
+          builder: (ctx, schemaSnap) {
+            final dbCols = schemaSnap.data ?? const [];
+            final allCols = _detectColumns(valores, dbCols: dbCols);
+            final effectiveCols = _hiddenCols.isEmpty
+                ? allCols
+                : allCols.where((c) => !_hiddenCols.contains(c)).toList();
+            return Column(
+              children: [
+                _buildTableToolbar(
+                  context,
+                  isDark,
+                  borderColor,
+                  allCols,
+                  effectiveCols,
+                  valores,
+                ),
+                Expanded(
+                  child: _buildDataTable(
+                    isDark,
+                    borderColor,
+                    effectiveCols,
+                    valores,
+                  ),
+                ),
+              ],
+            );
+          },
         );
       },
     );
   }
 
-  /// Detect which columns to show from the first few rows.
-  List<String> _detectColumns(List<EventoValor> valores) {
-    if (valores.isEmpty) return [];
-    final keys = <String>{};
-    for (final v in valores.take(5)) {
-      keys.addAll(v.raw.keys);
+  /// Lista exhaustiva por defecto de columnas de EVENTOVALOR por si falla la
+  /// consulta al esquema o se trabaja offline.
+  static const _kDefaultEventoValorColumns = <String>[
+    'VERSION',
+    'CD_EVENTO',
+    'DE_INDICE_EVENTO',
+    'FE_EFECTIVA_EVENTO',
+    'FE_TERMINO_EVENTO',
+    'VA_DATO1',
+    'VA_DATO2',
+    'VA_DATO3',
+    'VA_DATO4',
+    'VA_DATO5',
+    'VA_DATO6',
+    'VA_DATO7',
+    'VA_DATO8',
+    'VA_DATO9',
+    'VA_DATO10',
+    'VA_COMPONENTE',
+    'VA_MINIMO_COMPONENTE',
+    'VA_MAXIMO_COMPONENTE',
+    'MT_INTERVALO_INFERIOR_A',
+    'MT_INTERVALO_SUPERIOR_A',
+    'MT_INTERVALO_INFERIOR_B',
+    'MT_INTERVALO_SUPERIOR_B',
+    'CD_INTERVALO_INFERIOR',
+    'CD_INTERVALO_SUPERIOR',
+    'VA_COMPONENTE_ADICIONAL',
+    'PO_DEDUCIBLE',
+    'CD_CATEGORIA',
+    'CD_PERSONA_PROVEEDOR',
+    'CD_CONCEPTO',
+    'CD_SUB_CONCEPTO',
+    'FE_INICIO_REGISTRO',
+    'FE_TERMINO_REGISTRO',
+    'FE_MODIFICACION',
+    'CD_USUARIO',
+  ];
+
+  /// Detect which columns to show. Combina las columnas del diccionario de datos
+  /// de EVENTOVALOR con las devueltas en raw para que se visualicen todos los campos.
+  List<String> _detectColumns(
+    List<EventoValor> valores, {
+    List<({String name, String dataType})> dbCols = const [],
+  }) {
+    final result = <String>[];
+    final seen = <String>{};
+
+    void addCol(String col) {
+      final norm = col.trim();
+      if (norm.isEmpty) return;
+      if (seen.add(norm.toUpperCase())) {
+        result.add(norm);
+      }
     }
-    // Prioritize known fields first
-    const preferred = [
-      'indice',
-      'cdIndice',
-      'index',
-      'valor',
-      'cdValor',
-      'value',
-      'descripcion',
-      'deValor',
-      'description',
-    ];
-    final ordered = <String>[
-      ...preferred.where(keys.contains),
-      ...keys.where((k) => !preferred.contains(k)),
-    ];
-    return ordered;
+
+    if (dbCols.isNotEmpty) {
+      for (final c in dbCols) {
+        addCol(c.name);
+      }
+    } else {
+      for (final c in _kDefaultEventoValorColumns) {
+        addCol(c);
+      }
+    }
+
+    // Agregar cualquier otra propiedad adicional que venga en raw
+    for (final v in valores.take(10)) {
+      for (final k in v.raw.keys) {
+        final kUpper = k.toUpperCase();
+        final kClean = k.replaceAll('_', '').toUpperCase();
+        final alias =
+            _kKnownDbColumnAliases[kClean] ?? _kKnownDbColumnAliases[kUpper];
+        if (alias != null) {
+          final aliasUpper = alias.toUpperCase();
+          final aliasClean = aliasUpper.replaceAll('_', '');
+          if (!seen.contains(aliasUpper) && !seen.contains(aliasClean)) {
+            addCol(alias);
+          }
+        } else if (!seen.contains(kUpper) && !seen.contains(kClean)) {
+          addCol(k);
+        }
+      }
+    }
+
+    return result;
   }
 
   Widget _buildDataTable(
@@ -1116,77 +1321,104 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
     List<String> cols,
     List<EventoValor> valores,
   ) {
-    final headerBg = isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA);
-
-    // Outer Scrollbar handles horizontal scroll (depth==1); inner handles vertical (depth==0)
-    return Scrollbar(
-      controller: _tableHorizCtrl,
-      thumbVisibility: true,
-      trackVisibility: true,
-      notificationPredicate: (n) => n.depth == 1,
-      child: Scrollbar(
-        controller: _tableVertCtrl,
-        thumbVisibility: true,
-        trackVisibility: true,
-        child: SingleChildScrollView(
-          controller: _tableVertCtrl,
-          child: SingleChildScrollView(
-            controller: _tableHorizCtrl,
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              columnSpacing: 24,
-              headingRowHeight: 32,
-              dataRowMinHeight: 32,
-              dataRowMaxHeight: 44,
-              dividerThickness: 1,
-              headingRowColor: WidgetStatePropertyAll(headerBg),
-              headingTextStyle: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: isDark ? Colors.white54 : Colors.black45,
-                letterSpacing: 0.3,
-              ),
-              dataTextStyle: TextStyle(
-                fontSize: 12,
-                color: isDark
-                    ? Colors.white.withValues(alpha: 0.87)
-                    : Colors.black87,
-              ),
-              border: TableBorder(
-                top: BorderSide(color: borderColor),
-                horizontalInside: BorderSide(color: borderColor, width: 0.5),
-              ),
-              columns: [
-                for (final col in cols)
-                  DataColumn(
-                    label: Text(_colLabel(col)),
-                    numeric: _isNumericField(col),
-                  ),
-              ],
-              rows: [
-                for (final v in valores)
-                  DataRow(
-                    cells: [
-                      for (final col in cols)
-                        DataCell(
-                          Text(
-                            v.raw[col]?.toString() ?? '',
-                            style: _isNumericField(col)
-                                ? const TextStyle(fontFamily: 'Consolas')
-                                : null,
-                          ),
-                        ),
-                    ],
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return InfoEventoVirtualTable(
+      isDark: isDark,
+      borderColor: borderColor,
+      cols: cols,
+      valores: valores,
+      cdEvento: _cdEvento,
+      vertCtrl: _tableVertCtrl,
+      horizCtrl: _tableHorizCtrl,
+      selectedRowIndices: _selectedRowIndices,
+      onToggleSelectAll: (val) => _onToggleSelectAll(valores, val),
+      onToggleRow: _onToggleRow,
     );
   }
 
+  /// Resuelve el valor de una celda para la columna dada, buscando en `raw`
+  /// tanto por el nombre exacto como por mayúsculas, alias y sin guiones bajos.
+  /// Si la columna corresponde a `CD_EVENTO` y no viene con valor, devuelve `_cdEvento`.
+  String _cellValue(EventoValor item, String col) {
+    final colUpper = col.toUpperCase();
+    final colClean = colUpper.replaceAll('_', '');
+
+    if (colUpper == 'CD_EVENTO' || colClean == 'CDEVENTO') {
+      final direct =
+          item.raw[col] ??
+          item.raw['cdEvento'] ??
+          item.raw['CD_EVENTO'] ??
+          item.raw['cdevento'];
+      final val = direct?.toString().trim();
+      return (val == null || val.isEmpty) ? _cdEvento : val;
+    }
+
+    if (item.raw.containsKey(col)) {
+      return item.raw[col]?.toString() ?? '';
+    }
+
+    for (final entry in item.raw.entries) {
+      final kUpper = entry.key.toUpperCase();
+      final kClean = kUpper.replaceAll('_', '');
+      if (kUpper == colUpper || kClean == colClean) {
+        return entry.value?.toString() ?? '';
+      }
+      final alias =
+          _kKnownDbColumnAliases[kClean] ?? _kKnownDbColumnAliases[kUpper];
+      if (alias != null && alias.toUpperCase() == colUpper) {
+        return entry.value?.toString() ?? '';
+      }
+    }
+
+    return '';
+  }
+
   String _colLabel(String col) {
+    final upper = col.toUpperCase();
+    final clean = upper.replaceAll('_', '');
+
+    const exactLabels = <String, String>{
+      'VERSION': 'Versión',
+      'CD_EVENTO': 'Evento',
+      'DE_INDICE_EVENTO': 'Descripción índice',
+      'FE_EFECTIVA_EVENTO': 'Fecha efectiva',
+      'FE_TERMINO_EVENTO': 'Fecha término',
+      'VA_DATO1': 'Valor Dato 1',
+      'VA_DATO2': 'Valor Dato 2',
+      'VA_DATO3': 'Valor Dato 3',
+      'VA_DATO4': 'Valor Dato 4',
+      'VA_DATO5': 'Valor Dato 5',
+      'VA_DATO6': 'Valor Dato 6',
+      'VA_DATO7': 'Valor Dato 7',
+      'VA_DATO8': 'Valor Dato 8',
+      'VA_DATO9': 'Valor Dato 9',
+      'VA_DATO10': 'Valor Dato 10',
+      'VA_COMPONENTE': 'Valor componente',
+      'VA_MINIMO_COMPONENTE': 'Mín. componente',
+      'VA_MAXIMO_COMPONENTE': 'Máx. componente',
+      'MT_INTERVALO_INFERIOR_A': 'Intervalo inf. A',
+      'MT_INTERVALO_SUPERIOR_A': 'Intervalo sup. A',
+      'MT_INTERVALO_INFERIOR_B': 'Intervalo inf. B',
+      'MT_INTERVALO_SUPERIOR_B': 'Intervalo sup. B',
+      'CD_INTERVALO_INFERIOR': 'Cód. int. inferior',
+      'CD_INTERVALO_SUPERIOR': 'Cód. int. superior',
+      'VA_COMPONENTE_ADICIONAL': 'Componente adicional',
+      'PO_DEDUCIBLE': '% Deducible',
+      'CD_CATEGORIA': 'Categoría',
+      'CD_PERSONA_PROVEEDOR': 'Proveedor',
+      'CD_CONCEPTO': 'Concepto',
+      'CD_SUB_CONCEPTO': 'Subconcepto',
+      'FE_INICIO_REGISTRO': 'Fecha inicio reg.',
+      'FE_TERMINO_REGISTRO': 'Fecha término reg.',
+      'FE_MODIFICACION': 'Fecha modif.',
+      'CD_USUARIO': 'Usuario',
+      'INDICE': 'Índice',
+      'VALOR': 'Valor',
+      'DESCRIPCION': 'Descripción',
+    };
+
+    if (exactLabels.containsKey(upper)) return exactLabels[upper]!;
+    if (exactLabels.containsKey(clean)) return exactLabels[clean]!;
+
     const labels = <String, String>{
       'indice': 'Índice',
       'cdIndice': 'Índice',
@@ -1208,6 +1440,21 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
   }
 
   bool _isNumericField(String col) {
+    final upper = col.toUpperCase();
+    final clean = upper.replaceAll('_', '');
+    if (upper == 'VERSION' ||
+        upper.startsWith('VA_') ||
+        upper.startsWith('MT_') ||
+        upper.startsWith('PO_') ||
+        upper == 'CD_INDICE' ||
+        upper == 'INDICE' ||
+        clean == 'CDINDICE' ||
+        clean == 'VERSION' ||
+        clean.startsWith('VA') ||
+        clean.startsWith('MT') ||
+        clean.startsWith('PO')) {
+      return true;
+    }
     const numericFields = [
       'indice',
       'cdIndice',
@@ -1232,6 +1479,7 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
     final bg = isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA);
     final labelColor = isDark ? Colors.white54 : Colors.black45;
     final hiddenCount = allCols.length - effectiveCols.length;
+    final selectedCount = _selectedRowIndices.length;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
@@ -1242,7 +1490,9 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
       child: Row(
         children: [
           Text(
-            '${valores.length} registro${valores.length != 1 ? 's' : ''}',
+            selectedCount > 0
+                ? '$selectedCount de ${valores.length} seleccionado${selectedCount != 1 ? 's' : ''}'
+                : '${valores.length} registro${valores.length != 1 ? 's' : ''}',
             style: TextStyle(fontSize: 11, color: labelColor),
           ),
           const Spacer(),
@@ -1252,6 +1502,17 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
             Icons.view_column_outlined,
             hiddenCount > 0 ? 'Columnas ($hiddenCount ocultas)' : 'Columnas',
             () => _showColumnSelector(context, allCols),
+          ),
+          const SizedBox(width: 4),
+          // Generar INSERT/MERGE
+          _toolbarBtn(
+            isDark,
+            Icons.data_object_outlined,
+            'Generar SQL',
+            () => _abrirGeneradorDml(context, effectiveCols, valores),
+            tooltip: selectedCount > 0
+                ? 'Generar INSERT / MERGE ($selectedCount filas seleccionadas)'
+                : 'Generar INSERT / MERGE (todas las filas)',
           ),
           const SizedBox(width: 4),
           // Copiar al portapapeles
@@ -1278,10 +1539,11 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
     bool isDark,
     IconData icon,
     String label,
-    VoidCallback onTap,
-  ) {
+    VoidCallback onTap, {
+    String? tooltip,
+  }) {
     final color = isDark ? Colors.white54 : Colors.black54;
-    return InkWell(
+    final btn = InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(4),
       child: Padding(
@@ -1296,6 +1558,10 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
         ),
       ),
     );
+    if (tooltip != null) {
+      return Tooltip(message: tooltip, child: btn);
+    }
+    return btn;
   }
 
   void _showColumnSelector(BuildContext context, List<String> allCols) {
@@ -1368,15 +1634,175 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
     );
   }
 
+  // ── Generación de INSERT / MERGE (DML) ───────────────────────────────
+
+  /// Mapeo canónico entre abreviaciones/claves devueltas por la API de backend
+  /// y los nombres exactos y originales de columnas en la tabla EVENTOVALOR.
+  static const _kKnownDbColumnAliases = <String, String>{
+    'MTINTINFERIORA': 'MT_INTERVALO_INFERIOR_A',
+    'MTINTSUPERIORA': 'MT_INTERVALO_SUPERIOR_A',
+    'MTINTINFERIORB': 'MT_INTERVALO_INFERIOR_B',
+    'MTINTSUPERIORB': 'MT_INTERVALO_SUPERIOR_B',
+    'CDINTINFERIOR': 'CD_INTERVALO_INFERIOR',
+    'CDINTSUPERIOR': 'CD_INTERVALO_SUPERIOR',
+    'VACOMPONENTE': 'VA_COMPONENTE',
+    'VAMINIMOCOMPONENTE': 'VA_MINIMO_COMPONENTE',
+    'VAMAXIMOCOMPONENTE': 'VA_MAXIMO_COMPONENTE',
+    'VACOMPONENTEADICIONAL': 'VA_COMPONENTE_ADICIONAL',
+    'PODEDUCIBLE': 'PO_DEDUCIBLE',
+    'CDCATEGORIA': 'CD_CATEGORIA',
+    'CDPERSONAPROVEEDOR': 'CD_PERSONA_PROVEEDOR',
+    'CDCONCEPTO': 'CD_CONCEPTO',
+    'CDSUBCONCEPTO': 'CD_SUB_CONCEPTO',
+    'FEEFECTIVAEVENTO': 'FE_EFECTIVA_EVENTO',
+    'FETERMINOEVENTO': 'FE_TERMINO_EVENTO',
+    'FEINICIOREGISTRO': 'FE_INICIO_REGISTRO',
+    'FETERMINOREGISTRO': 'FE_TERMINO_REGISTRO',
+    'FEMODIFICACION': 'FE_MODIFICACION',
+    'CDUSUARIO': 'CD_USUARIO',
+    'DEINDICEEVENTO': 'DE_INDICE_EVENTO',
+    'CDEVENTO': 'CD_EVENTO',
+  };
+
+  Future<SqlQueryResult> _buildSqlQueryResult(
+    List<String> visibleCols,
+    List<EventoValor> valores,
+  ) async {
+    // Consultar las columnas del esquema de EVENTOVALOR
+    final dbColumns = await SchemaService.instance.getColumns(
+      'EVENTOVALOR',
+      ambiente: _ambiente,
+    );
+
+    final dbColMap = <String, ({String name, String dataType})>{};
+    for (final col in dbColumns) {
+      final clean = col.name.replaceAll('_', '').toUpperCase();
+      dbColMap[clean] = col;
+      dbColMap[col.name.toUpperCase()] = col;
+    }
+
+    final sqlCols = <SqlColumn>[];
+    final seenSqlColNames = <String>{};
+    final resolvedColIndices = <int>[];
+
+    for (var idx = 0; idx < visibleCols.length; idx++) {
+      final col = visibleCols[idx];
+      final upper = col.toUpperCase();
+      final clean = upper.replaceAll('_', '');
+      var matched = dbColMap[upper] ?? dbColMap[clean];
+      if (matched == null && _kKnownDbColumnAliases.containsKey(clean)) {
+        final aliasTarget = _kKnownDbColumnAliases[clean]!;
+        matched = dbColMap[aliasTarget];
+        if (matched == null) {
+          final colName = aliasTarget;
+          if (seenSqlColNames.add(colName.toUpperCase())) {
+            sqlCols.add(
+              SqlColumn(
+                name: colName,
+                dataType: _isNumericField(col) ? 'NUMBER' : 'VARCHAR2',
+              ),
+            );
+            resolvedColIndices.add(idx);
+          }
+          continue;
+        }
+      }
+
+      final colName = matched?.name ?? upper;
+      if (seenSqlColNames.add(colName.toUpperCase())) {
+        sqlCols.add(
+          SqlColumn(
+            name: colName,
+            dataType:
+                matched?.dataType ??
+                (_isNumericField(col) ? 'NUMBER' : 'VARCHAR2'),
+          ),
+        );
+        resolvedColIndices.add(idx);
+      }
+    }
+
+    final sqlRows = [
+      for (final v in valores)
+        [
+          for (final idx in resolvedColIndices)
+            () {
+              final col = visibleCols[idx];
+              final colUpper = col.toUpperCase();
+              final colClean = colUpper.replaceAll('_', '');
+              if (colUpper == 'CD_EVENTO' || colClean == 'CDEVENTO') {
+                final direct =
+                    v.raw[col] ??
+                    v.raw['cdEvento'] ??
+                    v.raw['CD_EVENTO'] ??
+                    v.raw['cdevento'];
+                final str = direct?.toString().trim();
+                return (str == null || str.isEmpty) ? _cdEvento : direct;
+              }
+
+              if (v.raw.containsKey(col)) {
+                return v.raw[col];
+              }
+
+              for (final entry in v.raw.entries) {
+                final kUpper = entry.key.toUpperCase();
+                final kClean = kUpper.replaceAll('_', '');
+                if (kUpper == colUpper || kClean == colClean) {
+                  return entry.value;
+                }
+                final alias =
+                    _kKnownDbColumnAliases[kClean] ??
+                    _kKnownDbColumnAliases[kUpper];
+                if (alias != null &&
+                    (alias.toUpperCase() == colUpper ||
+                        alias.replaceAll('_', '').toUpperCase() == colClean)) {
+                  return entry.value;
+                }
+              }
+
+              return null;
+            }(),
+        ],
+    ];
+
+    return SqlQueryResult(
+      columns: sqlCols,
+      rows: sqlRows,
+      returnedRows: valores.length,
+      truncated: false,
+      durationMs: 0,
+    );
+  }
+
+  Future<void> _abrirGeneradorDml(
+    BuildContext context,
+    List<String> cols,
+    List<EventoValor> valores,
+  ) async {
+    if (valores.isEmpty) return;
+    final rowIndexes = _selectedRowIndices.isEmpty
+        ? List<int>.generate(valores.length, (i) => i)
+        : (_selectedRowIndices.toList()..sort());
+
+    final sqlResult = await _buildSqlQueryResult(cols, valores);
+    if (!context.mounted) return;
+
+    showSqlDmlGeneratorDialog(
+      context,
+      result: sqlResult,
+      rowIndexes: rowIndexes,
+      suggestedTable: 'EVENTOVALOR',
+      ambiente: _ambiente,
+    );
+  }
+
   // ── Exportar / copiar ───────────────────────────────────────────────────
 
   String _buildCsv(List<String> cols, List<EventoValor> valores) {
     final buf = StringBuffer();
     buf.writeln(cols.map((c) => _csvEscape(_colLabel(c))).join(','));
     for (final v in valores) {
-      buf.writeln(
-        cols.map((c) => _csvEscape(v.raw[c]?.toString() ?? '')).join(','),
-      );
+      buf.writeln(cols.map((c) => _csvEscape(_cellValue(v, c))).join(','));
     }
     return buf.toString();
   }
@@ -1491,4 +1917,426 @@ class _GripPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_GripPainter old) => old.color != color;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Grilla Virtualizada de InfoEvento (two_dimensional_scrollables)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class InfoEventoVirtualTable extends StatefulWidget {
+  final bool isDark;
+  final Color borderColor;
+  final List<String> cols;
+  final List<EventoValor> valores;
+  final String cdEvento;
+  final ScrollController vertCtrl;
+  final ScrollController horizCtrl;
+  final Set<int> selectedRowIndices;
+  final ValueChanged<bool?> onToggleSelectAll;
+  final void Function(int index, bool? selected) onToggleRow;
+
+  const InfoEventoVirtualTable({
+    super.key,
+    required this.isDark,
+    required this.borderColor,
+    required this.cols,
+    required this.valores,
+    required this.cdEvento,
+    required this.vertCtrl,
+    required this.horizCtrl,
+    required this.selectedRowIndices,
+    required this.onToggleSelectAll,
+    required this.onToggleRow,
+  });
+
+  @override
+  State<InfoEventoVirtualTable> createState() => _InfoEventoVirtualTableState();
+}
+
+class _InfoEventoVirtualTableState extends State<InfoEventoVirtualTable> {
+  static const double _headerHeight = 32.0;
+  static const double _rowHeight = 30.0;
+  static const double _checkboxColWidth = 44.0;
+
+  late List<List<String>> _cellMatrix;
+  late List<double> _colWidths;
+  late List<bool> _colIsNumeric;
+
+  @override
+  void initState() {
+    super.initState();
+    _recomputeData();
+  }
+
+  @override
+  void didUpdateWidget(covariant InfoEventoVirtualTable oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.valores != widget.valores ||
+        oldWidget.cols != widget.cols ||
+        oldWidget.cdEvento != widget.cdEvento) {
+      _recomputeData();
+    }
+  }
+
+  void _recomputeData() {
+    final cols = widget.cols;
+    final valores = widget.valores;
+    final cdEvento = widget.cdEvento;
+
+    _colIsNumeric = List<bool>.generate(
+      cols.length,
+      (c) => _isNumericField(cols[c]),
+    );
+
+    // Precomputar la matriz fila x columna en O(1) de renderizado
+    _cellMatrix = List<List<String>>.generate(valores.length, (r) {
+      final item = valores[r];
+      return List<String>.generate(cols.length, (c) {
+        return _resolveCellValue(item, cols[c], cdEvento);
+      });
+    });
+
+    // Calcular anchos aproximados de columna basados en contenido y cabecera
+    _colWidths = List<double>.generate(cols.length, (c) {
+      final colName = cols[c];
+      final headerText = _colLabel(colName);
+      double maxLen = headerText.length.toDouble();
+
+      // Muestra las primeras 40 filas para estimar el ancho sin costo excesivo
+      final sampleCount = valores.length > 40 ? 40 : valores.length;
+      for (var r = 0; r < sampleCount; r++) {
+        final valLen = _cellMatrix[r][c].length;
+        if (valLen > maxLen) {
+          maxLen = valLen.toDouble();
+        }
+      }
+
+      // 7.8 px por caracter + 24px de padding; acotado entre 85 y 420 px
+      final computed = (maxLen * 7.8) + 24.0;
+      return computed.clamp(85.0, 420.0);
+    });
+  }
+
+  static String _resolveCellValue(
+    EventoValor item,
+    String col,
+    String cdEvento,
+  ) {
+    final colUpper = col.toUpperCase();
+    final colClean = colUpper.replaceAll('_', '');
+
+    if (colUpper == 'CD_EVENTO' || colClean == 'CDEVENTO') {
+      final direct =
+          item.raw[col] ??
+          item.raw['cdEvento'] ??
+          item.raw['CD_EVENTO'] ??
+          item.raw['cdevento'];
+      final val = direct?.toString().trim();
+      return (val == null || val.isEmpty) ? cdEvento : val;
+    }
+
+    if (item.raw.containsKey(col)) {
+      return item.raw[col]?.toString() ?? '';
+    }
+
+    for (final entry in item.raw.entries) {
+      final kUpper = entry.key.toUpperCase();
+      final kClean = kUpper.replaceAll('_', '');
+      if (kUpper == colUpper || kClean == colClean) {
+        return entry.value?.toString() ?? '';
+      }
+      final alias =
+          _InfoEventoModalState._kKnownDbColumnAliases[kClean] ??
+          _InfoEventoModalState._kKnownDbColumnAliases[kUpper];
+      if (alias != null && alias.toUpperCase() == colUpper) {
+        return entry.value?.toString() ?? '';
+      }
+    }
+
+    return '';
+  }
+
+  static bool _isNumericField(String col) {
+    final upper = col.toUpperCase();
+    final clean = upper.replaceAll('_', '');
+    if (upper == 'VERSION' ||
+        upper.startsWith('VA_') ||
+        upper.startsWith('MT_') ||
+        upper.startsWith('PO_') ||
+        upper == 'CD_INDICE' ||
+        upper == 'INDICE' ||
+        clean == 'CDINDICE' ||
+        clean == 'VERSION' ||
+        clean.startsWith('VA') ||
+        clean.startsWith('MT') ||
+        clean.startsWith('PO')) {
+      return true;
+    }
+    const numericFields = [
+      'indice',
+      'cdIndice',
+      'index',
+      'valor',
+      'cdValor',
+      'value',
+    ];
+    return numericFields.contains(col);
+  }
+
+  static String _colLabel(String col) {
+    final upper = col.toUpperCase();
+    final clean = upper.replaceAll('_', '');
+
+    const exactLabels = <String, String>{
+      'VERSION': 'Versión',
+      'CD_EVENTO': 'Evento',
+      'DE_INDICE_EVENTO': 'Descripción índice',
+      'FE_EFECTIVA_EVENTO': 'Fecha efectiva',
+      'FE_TERMINO_EVENTO': 'Fecha término',
+      'VA_DATO1': 'Valor Dato 1',
+      'VA_DATO2': 'Valor Dato 2',
+      'VA_DATO3': 'Valor Dato 3',
+      'VA_DATO4': 'Valor Dato 4',
+      'VA_DATO5': 'Valor Dato 5',
+      'VA_DATO6': 'Valor Dato 6',
+      'VA_DATO7': 'Valor Dato 7',
+      'VA_DATO8': 'Valor Dato 8',
+      'VA_DATO9': 'Valor Dato 9',
+      'VA_DATO10': 'Valor Dato 10',
+      'VA_COMPONENTE': 'Valor componente',
+      'VA_MINIMO_COMPONENTE': 'Mín. componente',
+      'VA_MAXIMO_COMPONENTE': 'Máx. componente',
+      'MT_INTERVALO_INFERIOR_A': 'Intervalo inf. A',
+      'MT_INTERVALO_SUPERIOR_A': 'Intervalo sup. A',
+      'MT_INTERVALO_INFERIOR_B': 'Intervalo inf. B',
+      'MT_INTERVALO_SUPERIOR_B': 'Intervalo sup. B',
+      'CD_INTERVALO_INFERIOR': 'Cód. int. inferior',
+      'CD_INTERVALO_SUPERIOR': 'Cód. int. superior',
+      'VA_COMPONENTE_ADICIONAL': 'Componente adicional',
+      'PO_DEDUCIBLE': '% Deducible',
+      'CD_CATEGORIA': 'Categoría',
+      'CD_PERSONA_PROVEEDOR': 'Proveedor',
+      'CD_CONCEPTO': 'Concepto',
+      'CD_SUB_CONCEPTO': 'Subconcepto',
+      'FE_INICIO_REGISTRO': 'Fecha inicio reg.',
+      'FE_TERMINO_REGISTRO': 'Fecha término reg.',
+      'FE_MODIFICACION': 'Fecha modif.',
+      'CD_USUARIO': 'Usuario',
+      'INDICE': 'Índice',
+      'VALOR': 'Valor',
+      'DESCRIPCION': 'Descripción',
+    };
+
+    if (exactLabels.containsKey(upper)) return exactLabels[upper]!;
+    if (exactLabels.containsKey(clean)) return exactLabels[clean]!;
+
+    const labels = <String, String>{
+      'indice': 'Índice',
+      'cdIndice': 'Índice',
+      'nuIndice': 'Nº Índice',
+      'index': 'Índice',
+      'valor': 'Valor',
+      'cdValor': 'Valor',
+      'vaValor': 'Valor',
+      'value': 'Valor',
+      'descripcion': 'Descripción',
+      'deValor': 'Descripción',
+      'deIndiceEvento': 'Descripción índice',
+      'description': 'Descripción',
+      'cdEvento': 'Evento',
+      'feEfectivaEvento': 'Fecha efectiva',
+      'feEfectiva': 'Fecha efectiva',
+    };
+    return labels[col] ?? col;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+    final headerBg = isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA);
+    final rowCount = widget.valores.length;
+    final colCount = widget.cols.length;
+    final allSelected =
+        rowCount > 0 && widget.selectedRowIndices.length == rowCount;
+    final hasSelection = widget.selectedRowIndices.isNotEmpty;
+
+    final cellRightBorder = BorderSide(
+      color: widget.borderColor.withValues(alpha: isDark ? 0.35 : 0.5),
+      width: 0.5,
+    );
+    final cellBottomBorder = BorderSide(
+      color: widget.borderColor.withValues(alpha: isDark ? 0.35 : 0.5),
+      width: 0.5,
+    );
+
+    return Scrollbar(
+      controller: widget.vertCtrl,
+      thumbVisibility: true,
+      trackVisibility: true,
+      child: Scrollbar(
+        controller: widget.horizCtrl,
+        thumbVisibility: true,
+        trackVisibility: true,
+        notificationPredicate: (notif) =>
+            notif.depth == 1 || notif.metrics.axis == Axis.horizontal,
+        child: TableView.builder(
+          verticalDetails: ScrollableDetails.vertical(
+            controller: widget.vertCtrl,
+          ),
+          horizontalDetails: ScrollableDetails.horizontal(
+            controller: widget.horizCtrl,
+          ),
+          pinnedRowCount: 1,
+          pinnedColumnCount: 1,
+          rowCount: rowCount + 1,
+          columnCount: colCount + 1,
+          rowBuilder: (int row) {
+            return TableSpan(
+              extent: FixedTableSpanExtent(
+                row == 0 ? _headerHeight : _rowHeight,
+              ),
+              backgroundDecoration: row == 0
+                  ? TableSpanDecoration(color: headerBg)
+                  : null,
+            );
+          },
+          columnBuilder: (int col) {
+            return TableSpan(
+              extent: FixedTableSpanExtent(
+                col == 0 ? _checkboxColWidth : _colWidths[col - 1],
+              ),
+            );
+          },
+          cellBuilder: (BuildContext context, TableVicinity vicinity) {
+            final row = vicinity.row;
+            final col = vicinity.column;
+
+            // 1. Esquina superior izquierda: Checkbox para seleccionar todo
+            if (row == 0 && col == 0) {
+              return TableViewCell(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: headerBg,
+                    border: Border(
+                      right: cellRightBorder,
+                      bottom: cellBottomBorder,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Checkbox(
+                    value: allSelected ? true : (hasSelection ? null : false),
+                    tristate: true,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    onChanged: widget.onToggleSelectAll,
+                  ),
+                ),
+              );
+            }
+
+            // 2. Encabezado de columnas (row == 0, col > 0)
+            if (row == 0) {
+              final c = col - 1;
+              final colName = widget.cols[c];
+              final label = _colLabel(colName);
+              final isNumeric = _colIsNumeric[c];
+
+              return TableViewCell(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: headerBg,
+                    border: Border(
+                      right: cellRightBorder,
+                      bottom: cellBottomBorder,
+                    ),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  alignment: isNumeric
+                      ? Alignment.centerRight
+                      : Alignment.centerLeft,
+                  child: Tooltip(
+                    message: colName,
+                    waitDuration: const Duration(milliseconds: 600),
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white54 : Colors.black45,
+                        letterSpacing: 0.3,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            // 3. Columna de checkbox de fila (row > 0, col == 0)
+            final r = row - 1;
+            final isRowSelected = widget.selectedRowIndices.contains(r);
+            final rowBg = isRowSelected
+                ? (isDark ? const Color(0xFF1E3A5F) : const Color(0xFFD6E4FF))
+                : (r.isOdd
+                      ? (isDark
+                            ? const Color(0xFF181818)
+                            : const Color(0xFFF9FAFB))
+                      : (isDark ? const Color(0xFF1F1F1F) : Colors.white));
+
+            if (col == 0) {
+              return TableViewCell(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: rowBg,
+                    border: Border(
+                      right: cellRightBorder,
+                      bottom: cellBottomBorder,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Checkbox(
+                    value: isRowSelected,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    onChanged: (val) => widget.onToggleRow(r, val),
+                  ),
+                ),
+              );
+            }
+
+            // 4. Celda de datos (row > 0, col > 0)
+            final c = col - 1;
+            final text = _cellMatrix[r][c];
+            final isNumeric = _colIsNumeric[c];
+
+            return TableViewCell(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: rowBg,
+                  border: Border(
+                    right: cellRightBorder,
+                    bottom: cellBottomBorder,
+                  ),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                alignment: isNumeric
+                    ? Alignment.centerRight
+                    : Alignment.centerLeft,
+                child: SelectableText(
+                  text,
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontFamily: isNumeric ? 'Consolas' : null,
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.87)
+                        : Colors.black87,
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
 }

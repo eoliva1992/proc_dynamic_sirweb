@@ -582,58 +582,68 @@ class _SnippetsManagerDialogState extends State<_SnippetsManagerDialog> {
                     ],
                   ),
                   clipBehavior: Clip.antiAlias,
-                  // El contenido se mantiene SIEMPRE montado con el tamaño de
-                  // la ventana restaurada: al minimizar sólo se recorta. Si se
-                  // quitara del árbol, al restaurar se recargaría la lista y se
-                  // perdería lo que se estaba editando.
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    minWidth: 0,
-                    maxWidth: double.infinity,
-                    minHeight: 0,
-                    maxHeight: double.infinity,
-                    child: SizedBox(
-                      width: _winW,
-                      height: _winH,
-                      child: Stack(
-                        children: [
-                          Positioned.fill(
-                            child: Column(
+                  child: _minimized
+                      ? MinimizedWindowCard(
+                          title: 'Snippets de Código',
+                          icon: Icons.code_rounded,
+                          accentColor: Colors.amber.shade700,
+                          badge: 'SNIPPETS',
+                          onRestore: _toggleMinimized,
+                          onClose: _close,
+                        )
+                      : OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: 0,
+                          maxWidth: double.infinity,
+                          minHeight: 0,
+                          maxHeight: double.infinity,
+                          child: SizedBox(
+                            width: _winW,
+                            height: _winH,
+                            child: Stack(
                               children: [
-                                // Hueco reservado para la barra de título.
-                                const SizedBox(height: _kHeaderH),
-                                if (_error != null) _buildErrorBanner(cs),
-                                Expanded(
-                                  child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
+                                Positioned.fill(
+                                  child: Column(
                                     children: [
-                                      _buildList(
-                                        cs,
-                                        divColor,
-                                        panelBg,
-                                        listWidth,
+                                      // Hueco reservado para la barra de título.
+                                      const SizedBox(height: _kHeaderH),
+                                      if (_error != null) _buildErrorBanner(cs),
+                                      Expanded(
+                                        child: Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            _buildList(
+                                              cs,
+                                              divColor,
+                                              panelBg,
+                                              listWidth,
+                                            ),
+                                            Container(
+                                              width: 0.5,
+                                              color: divColor,
+                                            ),
+                                            Expanded(
+                                              child: _buildForm(cs, divColor),
+                                            ),
+                                          ],
+                                        ),
                                       ),
-                                      Container(width: 0.5, color: divColor),
-                                      Expanded(child: _buildForm(cs, divColor)),
                                     ],
                                   ),
+                                ),
+                                // La barra de título usa el ancho *visible* para que
+                                // al minimizar siga viéndose completa.
+                                Positioned(
+                                  left: 0,
+                                  top: 0,
+                                  width: w,
+                                  child: _buildHeader(cs, divColor),
                                 ),
                               ],
                             ),
                           ),
-                          // La barra de título usa el ancho *visible* para que
-                          // al minimizar siga viéndose completa.
-                          Positioned(
-                            left: 0,
-                            top: 0,
-                            width: w,
-                            child: _buildHeader(cs, divColor),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                        ),
                 ),
               ),
             ),

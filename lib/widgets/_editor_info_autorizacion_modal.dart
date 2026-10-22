@@ -289,30 +289,36 @@ class _AutorizacionesModalState extends State<_AutorizacionesModal> {
                     ],
                   ),
                   clipBehavior: Clip.antiAlias,
-                  // El contenido se maqueta siempre con el tamaño final y se
-                  // recorta mientras corre la animación de minimizar/restaurar
-                  // (si no, desborda al crecer desde la barra minimizada).
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    minWidth: 0,
-                    maxWidth: double.infinity,
-                    minHeight: 0,
-                    maxHeight: double.infinity,
-                    child: SizedBox(
-                      width: w,
-                      height: h,
-                      child: Column(
-                        children: [
-                          _buildHeader(isDark),
-                          if (!_minimized) ...[
-                            _buildSearchBar(isDark),
-                            Expanded(child: _buildBody(isDark)),
-                            _buildFooter(isDark),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
+                  child: _minimized
+                      ? MinimizedWindowCard(
+                          title: 'Autorizaciones',
+                          icon: Icons.verified_user_outlined,
+                          accentColor: _accent,
+                          badge: 'AUTORIZACIONES',
+                          onRestore: _toggleMinimize,
+                          onClose: _cerrar,
+                        )
+                      : OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: 0,
+                          maxWidth: double.infinity,
+                          minHeight: 0,
+                          maxHeight: double.infinity,
+                          child: SizedBox(
+                            width: w,
+                            height: h,
+                            child: Column(
+                              children: [
+                                _buildHeader(isDark),
+                                if (!_minimized) ...[
+                                  _buildSearchBar(isDark),
+                                  Expanded(child: _buildBody(isDark)),
+                                  _buildFooter(isDark),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
                 ),
               ),
             ),

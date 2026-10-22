@@ -277,7 +277,7 @@ class SirwebService {
     String? ambiente,
     int top = 200,
   }) async {
-    final tamanos = <int>[top, 50, 25].toSet();
+    final tamanos = {top, 50, 25};
     Object? ultimoError;
     for (final tamano in tamanos) {
       try {
@@ -559,6 +559,133 @@ class SirwebService {
         .toList();
   }
 
+  /// Definición de tabla adicional desde TABLADEFINICIONADICIONAL.
+  /// Intenta primero llamada MCP `info_tabla_adicional` y si no está disponible,
+  /// recurre al endpoint REST `/tools/tabla/{cdTabla}/adicional`.
+  Future<List<TablaDefinicionAdicional>> infoTablaAdicional(
+    int cdTabla, {
+    String? ambiente,
+  }) async {
+    try {
+      final result = await _call('info_tabla_adicional', {
+        'cdTabla': cdTabla,
+        if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+      });
+      final data = result['data'];
+      final rawList = data is List
+          ? data
+          : (data is Map<String, dynamic>
+                ? (data['items'] as List<dynamic>? ??
+                      data['datos'] as List<dynamic>? ??
+                      <dynamic>[])
+                : <dynamic>[]);
+      return rawList
+          .whereType<Map<String, dynamic>>()
+          .map(TablaDefinicionAdicional.fromJson)
+          .toList();
+    } catch (_) {
+      // Fallback REST GET /tools/tabla/{cdTabla}/adicional
+      try {
+        final currentHost = await getHost();
+        final uri = Uri.parse('$currentHost/tools/tabla/$cdTabla/adicional')
+            .replace(
+              queryParameters: {
+                if (ambiente != null && ambiente != 'Desa')
+                  'ambiente': ambiente,
+              },
+            );
+        final response = await guardRequest(
+          () => _client.get(uri, headers: {'Accept': 'application/json'}),
+          timeout: const Duration(seconds: 15),
+          contexto: 'el servidor SirWeb',
+        );
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          final decoded = jsonDecode(response.body);
+          final data = decoded is Map<String, dynamic>
+              ? decoded['data']
+              : decoded;
+          final rawList = data is List
+              ? data
+              : (data is Map<String, dynamic>
+                    ? (data['items'] as List<dynamic>? ??
+                          data['datos'] as List<dynamic>? ??
+                          <dynamic>[])
+                    : <dynamic>[]);
+          return rawList
+              .whereType<Map<String, dynamic>>()
+              .map(TablaDefinicionAdicional.fromJson)
+              .toList();
+        }
+      } catch (_) {}
+      return [];
+    }
+  }
+
+  /// Valores de tabla adicional desde TABLAINFORMACIONADICIONAL.
+  /// Intenta primero llamada MCP `valores_tabla_adicional` y si no está disponible,
+  /// recurre al endpoint REST `/tools/tabla/{cdTabla}/informacion-adicional` o `/adicional`.
+  Future<List<ValorTabla>> valoresTablaAdicional(
+    int cdTabla, {
+    String? deIndiceDato,
+    String? ambiente,
+  }) async {
+    try {
+      final result = await _call('valores_tabla_adicional', {
+        'cdTabla': cdTabla,
+        if (deIndiceDato != null) 'deIndiceDato': deIndiceDato,
+        if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+      });
+      final data = result['data'];
+      final rawList = data is List
+          ? data
+          : (data is Map<String, dynamic>
+                ? (data['items'] as List<dynamic>? ??
+                      data['valores'] as List<dynamic>? ??
+                      <dynamic>[])
+                : <dynamic>[]);
+      return rawList
+          .whereType<Map<String, dynamic>>()
+          .map(ValorTabla.fromJson)
+          .toList();
+    } catch (_) {
+      // Fallback REST
+      try {
+        final currentHost = await getHost();
+        final uri = Uri.parse('$currentHost/tools/tabla/$cdTabla/adicional')
+            .replace(
+              queryParameters: {
+                if (deIndiceDato != null) 'deIndiceDato': deIndiceDato,
+                if (ambiente != null && ambiente != 'Desa')
+                  'ambiente': ambiente,
+              },
+            );
+        final response = await guardRequest(
+          () => _client.get(uri, headers: {'Accept': 'application/json'}),
+          timeout: const Duration(seconds: 15),
+          contexto: 'el servidor SirWeb',
+        );
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          final decoded = jsonDecode(response.body);
+          final data = decoded is Map<String, dynamic>
+              ? decoded['data']
+              : decoded;
+          final rawList = data is List
+              ? data
+              : (data is Map<String, dynamic>
+                    ? (data['items'] as List<dynamic>? ??
+                          data['valores'] as List<dynamic>? ??
+                          <dynamic>[])
+                    : <dynamic>[]);
+          return rawList
+              .whereType<Map<String, dynamic>>()
+              .map(ValorTabla.fromJson)
+              .toList();
+        }
+      } catch (_) {}
+      return [];
+    }
+  }
+
   /// Consulta las autorizaciones de proceso (tabla AUTORIZACION) con
   /// paginaciÃ³n de servidor.
   ///
@@ -597,13 +724,17 @@ class SirwebService {
     String? ambiente,
     String? fechaDesde,
     String? fechaHasta,
+    int top = 50,
+    int pagina = 1,
   }) async {
     final result = await _call('valores_evento', {
       'cdEvento': cdEvento,
       'deIndiceEvento': deIndiceEvento,
       if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
-      if (fechaDesde != null) 'fechaDesde': fechaDesde,
-      if (fechaHasta != null) 'fechaHasta': fechaHasta,
+      ?fechaDesde: fechaDesde,
+      ?fechaHasta: fechaHasta,
+      'top': top,
+      'pagina': pagina,
     });
     final data = result['data'];
     final rawList = data is List<dynamic>

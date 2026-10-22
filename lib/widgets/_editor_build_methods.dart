@@ -568,12 +568,12 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
             active: _showOutline,
             onPressed: _toggleOutline,
           ),
-          // _ToggleBtn(
-          //   icon: Icons.auto_awesome,
-          //   tooltip: 'Chat con GitHub Copilot',
-          //   active: _showAiChat,
-          //   onPressed: _toggleAiChat,
-          // ),
+          _ToggleBtn(
+            icon: Icons.auto_awesome,
+            tooltip: 'Chat con GitHub Copilot',
+            active: _showAiChat,
+            onPressed: _toggleAiChat,
+          ),
           _ToolBtn(
             icon: Icons.code_rounded,
             tooltip: 'Snippets de usuario',
@@ -616,6 +616,7 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
           ),
           _buildSplitMenu(cs, isDark),
           const Spacer(),
+          _buildCharCountBadge(cs),
           _buildErrorBadge(cs),
           const SizedBox(width: 4),
           SizedBox(
@@ -1051,6 +1052,87 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
         await editorThemeStore.setTheme(id);
         await _withCtrl((ctrl) => ctrl.setTheme(editorThemeStore.monacoTheme));
       },
+    );
+  }
+
+  /// Badge indicador de longitud de caracteres respecto al límite de 32,500
+  /// establecido para los procedimientos dinámicos.
+  Widget _buildCharCountBadge(ColorScheme cs) {
+    final count = _charCount;
+    final isExceeded = count >= kDynamicProcMaxChars;
+    final isWarning = !isExceeded && count >= kDynamicProcWarnChars;
+
+    final Color bgColor;
+    final Color borderColor;
+    final Color textColor;
+    final IconData icon;
+    final String label;
+    final String tooltipMessage;
+
+    if (isExceeded) {
+      final excess = count - kDynamicProcMaxChars;
+      bgColor = Colors.red.withValues(alpha: 0.18);
+      borderColor = Colors.red.withValues(alpha: 0.7);
+      textColor = Colors.red[400] ?? Colors.red;
+      icon = Icons.error_outline_rounded;
+      label =
+          '${formatDynamicProcCharCount(count)} / ${formatDynamicProcCharCount(kDynamicProcMaxChars)} (+${formatDynamicProcCharCount(excess)})';
+      tooltipMessage =
+          '¡Límite superado! El procedimiento dinámico excede el tope de ${formatDynamicProcCharCount(kDynamicProcMaxChars)} caracteres por ${formatDynamicProcCharCount(excess)} caracteres.';
+    } else if (isWarning) {
+      final remaining = kDynamicProcMaxChars - count;
+      bgColor = Colors.amber.withValues(alpha: 0.16);
+      borderColor = Colors.amber.withValues(alpha: 0.65);
+      textColor = Colors.amber[700] ?? Colors.orange;
+      icon = Icons.warning_amber_rounded;
+      label =
+          '${formatDynamicProcCharCount(count)} / ${formatDynamicProcCharCount(kDynamicProcMaxChars)}';
+      tooltipMessage =
+          'Atención: Próximo al límite de ${formatDynamicProcCharCount(kDynamicProcMaxChars)} caracteres (restan ${formatDynamicProcCharCount(remaining)}).';
+    } else {
+      bgColor = cs.surfaceContainerHighest.withValues(alpha: 0.4);
+      borderColor = cs.outlineVariant.withValues(alpha: 0.5);
+      textColor = cs.onSurfaceVariant;
+      icon = Icons.text_fields_rounded;
+      label =
+          '${formatDynamicProcCharCount(count)} / ${formatDynamicProcCharCount(kDynamicProcMaxChars)}';
+      tooltipMessage =
+          'Longitud del procedimiento: ${formatDynamicProcCharCount(count)} de ${formatDynamicProcCharCount(kDynamicProcMaxChars)} caracteres máximos permitidos.';
+    }
+
+    return Tooltip(
+      message: tooltipMessage,
+      waitDuration: _kTooltipWait,
+      preferBelow: false,
+      decoration: _kTooltipDecoration,
+      textStyle: _kTooltipTextStyle,
+      child: Container(
+        margin: const EdgeInsets.only(right: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: borderColor, width: isExceeded ? 1.0 : 0.5),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12, color: textColor),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: isExceeded || isWarning
+                    ? FontWeight.w700
+                    : FontWeight.w500,
+                color: textColor,
+                fontFamily: 'Consolas',
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

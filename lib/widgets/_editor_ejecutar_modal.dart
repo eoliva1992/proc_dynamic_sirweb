@@ -700,24 +700,33 @@ class _EjecutarProcedimientoModalState
                     ],
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    minWidth: 0,
-                    maxWidth: double.infinity,
-                    minHeight: 0,
-                    maxHeight: double.infinity,
-                    child: SizedBox(
-                      width: w,
-                      height: h,
-                      child: Column(
-                        children: [
-                          _buildHeader(isDark),
-                          if (!_minimized)
-                            Expanded(child: _buildBody(isDark, w)),
-                        ],
-                      ),
-                    ),
-                  ),
+                  child: _minimized
+                      ? MinimizedWindowCard(
+                          title: widget.cdProcedimiento,
+                          icon: Icons.play_circle_outline_rounded,
+                          accentColor: _accent,
+                          badge: _ambiente,
+                          onRestore: _toggleMinimize,
+                          onClose: _cerrar,
+                        )
+                      : OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: 0,
+                          maxWidth: double.infinity,
+                          minHeight: 0,
+                          maxHeight: double.infinity,
+                          child: SizedBox(
+                            width: w,
+                            height: h,
+                            child: Column(
+                              children: [
+                                _buildHeader(isDark),
+                                if (!_minimized)
+                                  Expanded(child: _buildBody(isDark, w)),
+                              ],
+                            ),
+                          ),
+                        ),
                 ),
               ),
             ),

@@ -490,4 +490,122 @@ void main() {
       expect(find.text('Columnas visibles'), findsNothing);
     },
   );
+
+  testWidgets(
+    'Permite redimensionar columna arrastrando el divisor de la cabecera y reiniciar con doble tap',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: SqlResultsGrid(result: sampleResult, maxRows: 100),
+          ),
+        ),
+      );
+
+      // Encontrar los mouse regions con cursor resizeColumn
+      final resizeHandles = find.byWidgetPredicate(
+        (w) => w is MouseRegion && w.cursor == SystemMouseCursors.resizeColumn,
+      );
+      expect(resizeHandles, findsNWidgets(2)); // Columna 0 (ID) y Columna 1 (NAME)
+
+      // Arrastrar el handle de la primera columna hacia la derecha (+80 px)
+      await tester.drag(resizeHandles.first, const Offset(80, 0));
+      await tester.pumpAndSettle();
+
+      // Doble tap en el handle para restablecer el tamaño
+      await tester.tap(resizeHandles.first);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(resizeHandles.first);
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'SqlResultsGrid muestra badge de carga más y dispara callback al hacer clic',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      var loadMoreCalled = false;
+      const truncatedResult = SqlQueryResult(
+        columns: [
+          SqlColumn(name: 'ID', dataType: 'NUMBER'),
+          SqlColumn(name: 'NAME', dataType: 'VARCHAR2'),
+        ],
+        rows: [
+          [101, 'Alice'],
+          [102, 'Bob'],
+        ],
+        returnedRows: 2,
+        truncated: true,
+        durationMs: 12,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SqlResultsGrid(
+              result: truncatedResult,
+              maxRows: 2,
+              onLoadMore: () {
+                loadMoreCalled = true;
+              },
+            ),
+          ),
+        ),
+      );
+
+      // Debe aparecer el badge 'Truncado · +Cargar más'
+      final badgeFinder = find.text('Truncado · +Cargar más');
+      expect(badgeFinder, findsOneWidget);
+
+      await tester.tap(badgeFinder);
+      await tester.pumpAndSettle();
+
+      expect(loadMoreCalled, isTrue);
+    },
+  );
+
+  testWidgets(
+    'SqlResultsGrid muestra indicador de cargando cuando isLoadingMore es true',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      const truncatedResult = SqlQueryResult(
+        columns: [
+          SqlColumn(name: 'ID', dataType: 'NUMBER'),
+          SqlColumn(name: 'NAME', dataType: 'VARCHAR2'),
+        ],
+        rows: [
+          [101, 'Alice'],
+          [102, 'Bob'],
+        ],
+        returnedRows: 2,
+        truncated: true,
+        durationMs: 12,
+      );
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: SqlResultsGrid(
+              result: truncatedResult,
+              maxRows: 2,
+              isLoadingMore: true,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Cargando...'), findsOneWidget);
+      expect(find.text('Cargando siguientes filas...'), findsOneWidget);
+    },
+  );
 }

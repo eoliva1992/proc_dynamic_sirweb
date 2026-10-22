@@ -11,7 +11,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../models/sql_execution.dart' show SqlStatement;
+import '../models/sql_execution.dart' show SqlStatement, SqlDdlError;
 import '../providers/procedimientos_provider.dart';
 import '../services/backup_service.dart';
 import '../services/local_file_service.dart';
@@ -63,7 +63,7 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
     with SingleTickerProviderStateMixin {
   final _monacoCtrl = MonacoEditorController();
   late final TabController _resultTabCtrl = TabController(
-    length: 4,
+    length: 5,
     vsync: this,
   );
   late final SqlExecutorStateController _stateCtrl;
@@ -82,11 +82,43 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
       return procedimientosProvider.cdUsuario.trim().isNotEmpty;
     };
     _stateCtrl.confirmProdExecution = _confirmProdExecution;
+    _stateCtrl.onDdlCompilationErrors = _handleDdlCompilationErrors;
     _stateCtrl.onTabChangeRequested = (idx) {
       if (mounted && _resultTabCtrl.index != idx) {
         _resultTabCtrl.index = idx;
       }
     };
+  }
+
+  void _handleDdlCompilationErrors(
+    SqlStatement stmt,
+    List<SqlDdlError> errors,
+  ) {
+    if (errors.isEmpty) {
+      _monacoCtrl.clearErrors(owner: 'oracle-compile');
+      return;
+    }
+    // Mapea la posición de los errores relativa a la sentencia
+    // Oracle reporta líneas 1-based relativas al inicio del DDL.
+    final baseLine = stmt.startLine; // 0-based
+    final monacoErrors = <MonacoError>[];
+    for (final err in errors) {
+      final lineOffset = (err.line != null && err.line! > 0)
+          ? (err.line! - 1)
+          : 0;
+      final targetLine = baseLine + lineOffset + 1; // 1-based para Monaco
+      final targetCol = (err.position != null && err.position! > 0)
+          ? err.position!
+          : 1;
+      monacoErrors.add(
+        MonacoError(
+          line: targetLine,
+          col: targetCol,
+          message: err.text ?? 'Error de compilación en Oracle',
+        ),
+      );
+    }
+    _monacoCtrl.setErrors(monacoErrors, owner: 'oracle-compile');
   }
 
   Future<bool> _confirmProdExecution(SqlStatement stmt) async {
@@ -620,6 +652,7 @@ class _SqlEditorWorkspaceState extends State<_SqlEditorWorkspace> {
                         selectedResultIndex: stateCtrl.selectedResultIndex,
                         onSelectResult: stateCtrl.selectResult,
                         log: stateCtrl.log,
+                        httpTraces: stateCtrl.httpTraces,
                         explainNodes: stateCtrl.explainNodes,
                         explainText: stateCtrl.lastExplainResult?.text,
                         maxRows: stateCtrl.maxRows,
@@ -629,10 +662,13 @@ class _SqlEditorWorkspaceState extends State<_SqlEditorWorkspace> {
                           monacoCtrl.insertTextAtCursor(e.statementPreview);
                         },
                         onClearLog: stateCtrl.clearLog,
+                        onClearHttpTraces: stateCtrl.clearHttpTraces,
                         isDetached: false,
                         onToggleDetached: stateCtrl.toggleResultsPanelDetached,
                         isPinned: isPinned,
                         onTogglePinned: stateCtrl.toggleResultsPanelPinned,
+                        onLoadMore: () => stateCtrl.loadMoreRows(),
+                        isLoadingMore: stateCtrl.loadingMore,
                       ),
                     ),
                   ),
@@ -678,6 +714,7 @@ class _SqlEditorWorkspaceState extends State<_SqlEditorWorkspace> {
                           selectedResultIndex: stateCtrl.selectedResultIndex,
                           onSelectResult: stateCtrl.selectResult,
                           log: stateCtrl.log,
+                          httpTraces: stateCtrl.httpTraces,
                           explainNodes: stateCtrl.explainNodes,
                           explainText: stateCtrl.lastExplainResult?.text,
                           maxRows: stateCtrl.maxRows,
@@ -687,11 +724,14 @@ class _SqlEditorWorkspaceState extends State<_SqlEditorWorkspace> {
                             monacoCtrl.insertTextAtCursor(e.statementPreview);
                           },
                           onClearLog: stateCtrl.clearLog,
+                          onClearHttpTraces: stateCtrl.clearHttpTraces,
                           isDetached: true,
                           onToggleDetached:
                               stateCtrl.toggleResultsPanelDetached,
                           isPinned: isPinned,
                           onTogglePinned: stateCtrl.toggleResultsPanelPinned,
+                          onLoadMore: () => stateCtrl.loadMoreRows(),
+                          isLoadingMore: stateCtrl.loadingMore,
                           onHeaderDrag: (delta) =>
                               _onWindowDrag(delta, workspaceSize),
                         ),

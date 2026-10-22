@@ -1425,49 +1425,54 @@ class _SchemaObjectDiffPageState extends State<SchemaObjectDiffPage> {
                     ],
                   ),
                   clipBehavior: Clip.antiAlias,
-                  // El contenido se mantiene SIEMPRE montado con el tamaño de
-                  // la ventana restaurada: al minimizar sólo se recorta. Si se
-                  // quitara del árbol, al restaurar se perdería el scroll del
-                  // visor y se reconstruiría todo el diff.
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    minWidth: 0,
-                    maxWidth: double.infinity,
-                    minHeight: 0,
-                    maxHeight: double.infinity,
-                    child: SizedBox(
-                      width: _winW,
-                      height: _winH,
-                      child: Stack(
-                        children: [
-                          Positioned.fill(
-                            child: Column(
+                  child: _minimized
+                      ? MinimizedWindowCard(
+                          title: widget.objectName,
+                          icon: Icons.difference_rounded,
+                          accentColor: Colors.blue.shade400,
+                          badge: widget.objectType,
+                          onRestore: _toggleMinimized,
+                          onClose: _close,
+                        )
+                      : OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: 0,
+                          maxWidth: double.infinity,
+                          minHeight: 0,
+                          maxHeight: double.infinity,
+                          child: SizedBox(
+                            width: _winW,
+                            height: _winH,
+                            child: Stack(
                               children: [
-                                // Hueco reservado para la barra de título.
-                                const SizedBox(height: _kHeaderH),
-                                Expanded(
-                                  child: _buildBody(
-                                    isDark,
-                                    cs,
-                                    srcColor,
-                                    tgtColor,
+                                Positioned.fill(
+                                  child: Column(
+                                    children: [
+                                      // Hueco reservado para la barra de título.
+                                      const SizedBox(height: _kHeaderH),
+                                      Expanded(
+                                        child: _buildBody(
+                                          isDark,
+                                          cs,
+                                          srcColor,
+                                          tgtColor,
+                                        ),
+                                      ),
+                                    ],
                                   ),
+                                ),
+                                // La barra de título usa el ancho *visible* para que
+                                // al minimizar siga viéndose completa.
+                                Positioned(
+                                  left: 0,
+                                  top: 0,
+                                  width: w,
+                                  child: _buildHeader(isDark, cs),
                                 ),
                               ],
                             ),
                           ),
-                          // La barra de título usa el ancho *visible* para que
-                          // al minimizar siga viéndose completa.
-                          Positioned(
-                            left: 0,
-                            top: 0,
-                            width: w,
-                            child: _buildHeader(isDark, cs),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                        ),
                 ),
               ),
             ),

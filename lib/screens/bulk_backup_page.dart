@@ -23,7 +23,10 @@ import '../widgets/floating_window.dart';
 /// Abre el backup masivo como ventana flotante: arrastrable, redimensionable,
 /// minimizable y con los mismos controles nativos que el comparador de
 /// esquema (`showSchemaObjectDiff`).
-VoidCallback showBulkBackupWindow(BuildContext context, {required String ambiente}) {
+VoidCallback showBulkBackupWindow(
+  BuildContext context, {
+  required String ambiente,
+}) {
   return showFloatingWindow(
     context,
     (close) => BulkBackupPage(ambiente: ambiente, onClose: close),
@@ -42,7 +45,8 @@ class BulkBackupPage extends StatefulWidget {
   State<BulkBackupPage> createState() => _BulkBackupPageState();
 }
 
-class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStateMixin {
+class _BulkBackupPageState extends State<BulkBackupPage>
+    with TickerProviderStateMixin {
   static const double _kMinW = 760;
   static const double _kHeaderH = 44;
 
@@ -84,15 +88,23 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
   @override
   void initState() {
     super.initState();
-    _syncIconController = AnimationController(vsync: this, duration: const Duration(seconds: 1))..repeat();
-    _shimmerController = AnimationController(vsync: this, duration: const Duration(milliseconds: 1600))..repeat();
+    _syncIconController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    )..repeat();
+    _shimmerController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    )..repeat();
     _ambiente = widget.ambiente;
     _metadata = SchemaService.instance.getMetadata(ambiente: _ambiente);
     procedimientosProvider.setAmbiente(_ambiente);
     unawaited(
       _loadDynamicProcedures().catchError((error) {
         if (mounted) {
-          AppToast.error('No se pudieron cargar los procedimientos dinámicos: $error');
+          AppToast.error(
+            'No se pudieron cargar los procedimientos dinámicos: $error',
+          );
         }
       }),
     );
@@ -191,10 +203,7 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
     try {
       // El schema se refleja vía FutureBuilder; esperamos ambas cargas para
       // forzar un rebuild que también muestre todas las reglas dinámicas.
-      await Future.wait([
-        metadataFuture,
-        _loadDynamicProcedures(),
-      ]);
+      await Future.wait([metadataFuture, _loadDynamicProcedures()]);
     } catch (_) {
       // El error de metadata ya lo muestra el FutureBuilder del catálogo.
     } finally {
@@ -212,10 +221,7 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
       _metadata = SchemaService.instance.refreshAmbiente(_ambiente);
     });
     try {
-      await Future.wait([
-        _metadata,
-        _loadDynamicProcedures(),
-      ]);
+      await Future.wait([_metadata, _loadDynamicProcedures()]);
       if (mounted) AppToast.success('Ambiente $_ambiente actualizado');
     } catch (error) {
       if (mounted) AppToast.error('No se pudo actualizar el ambiente: $error');
@@ -272,10 +278,10 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
     return all
         .where(
           (item) =>
-                (_category == 'all' ||
+              (_category == 'all' ||
                   (_category == 'favorites'
-                    ? _favoriteIds.contains(item.id)
-                    : item.category == _category)) &&
+                      ? _favoriteIds.contains(item.id)
+                      : item.category == _category)) &&
               (query.isEmpty || item.name.toUpperCase().contains(query)),
         )
         .toList();
@@ -283,7 +289,9 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
 
   Future<void> _toggleSelectedFavorites() async {
     if (_selected.isEmpty) {
-      AppToast.warning('Seleccioná al menos un objeto para marcarlo como favorito');
+      AppToast.warning(
+        'Seleccioná al menos un objeto para marcarlo como favorito',
+      );
       return;
     }
     final add = !_selected.every((item) => _favoriteIds.contains(item.id));
@@ -296,7 +304,9 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
         _favoriteIds.removeAll(_selected.map((item) => item.id));
       }
     });
-    AppToast.success(add ? 'Objetos agregados a favoritos' : 'Objetos quitados de favoritos');
+    AppToast.success(
+      add ? 'Objetos agregados a favoritos' : 'Objetos quitados de favoritos',
+    );
   }
 
   Future<void> _toggleItemFavorite(BulkBackupItem item) async {
@@ -330,7 +340,11 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
     );
     if (basePath == null || !mounted) return;
 
-    final stamp = DateTime.now().toIso8601String().replaceAll(':', '-').split('.').first;
+    final stamp = DateTime.now()
+        .toIso8601String()
+        .replaceAll(':', '-')
+        .split('.')
+        .first;
     final executionDirectory = Directory(
       '$basePath${Platform.pathSeparator}${BulkBackupService.safeFileName(_ambiente)}_$stamp',
     );
@@ -396,14 +410,19 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
     );
     if (!mounted) return;
     final wasCancelled = _cancelRequested;
-    final totalFailures = [...failures, ...result.failures.map((f) => '${f.name}: ${f.error}')];
+    final totalFailures = [
+      ...failures,
+      ...result.failures.map((f) => '${f.name}: ${f.error}'),
+    ];
     setState(() {
       _running = false;
       _cancelRequested = false;
       _failures = totalFailures;
     });
     if (wasCancelled) {
-      AppToast.warning('${result.written.length} backups generados antes de cancelar');
+      AppToast.warning(
+        '${result.written.length} backups generados antes de cancelar',
+      );
       return;
     }
     if (totalFailures.isEmpty) {
@@ -411,7 +430,8 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
         '${result.written.length} backups generados',
         detail: result.directory,
         actionLabel: 'Abrir ubicación',
-        onAction: () => unawaited(BackupService.revealInExplorer(result.directory)),
+        onAction: () =>
+            unawaited(BackupService.revealInExplorer(result.directory)),
       );
     } else {
       AppToast.warning(
@@ -428,10 +448,18 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
       ambiente: _ambiente,
     );
     final grants = _config.includeGrants
-        ? await SchemaService.instance.getObjectPrivileges(item.name, ambiente: _ambiente)
-        : const <({String grantee, String privilege, bool grantable, String grantor})>[];
+        ? await SchemaService.instance.getObjectPrivileges(
+            item.name,
+            ambiente: _ambiente,
+          )
+        : const <
+            ({String grantee, String privilege, bool grantable, String grantor})
+          >[];
     final synonyms = _config.includeSynonyms
-        ? await SchemaService.instance.getSynonyms(item.name, ambiente: _ambiente)
+        ? await SchemaService.instance.getSynonyms(
+            item.name,
+            ambiente: _ambiente,
+          )
         : const <({String synonymName, bool isPublic, String owner})>[];
     return BulkBackupService.buildSchemaScript(
       item: item,
@@ -445,7 +473,10 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
   }
 
   Future<String> _tableScript(BulkBackupItem item) async {
-    final ddl = await SchemaService.instance.getTableDdl(item.name, ambiente: _ambiente);
+    final ddl = await SchemaService.instance.getTableDdl(
+      item.name,
+      ambiente: _ambiente,
+    );
     return BulkBackupService.buildSchemaScript(
       item: item,
       ambiente: _ambiente,
@@ -475,11 +506,71 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _check('Especificación / DDL', next.includeSpec, (value) => setDialogState(() => next = BulkBackupConfig(includeSpec: value, includeBody: next.includeBody, includeTableComments: next.includeTableComments, includeGrants: next.includeGrants, includeSynonyms: next.includeSynonyms))),
-              _check('Cuerpo de package/type', next.includeBody, (value) => setDialogState(() => next = BulkBackupConfig(includeSpec: next.includeSpec, includeBody: value, includeTableComments: next.includeTableComments, includeGrants: next.includeGrants, includeSynonyms: next.includeSynonyms))),
-              _check('Comentarios de tabla', next.includeTableComments, (value) => setDialogState(() => next = BulkBackupConfig(includeSpec: next.includeSpec, includeBody: next.includeBody, includeTableComments: value, includeGrants: next.includeGrants, includeSynonyms: next.includeSynonyms))),
-              _check('Grants', next.includeGrants, (value) => setDialogState(() => next = BulkBackupConfig(includeSpec: next.includeSpec, includeBody: next.includeBody, includeTableComments: next.includeTableComments, includeGrants: value, includeSynonyms: next.includeSynonyms))),
-              _check('Sinónimos públicos', next.includeSynonyms, (value) => setDialogState(() => next = BulkBackupConfig(includeSpec: next.includeSpec, includeBody: next.includeBody, includeTableComments: next.includeTableComments, includeGrants: next.includeGrants, includeSynonyms: value))),
+              _check(
+                'Especificación / DDL',
+                next.includeSpec,
+                (value) => setDialogState(
+                  () => next = BulkBackupConfig(
+                    includeSpec: value,
+                    includeBody: next.includeBody,
+                    includeTableComments: next.includeTableComments,
+                    includeGrants: next.includeGrants,
+                    includeSynonyms: next.includeSynonyms,
+                  ),
+                ),
+              ),
+              _check(
+                'Cuerpo de package/type',
+                next.includeBody,
+                (value) => setDialogState(
+                  () => next = BulkBackupConfig(
+                    includeSpec: next.includeSpec,
+                    includeBody: value,
+                    includeTableComments: next.includeTableComments,
+                    includeGrants: next.includeGrants,
+                    includeSynonyms: next.includeSynonyms,
+                  ),
+                ),
+              ),
+              _check(
+                'Comentarios de tabla',
+                next.includeTableComments,
+                (value) => setDialogState(
+                  () => next = BulkBackupConfig(
+                    includeSpec: next.includeSpec,
+                    includeBody: next.includeBody,
+                    includeTableComments: value,
+                    includeGrants: next.includeGrants,
+                    includeSynonyms: next.includeSynonyms,
+                  ),
+                ),
+              ),
+              _check(
+                'Grants',
+                next.includeGrants,
+                (value) => setDialogState(
+                  () => next = BulkBackupConfig(
+                    includeSpec: next.includeSpec,
+                    includeBody: next.includeBody,
+                    includeTableComments: next.includeTableComments,
+                    includeGrants: value,
+                    includeSynonyms: next.includeSynonyms,
+                  ),
+                ),
+              ),
+              _check(
+                'Sinónimos públicos',
+                next.includeSynonyms,
+                (value) => setDialogState(
+                  () => next = BulkBackupConfig(
+                    includeSpec: next.includeSpec,
+                    includeBody: next.includeBody,
+                    includeTableComments: next.includeTableComments,
+                    includeGrants: next.includeGrants,
+                    includeSynonyms: value,
+                  ),
+                ),
+              ),
             ],
           ),
           actions: [
@@ -527,9 +618,9 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
   }
 
   List<BulkBackupItem> _catalogItems(SchemaMetadata metadata) => [
-        ..._schemaItems(metadata),
-        ..._dynamicItems(),
-      ];
+    ..._schemaItems(metadata),
+    ..._dynamicItems(),
+  ];
 
   Future<void> _applySavedList(BulkBackupSelectionList list) async {
     final metadata = await _metadata;
@@ -558,7 +649,9 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
         duration: const Duration(seconds: 5),
       );
     } else {
-      AppToast.success('${resolved.length} objetos cargados desde "${list.name}"');
+      AppToast.success(
+        '${resolved.length} objetos cargados desde "${list.name}"',
+      );
     }
   }
 
@@ -600,7 +693,9 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                 dense: true,
                 leading: const Icon(Icons.playlist_play_outlined),
                 title: Text(list.name, overflow: TextOverflow.ellipsis),
-                subtitle: Text('${list.items.length} objetos · ${list.savedFromAmbiente}'),
+                subtitle: Text(
+                  '${list.items.length} objetos · ${list.savedFromAmbiente}',
+                ),
                 onTap: () => close(list),
               );
             },
@@ -630,7 +725,9 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
     );
     if (path == null) return;
     await File(path).writeAsString(
-      const JsonEncoder.withIndent('  ').convert(jsonDecode(BulkBackupSelectionService.encode(list))),
+      const JsonEncoder.withIndent(
+        '  ',
+      ).convert(jsonDecode(BulkBackupSelectionService.encode(list))),
       flush: true,
     );
     if (mounted) AppToast.success('Lista exportada');
@@ -646,10 +743,13 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
     final path = result?.files.single.path;
     if (path == null) return;
     try {
-      final list = BulkBackupSelectionService.decode(await File(path).readAsString());
+      final list = BulkBackupSelectionService.decode(
+        await File(path).readAsString(),
+      );
       await _applySavedList(list);
     } on FormatException catch (error) {
-      if (mounted) AppToast.warning('No se pudo cargar la lista: ${error.message}');
+      if (mounted)
+        AppToast.warning('No se pudo cargar la lista: ${error.message}');
     } on IOException {
       if (mounted) AppToast.warning('No se pudo leer el archivo seleccionado');
     }
@@ -682,7 +782,9 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final size = MediaQuery.sizeOf(context);
-    final gripColor = (isDark ? Colors.white : Colors.black).withValues(alpha: 0.18);
+    final gripColor = (isDark ? Colors.white : Colors.black).withValues(
+      alpha: 0.18,
+    );
 
     if (_maximized) {
       _winW = (size.width - 48).clamp(320.0, size.width);
@@ -704,8 +806,14 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
     } else {
       w = _winW!;
       h = _winH!;
-      left = ((size.width - w) / 2 + _position.dx).clamp(0.0, (size.width - w).clamp(0.0, double.infinity));
-      top = ((size.height - h) / 2 + _position.dy).clamp(0.0, (size.height - h).clamp(0.0, double.infinity));
+      left = ((size.width - w) / 2 + _position.dx).clamp(
+        0.0,
+        (size.width - w).clamp(0.0, double.infinity),
+      );
+      top = ((size.height - h) / 2 + _position.dy).clamp(
+        0.0,
+        (size.height - h).clamp(0.0, double.infinity),
+      );
     }
 
     return CallbackShortcuts(
@@ -733,40 +841,58 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                   curve: Curves.easeOutCubic,
                   decoration: BoxDecoration(
                     color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                    borderRadius: BorderRadius.circular(_maximized ? 6 : (_minimized ? 8 : 12)),
+                    borderRadius: BorderRadius.circular(
+                      _maximized ? 6 : (_minimized ? 8 : 12),
+                    ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: isDark ? 0.5 : 0.18),
+                        color: Colors.black.withValues(
+                          alpha: isDark ? 0.5 : 0.18,
+                        ),
                         blurRadius: _minimized ? 16 : 40,
                         offset: Offset(0, _minimized ? 4 : 16),
                       ),
                     ],
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    minWidth: 0,
-                    maxWidth: double.infinity,
-                    minHeight: 0,
-                    maxHeight: double.infinity,
-                    child: SizedBox(
-                      width: _winW,
-                      height: _winH,
-                      child: Stack(
-                        children: [
-                          Positioned.fill(
-                            child: Column(
+                  child: _minimized
+                      ? MinimizedWindowCard(
+                          title: 'Backup Masivo de Objetos',
+                          icon: Icons.backup_table_outlined,
+                          accentColor: cs.primary,
+                          badge: 'BACKUP',
+                          onRestore: _toggleMinimized,
+                          onClose: _close,
+                        )
+                      : OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: 0,
+                          maxWidth: double.infinity,
+                          minHeight: 0,
+                          maxHeight: double.infinity,
+                          child: SizedBox(
+                            width: _winW,
+                            height: _winH,
+                            child: Stack(
                               children: [
-                                const SizedBox(height: _kHeaderH),
-                                Expanded(child: _buildCatalog(context)),
+                                Positioned.fill(
+                                  child: Column(
+                                    children: [
+                                      const SizedBox(height: _kHeaderH),
+                                      Expanded(child: _buildCatalog(context)),
+                                    ],
+                                  ),
+                                ),
+                                Positioned(
+                                  left: 0,
+                                  top: 0,
+                                  width: w,
+                                  child: _buildHeader(context, isDark, cs),
+                                ),
                               ],
                             ),
                           ),
-                          Positioned(left: 0, top: 0, width: w, child: _buildHeader(context, isDark, cs)),
-                        ],
-                      ),
-                    ),
-                  ),
+                        ),
                 ),
               ),
             ),
@@ -782,7 +908,10 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                     behavior: HitTestBehavior.opaque,
                     onPanUpdate: (d) => setState(() {
                       _anim = Duration.zero;
-                      _winW = (_winW! + d.delta.dx).clamp(_kMinW, size.width - 40);
+                      _winW = (_winW! + d.delta.dx).clamp(
+                        _kMinW,
+                        size.width - 40,
+                      );
                     }),
                   ),
                 ),
@@ -799,7 +928,10 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                     behavior: HitTestBehavior.opaque,
                     onPanUpdate: (d) => setState(() {
                       _anim = Duration.zero;
-                      _winH = (_winH! + d.delta.dy).clamp(480.0, size.height - 40);
+                      _winH = (_winH! + d.delta.dy).clamp(
+                        480.0,
+                        size.height - 40,
+                      );
                     }),
                   ),
                 ),
@@ -816,8 +948,14 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                     behavior: HitTestBehavior.opaque,
                     onPanUpdate: (d) => setState(() {
                       _anim = Duration.zero;
-                      _winW = (_winW! + d.delta.dx).clamp(_kMinW, size.width - 40);
-                      _winH = (_winH! + d.delta.dy).clamp(480.0, size.height - 40);
+                      _winW = (_winW! + d.delta.dx).clamp(
+                        _kMinW,
+                        size.width - 40,
+                      );
+                      _winH = (_winH! + d.delta.dy).clamp(
+                        480.0,
+                        size.height - 40,
+                      );
                     }),
                     child: CustomPaint(painter: WindowGripPainter(gripColor)),
                   ),
@@ -834,7 +972,9 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
   Widget _buildHeader(BuildContext context, bool isDark, ColorScheme cs) {
     final divColor = cs.outlineVariant;
     return MouseRegion(
-      cursor: (_maximized || _minimized) ? SystemMouseCursors.basic : SystemMouseCursors.grab,
+      cursor: (_maximized || _minimized)
+          ? SystemMouseCursors.basic
+          : SystemMouseCursors.grab,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onPanUpdate: (_maximized || _minimized)
@@ -848,7 +988,9 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
           padding: const EdgeInsets.fromLTRB(10, 0, 0, 0),
           decoration: BoxDecoration(
             color: isDark ? const Color(0xFF161B22) : const Color(0xFFF6F8FA),
-            border: _minimized ? null : Border(bottom: BorderSide(color: divColor)),
+            border: _minimized
+                ? null
+                : Border(bottom: BorderSide(color: divColor)),
           ),
           child: Row(
             children: [
@@ -863,7 +1005,10 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                       Flexible(
                         child: Text(
                           'Backup masivo',
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
@@ -874,7 +1019,10 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                         const SizedBox(width: 6),
                         Tooltip(
                           message: _configSummary(),
-                          child: _headerBadge(context, '${_selected.length} seleccionados'),
+                          child: _headerBadge(
+                            context,
+                            '${_selected.length} seleccionados',
+                          ),
                         ),
                         if (_favoriteIds.isNotEmpty) ...[
                           const SizedBox(width: 6),
@@ -892,13 +1040,19 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
               ),
               if (!_running)
                 WindowButton.titleBar(
-                  icon: _minimized ? Icons.expand_less_rounded : Icons.remove_rounded,
+                  icon: _minimized
+                      ? Icons.expand_less_rounded
+                      : Icons.remove_rounded,
                   tooltip: _minimized ? 'Restaurar' : 'Minimizar',
                   onTap: _toggleMinimized,
                 ),
               WindowButton.titleBar(
-                icon: _maximized ? Icons.close_fullscreen_rounded : Icons.open_in_full_rounded,
-                tooltip: _maximized ? 'Restaurar tamaño  (F11)' : 'Maximizar  (F11)',
+                icon: _maximized
+                    ? Icons.close_fullscreen_rounded
+                    : Icons.open_in_full_rounded,
+                tooltip: _maximized
+                    ? 'Restaurar tamaño  (F11)'
+                    : 'Maximizar  (F11)',
                 size: 13,
                 onTap: () {
                   if (_minimized) {
@@ -922,13 +1076,20 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
     );
   }
 
-  Widget _headerBadge(BuildContext context, String label, {Color? color, Color? textColor}) {
+  Widget _headerBadge(
+    BuildContext context,
+    String label, {
+    Color? color,
+    Color? textColor,
+  }) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color ?? (isDark ? const Color(0xFF222B3D) : const Color(0xFFE2E8F0)),
+        color:
+            color ??
+            (isDark ? const Color(0xFF222B3D) : const Color(0xFFE2E8F0)),
         borderRadius: BorderRadius.circular(6),
         border: Border.all(
           color: (textColor ?? cs.primary).withValues(alpha: 0.25),
@@ -963,9 +1124,12 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
       future: _metadata,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Center(child: Text('No se pudo cargar el esquema: ${snapshot.error}'));
+          return Center(
+            child: Text('No se pudo cargar el esquema: ${snapshot.error}'),
+          );
         }
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+        if (!snapshot.hasData)
+          return const Center(child: CircularProgressIndicator());
         final items = _visibleItems(snapshot.data!);
         final all = [..._schemaItems(snapshot.data!), ..._dynamicItems()];
         final categories = {
@@ -974,9 +1138,12 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
           ...{for (final item in all) item.category: item.category},
         };
         final categoryCounts = <String, int>{'all': all.length};
-        categoryCounts['favorites'] = all.where((item) => _favoriteIds.contains(item.id)).length;
+        categoryCounts['favorites'] = all
+            .where((item) => _favoriteIds.contains(item.id))
+            .length;
         for (final item in all) {
-          categoryCounts[item.category] = (categoryCounts[item.category] ?? 0) + 1;
+          categoryCounts[item.category] =
+              (categoryCounts[item.category] ?? 0) + 1;
         }
         return LayoutBuilder(
           builder: (context, constraints) {
@@ -992,8 +1159,18 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                 ),
                 Expanded(
                   child: compact
-                      ? _buildCompactCatalog(context, items, categories, categoryCounts)
-                      : _buildWideCatalog(context, items, categories, categoryCounts),
+                      ? _buildCompactCatalog(
+                          context,
+                          items,
+                          categories,
+                          categoryCounts,
+                        )
+                      : _buildWideCatalog(
+                          context,
+                          items,
+                          categories,
+                          categoryCounts,
+                        ),
                 ),
                 _buildBottomBar(context, compact: compact),
               ],
@@ -1012,7 +1189,10 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
   ) {
     return Row(
       children: [
-        SizedBox(width: 220, child: _buildCategories(categories, categoryCounts)),
+        SizedBox(
+          width: 220,
+          child: _buildCategories(categories, categoryCounts),
+        ),
         Expanded(child: _buildObjectList(context, items)),
         SizedBox(width: 280, child: _selectedPanel()),
       ],
@@ -1031,21 +1211,39 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
           child: Row(
             children: [
-              Expanded(child: AmbienteSelector(value: _ambiente, onChanged: _changeAmbiente)),
+              Expanded(
+                child: AmbienteSelector(
+                  value: _ambiente,
+                  onChanged: _changeAmbiente,
+                ),
+              ),
               IconButton(
                 onPressed: (_running || _refreshing) ? null : _refreshAmbiente,
                 tooltip: 'Actualizar ambiente',
                 icon: _refreshing
-                    ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                    ? const SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : const Icon(Icons.refresh_rounded, size: 18),
               ),
               const SizedBox(width: 8),
-              Expanded(child: SizedBox(height: 40, child: _buildCategories(categories, categoryCounts, horizontal: true))),
+              Expanded(
+                child: SizedBox(
+                  height: 40,
+                  child: _buildCategories(
+                    categories,
+                    categoryCounts,
+                    horizontal: true,
+                  ),
+                ),
+              ),
             ],
           ),
         ),
         Expanded(child: _buildObjectList(context, items)),
-        if (_showCompactSelected) SizedBox(height: 200, child: _selectedPanel()),
+        if (_showCompactSelected)
+          SizedBox(height: 200, child: _selectedPanel()),
       ],
     );
   }
@@ -1067,7 +1265,9 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
         ? (isDark ? const Color(0xFF90CAF9) : const Color(0xFF1565C0))
         : (isDark ? const Color(0xFFEF9A9A) : const Color(0xFFC62828));
     final textPrimary = isDark ? Colors.white : const Color(0xFF1E293B);
-    final textSecondary = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+    final textSecondary = isDark
+        ? const Color(0xFF94A3B8)
+        : const Color(0xFF64748B);
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 240),
@@ -1100,7 +1300,9 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                           child: Icon(Icons.sync_rounded, size: 16, color: fg),
                         )
                       : Icon(
-                          isSuccess ? Icons.check_circle_outline_rounded : Icons.warning_amber_rounded,
+                          isSuccess
+                              ? Icons.check_circle_outline_rounded
+                              : Icons.warning_amber_rounded,
                           key: const ValueKey('done'),
                           size: 16,
                           color: fg,
@@ -1115,7 +1317,11 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                     Row(
                       children: [
                         Text(
-                          _running ? '$_phase de objetos' : (isSuccess ? 'Completado' : 'Finalizado con errores'),
+                          _running
+                              ? '$_phase de objetos'
+                              : (isSuccess
+                                    ? 'Completado'
+                                    : 'Finalizado con errores'),
                           style: textTheme.labelMedium?.copyWith(
                             color: textPrimary,
                             fontWeight: FontWeight.w700,
@@ -1125,7 +1331,10 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                         if (_running) ...[
                           const SizedBox(width: 8),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 1.5,
+                            ),
                             decoration: BoxDecoration(
                               color: fg.withValues(alpha: isDark ? 0.2 : 0.12),
                               borderRadius: BorderRadius.circular(10),
@@ -1145,7 +1354,9 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                     const SizedBox(height: 2),
                     Text(
                       _running
-                          ? (_currentName.isNotEmpty ? _currentName : 'Preparando elementos...')
+                          ? (_currentName.isNotEmpty
+                                ? _currentName
+                                : 'Preparando elementos...')
                           : '${_failures.length} objeto(s) no pudieron procesarse',
                       overflow: TextOverflow.ellipsis,
                       style: textTheme.bodySmall?.copyWith(
@@ -1161,11 +1372,16 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                 Tooltip(
                   message: _failures.take(5).join('\n'),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: cs.error.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: cs.error.withValues(alpha: 0.3)),
+                      border: Border.all(
+                        color: cs.error.withValues(alpha: 0.3),
+                      ),
                     ),
                     child: Text(
                       '${_failures.length} fallos',
@@ -1186,12 +1402,17 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                     hoverColor: cs.error.withValues(alpha: 0.1),
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 180),
-                      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 11,
+                        vertical: 5,
+                      ),
                       decoration: BoxDecoration(
                         color: cs.error.withValues(alpha: isDark ? 0.18 : 0.1),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: cs.error.withValues(alpha: isDark ? 0.5 : 0.35),
+                          color: cs.error.withValues(
+                            alpha: isDark ? 0.5 : 0.35,
+                          ),
                           width: 1,
                         ),
                       ),
@@ -1223,10 +1444,14 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
               height: 7,
               width: double.infinity,
               decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF0C1322) : const Color(0xFFE2E8F0),
+                color: isDark
+                    ? const Color(0xFF0C1322)
+                    : const Color(0xFFE2E8F0),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: isDark ? const Color(0xFF1E293B) : const Color(0xFFCBD5E1),
+                  color: isDark
+                      ? const Color(0xFF1E293B)
+                      : const Color(0xFFCBD5E1),
                   width: 0.8,
                 ),
                 boxShadow: isDark
@@ -1273,15 +1498,21 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: (isDark ? const Color(0xFF38BDF8) : const Color(0xFF2563EB))
-                                        .withValues(alpha: 0.7),
+                                    color:
+                                        (isDark
+                                                ? const Color(0xFF38BDF8)
+                                                : const Color(0xFF2563EB))
+                                            .withValues(alpha: 0.7),
                                     blurRadius: 8,
                                     spreadRadius: 1,
                                     offset: const Offset(0, 0),
                                   ),
                                   BoxShadow(
-                                    color: (isDark ? const Color(0xFF8B5CF6) : const Color(0xFF7C3AED))
-                                        .withValues(alpha: 0.45),
+                                    color:
+                                        (isDark
+                                                ? const Color(0xFF8B5CF6)
+                                                : const Color(0xFF7C3AED))
+                                            .withValues(alpha: 0.45),
                                     blurRadius: 12,
                                     spreadRadius: 2,
                                     offset: const Offset(0, 0),
@@ -1306,11 +1537,19 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                                       decoration: BoxDecoration(
                                         borderRadius: BorderRadius.circular(10),
                                         gradient: LinearGradient(
-                                          begin: Alignment(shimmerPos * 3.0 - 1.5, 0),
-                                          end: Alignment(shimmerPos * 3.0 - 0.5, 0),
+                                          begin: Alignment(
+                                            shimmerPos * 3.0 - 1.5,
+                                            0,
+                                          ),
+                                          end: Alignment(
+                                            shimmerPos * 3.0 - 0.5,
+                                            0,
+                                          ),
                                           colors: [
                                             Colors.white.withValues(alpha: 0.0),
-                                            Colors.white.withValues(alpha: isDark ? 0.65 : 0.45),
+                                            Colors.white.withValues(
+                                              alpha: isDark ? 0.65 : 0.45,
+                                            ),
                                             Colors.white.withValues(alpha: 0.0),
                                           ],
                                           stops: const [0.0, 0.5, 1.0],
@@ -1343,14 +1582,19 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
         return Container(
           decoration: BoxDecoration(
             color: isDark ? const Color(0xFF141820) : const Color(0xFFF8FAFC),
-            border: Border(top: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.5))),
+            border: Border(
+              top: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.5)),
+            ),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Row(
             children: [
               // Badge de seleccionados con diseño pill
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: _selected.isNotEmpty
                       ? cs.primary.withValues(alpha: isDark ? 0.2 : 0.12)
@@ -1366,9 +1610,13 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      _selected.isNotEmpty ? Icons.check_circle_rounded : Icons.checklist_rounded,
+                      _selected.isNotEmpty
+                          ? Icons.check_circle_rounded
+                          : Icons.checklist_rounded,
                       size: 15,
-                      color: _selected.isNotEmpty ? cs.primary : cs.onSurfaceVariant,
+                      color: _selected.isNotEmpty
+                          ? cs.primary
+                          : cs.onSurfaceVariant,
                     ),
                     const SizedBox(width: 6),
                     Text(
@@ -1376,7 +1624,9 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: _selected.isNotEmpty ? cs.primary : cs.onSurfaceVariant,
+                        color: _selected.isNotEmpty
+                            ? cs.primary
+                            : cs.onSurfaceVariant,
                       ),
                     ),
                   ],
@@ -1387,7 +1637,11 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                 Expanded(
                   child: Row(
                     children: [
-                      Icon(Icons.tune_rounded, size: 14, color: cs.onSurfaceVariant.withValues(alpha: 0.7)),
+                      Icon(
+                        Icons.tune_rounded,
+                        size: 14,
+                        color: cs.onSurfaceVariant.withValues(alpha: 0.7),
+                      ),
                       const SizedBox(width: 6),
                       Flexible(
                         child: Text(
@@ -1409,12 +1663,25 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                 const Spacer(),
               if (compact) ...[
                 TextButton.icon(
-                  onPressed: () => setState(() => _showCompactSelected = !_showCompactSelected),
-                  icon: Icon(_showCompactSelected ? Icons.expand_more_rounded : Icons.expand_less_rounded, size: 16),
-                  label: const Text('Revisar', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                  onPressed: () => setState(
+                    () => _showCompactSelected = !_showCompactSelected,
+                  ),
+                  icon: Icon(
+                    _showCompactSelected
+                        ? Icons.expand_more_rounded
+                        : Icons.expand_less_rounded,
+                    size: 16,
+                  ),
+                  label: const Text(
+                    'Revisar',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
                   style: TextButton.styleFrom(
                     visualDensity: VisualDensity.compact,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 4),
@@ -1425,7 +1692,10 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                 menuChildren: [
                   MenuItemButton(
                     onPressed: _running ? null : _saveSelectionList,
-                    leadingIcon: const Icon(Icons.bookmark_add_outlined, size: 16),
+                    leadingIcon: const Icon(
+                      Icons.bookmark_add_outlined,
+                      size: 16,
+                    ),
                     child: const Text('Guardar selección actual'),
                   ),
                   MenuItemButton(
@@ -1436,12 +1706,18 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                   const Divider(height: 1),
                   MenuItemButton(
                     onPressed: _running ? null : _exportSelectionList,
-                    leadingIcon: const Icon(Icons.file_upload_outlined, size: 16),
+                    leadingIcon: const Icon(
+                      Icons.file_upload_outlined,
+                      size: 16,
+                    ),
                     child: const Text('Exportar a JSON'),
                   ),
                   MenuItemButton(
                     onPressed: _running ? null : _importSelectionList,
-                    leadingIcon: const Icon(Icons.file_download_outlined, size: 16),
+                    leadingIcon: const Icon(
+                      Icons.file_download_outlined,
+                      size: 16,
+                    ),
                     child: const Text('Importar desde JSON'),
                   ),
                 ],
@@ -1449,14 +1725,22 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                   message: 'Listas reutilizables',
                   child: InkWell(
                     borderRadius: BorderRadius.circular(8),
-                    onTap: () => controller.isOpen ? controller.close() : controller.open(),
+                    onTap: () => controller.isOpen
+                        ? controller.close()
+                        : controller.open(),
                     child: Container(
                       padding: const EdgeInsets.all(7),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.6)),
+                        border: Border.all(
+                          color: cs.outlineVariant.withValues(alpha: 0.6),
+                        ),
                       ),
-                      child: Icon(Icons.bookmarks_outlined, size: 17, color: cs.onSurfaceVariant),
+                      child: Icon(
+                        Icons.bookmarks_outlined,
+                        size: 17,
+                        color: cs.onSurfaceVariant,
+                      ),
                     ),
                   ),
                 ),
@@ -1464,7 +1748,11 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
               const SizedBox(width: 6),
               // Favoritos batch
               Tooltip(
-                message: _selected.isNotEmpty && _selected.every((item) => _favoriteIds.contains(item.id))
+                message:
+                    _selected.isNotEmpty &&
+                        _selected.every(
+                          (item) => _favoriteIds.contains(item.id),
+                        )
                     ? 'Quitar seleccionados de favoritos'
                     : 'Marcar seleccionados como favoritos',
                 child: InkWell(
@@ -1474,14 +1762,23 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                     padding: const EdgeInsets.all(7),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.6)),
+                      border: Border.all(
+                        color: cs.outlineVariant.withValues(alpha: 0.6),
+                      ),
                     ),
                     child: Icon(
-                      _selected.isNotEmpty && _selected.every((item) => _favoriteIds.contains(item.id))
+                      _selected.isNotEmpty &&
+                              _selected.every(
+                                (item) => _favoriteIds.contains(item.id),
+                              )
                           ? Icons.star_rounded
                           : Icons.star_outline_rounded,
                       size: 17,
-                      color: _selected.isNotEmpty && _selected.every((item) => _favoriteIds.contains(item.id))
+                      color:
+                          _selected.isNotEmpty &&
+                              _selected.every(
+                                (item) => _favoriteIds.contains(item.id),
+                              )
                           ? Colors.amber
                           : cs.onSurfaceVariant,
                     ),
@@ -1499,9 +1796,15 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                     padding: const EdgeInsets.all(7),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.6)),
+                      border: Border.all(
+                        color: cs.outlineVariant.withValues(alpha: 0.6),
+                      ),
                     ),
-                    child: Icon(Icons.tune_rounded, size: 17, color: cs.onSurfaceVariant),
+                    child: Icon(
+                      Icons.tune_rounded,
+                      size: 17,
+                      color: cs.onSurfaceVariant,
+                    ),
                   ),
                 ),
               ),
@@ -1521,30 +1824,53 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                       ? null
                       : [
                           BoxShadow(
-                            color: (isDark ? const Color(0xFF6366F1) : const Color(0xFF0284C7)).withValues(alpha: 0.35),
+                            color:
+                                (isDark
+                                        ? const Color(0xFF6366F1)
+                                        : const Color(0xFF0284C7))
+                                    .withValues(alpha: 0.35),
                             blurRadius: 10,
                             offset: const Offset(0, 3),
                           ),
                         ],
                 ),
                 child: ElevatedButton.icon(
-                  onPressed: (_running || _selected.isEmpty) ? null : () => _metadata.then(_runBackup),
+                  onPressed: (_running || _selected.isEmpty)
+                      ? null
+                      : () => _metadata.then(_runBackup),
                   icon: Icon(
-                    _running ? Icons.hourglass_top_rounded : Icons.cloud_download_rounded,
+                    _running
+                        ? Icons.hourglass_top_rounded
+                        : Icons.cloud_download_rounded,
                     size: 16,
                   ),
                   label: Text(
                     _running ? 'Procesando...' : 'Generar backup',
-                    style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, letterSpacing: 0.3),
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.3,
+                    ),
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: (_running || _selected.isEmpty) ? null : Colors.transparent,
+                    backgroundColor: (_running || _selected.isEmpty)
+                        ? null
+                        : Colors.transparent,
                     foregroundColor: Colors.white,
                     shadowColor: Colors.transparent,
-                    disabledBackgroundColor: isDark ? const Color(0xFF1E2638) : const Color(0xFFE2E8F0),
-                    disabledForegroundColor: isDark ? const Color(0xFF475569) : const Color(0xFF94A3B8),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    disabledBackgroundColor: isDark
+                        ? const Color(0xFF1E2638)
+                        : const Color(0xFFE2E8F0),
+                    disabledForegroundColor: isDark
+                        ? const Color(0xFF475569)
+                        : const Color(0xFF94A3B8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
               ),
@@ -1555,11 +1881,19 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
     );
   }
 
-  Color _typeColor(String type) => type == 'PROCEDURE_DYNAMIC' ? const Color(0xFF6B21A8) : (kTypeColors[type] ?? const Color(0xFF6B7280));
+  Color _typeColor(String type) => type == 'PROCEDURE_DYNAMIC'
+      ? const Color(0xFF6B21A8)
+      : (kTypeColors[type] ?? const Color(0xFF6B7280));
 
-  IconData _typeIcon(String type) => type == 'PROCEDURE_DYNAMIC' ? Icons.bolt_rounded : (kTypeIcons[type] ?? Icons.code_rounded);
+  IconData _typeIcon(String type) => type == 'PROCEDURE_DYNAMIC'
+      ? Icons.bolt_rounded
+      : (kTypeIcons[type] ?? Icons.code_rounded);
 
-  Widget _categoryTile(String key, Map<String, String> categories, Map<String, int> categoryCounts) {
+  Widget _categoryTile(
+    String key,
+    Map<String, String> categories,
+    Map<String, int> categoryCounts,
+  ) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final count = categoryCounts[key] ?? 0;
@@ -1580,8 +1914,8 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
           decoration: BoxDecoration(
             color: selected
                 ? (isDark
-                    ? activeColor.withValues(alpha: 0.16)
-                    : activeColor.withValues(alpha: 0.10))
+                      ? activeColor.withValues(alpha: 0.16)
+                      : activeColor.withValues(alpha: 0.10))
                 : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
@@ -1605,12 +1939,14 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                   isAll
                       ? Icons.grid_view_rounded
                       : isFavorites
-                          ? Icons.star_rounded
-                          : Icons.folder_rounded,
+                      ? Icons.star_rounded
+                      : Icons.folder_rounded,
                   size: 15,
                   color: selected
                       ? activeColor
-                      : (isFavorites && count > 0 ? Colors.amber : cs.onSurfaceVariant),
+                      : (isFavorites && count > 0
+                            ? Colors.amber
+                            : cs.onSurfaceVariant),
                 ),
               ),
               const SizedBox(width: 10),
@@ -1629,7 +1965,10 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
               ),
               if (count > 0)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: selected
                         ? activeColor.withValues(alpha: isDark ? 0.3 : 0.18)
@@ -1703,7 +2042,9 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
     return Container(
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF131722) : const Color(0xFFF8FAFC),
-        border: Border(right: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.4))),
+        border: Border(
+          right: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.4)),
+        ),
       ),
       child: Column(
         children: [
@@ -1711,7 +2052,12 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
             child: Row(
               children: [
-                Expanded(child: AmbienteSelector(value: _ambiente, onChanged: _changeAmbiente)),
+                Expanded(
+                  child: AmbienteSelector(
+                    value: _ambiente,
+                    onChanged: _changeAmbiente,
+                  ),
+                ),
                 const SizedBox(width: 4),
                 Tooltip(
                   message: 'Actualizar ambiente',
@@ -1723,11 +2069,20 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                       decoration: BoxDecoration(
                         color: isDark ? const Color(0xFF1C2230) : Colors.white,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+                        border: Border.all(
+                          color: cs.outlineVariant.withValues(alpha: 0.5),
+                        ),
                       ),
                       child: _refreshing
-                          ? const SizedBox.square(dimension: 15, child: CircularProgressIndicator(strokeWidth: 2))
-                          : Icon(Icons.refresh_rounded, size: 16, color: cs.primary),
+                          ? const SizedBox.square(
+                              dimension: 15,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Icon(
+                              Icons.refresh_rounded,
+                              size: 16,
+                              color: cs.primary,
+                            ),
                     ),
                   ),
                 ),
@@ -1740,9 +2095,13 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
               padding: const EdgeInsets.symmetric(vertical: 4),
               children: [
                 _sectionLabel('VISTA RÁPIDA'),
-                ...quick.map((key) => _categoryTile(key, categories, categoryCounts)),
+                ...quick.map(
+                  (key) => _categoryTile(key, categories, categoryCounts),
+                ),
                 _sectionLabel('TIPOS DE OBJETO'),
-                ...rest.map((key) => _categoryTile(key, categories, categoryCounts)),
+                ...rest.map(
+                  (key) => _categoryTile(key, categories, categoryCounts),
+                ),
                 const SizedBox(height: 8),
               ],
             ),
@@ -1776,7 +2135,11 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
           decoration: BoxDecoration(
             color: isDark ? const Color(0xFF141923) : const Color(0xFFFAFBFC),
-            border: Border(bottom: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.35))),
+            border: Border(
+              bottom: BorderSide(
+                color: cs.outlineVariant.withValues(alpha: 0.35),
+              ),
+            ),
           ),
           child: Row(
             children: [
@@ -1788,25 +2151,42 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                     isDense: true,
                     filled: true,
                     fillColor: isDark ? const Color(0xFF1C2230) : Colors.white,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
                     hintText: 'Filtrar por nombre de objeto...',
-                    hintStyle: TextStyle(fontSize: 12.5, color: cs.onSurfaceVariant.withValues(alpha: 0.7)),
-                    prefixIcon: Icon(Icons.search_rounded, size: 18, color: cs.primary),
+                    hintStyle: TextStyle(
+                      fontSize: 12.5,
+                      color: cs.onSurfaceVariant.withValues(alpha: 0.7),
+                    ),
+                    prefixIcon: Icon(
+                      Icons.search_rounded,
+                      size: 18,
+                      color: cs.primary,
+                    ),
                     suffixIcon: _searchController.text.isEmpty
                         ? null
                         : IconButton(
                             icon: const Icon(Icons.close_rounded, size: 16),
                             onPressed: _searchController.clear,
                             padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                            constraints: const BoxConstraints(
+                              minWidth: 32,
+                              minHeight: 32,
+                            ),
                           ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.5)),
+                      borderSide: BorderSide(
+                        color: cs.outlineVariant.withValues(alpha: 0.5),
+                      ),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.5)),
+                      borderSide: BorderSide(
+                        color: cs.outlineVariant.withValues(alpha: 0.5),
+                      ),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
@@ -1826,7 +2206,10 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                   ),
                   MenuItemButton(
                     onPressed: () => setState(() => _selected.removeAll(items)),
-                    leadingIcon: const Icon(Icons.remove_done_rounded, size: 16),
+                    leadingIcon: const Icon(
+                      Icons.remove_done_rounded,
+                      size: 16,
+                    ),
                     child: const Text('Deseleccionar visibles'),
                   ),
                   const Divider(height: 1),
@@ -1840,15 +2223,23 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                   message: 'Acciones de selección masiva',
                   child: InkWell(
                     borderRadius: BorderRadius.circular(10),
-                    onTap: () => controller.isOpen ? controller.close() : controller.open(),
+                    onTap: () => controller.isOpen
+                        ? controller.close()
+                        : controller.open(),
                     child: Container(
                       padding: const EdgeInsets.all(9),
                       decoration: BoxDecoration(
                         color: isDark ? const Color(0xFF1C2230) : Colors.white,
                         borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+                        border: Border.all(
+                          color: cs.outlineVariant.withValues(alpha: 0.5),
+                        ),
                       ),
-                      child: Icon(Icons.checklist_rtl_rounded, size: 18, color: cs.primary),
+                      child: Icon(
+                        Icons.checklist_rtl_rounded,
+                        size: 18,
+                        color: cs.primary,
+                      ),
                     ),
                   ),
                 ),
@@ -1866,10 +2257,14 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                 Checkbox(
                   value: items.every((item) => _selected.contains(item))
                       ? true
-                      : (items.any((item) => _selected.contains(item)) ? null : false),
+                      : (items.any((item) => _selected.contains(item))
+                            ? null
+                            : false),
                   tristate: true,
                   activeColor: cs.primary,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(4),
+                  ),
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   visualDensity: VisualDensity.compact,
                   onChanged: _running
@@ -1891,7 +2286,9 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                       ? null
                       : () {
                           setState(() {
-                            final allSelected = items.every((item) => _selected.contains(item));
+                            final allSelected = items.every(
+                              (item) => _selected.contains(item),
+                            );
                             if (allSelected) {
                               _selected.removeAll(items);
                             } else {
@@ -1900,7 +2297,10 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                           });
                         },
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 2,
+                    ),
                     child: Text(
                       items.every((item) => _selected.contains(item))
                           ? 'Deseleccionar todo'
@@ -1946,7 +2346,10 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                   borderRadius: BorderRadius.circular(4),
                   onTap: _running ? null : () => setState(_selected.clear),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 2,
+                    ),
                     child: Text(
                       'Limpiar',
                       style: TextStyle(
@@ -1964,17 +2367,21 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
         Expanded(
           child: items.isEmpty
               ? _buildEmptyState(
-                  icon: _searchController.text.isEmpty && _category == 'favorites'
+                  icon:
+                      _searchController.text.isEmpty && _category == 'favorites'
                       ? Icons.star_border_rounded
                       : Icons.search_off_rounded,
                   message: _searchController.text.isNotEmpty
                       ? 'Sin resultados para "${_searchController.text}"'
                       : _category == 'favorites'
-                          ? 'Marcá objetos con la estrella para verlos acá'
-                          : 'No hay objetos en esta categoría',
+                      ? 'Marcá objetos con la estrella para verlos acá'
+                      : 'No hay objetos en esta categoría',
                 )
               : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   itemCount: items.length,
                   itemBuilder: (context, index) {
                     final item = items[index];
@@ -1990,116 +2397,169 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                         child: Material(
                           color: Colors.transparent,
                           child: InkWell(
-                          borderRadius: BorderRadius.circular(10),
-                          onTap: _running
-                              ? null
-                              : () => setState(() => isSelected ? _selected.remove(item) : _selected.add(item)),
+                            borderRadius: BorderRadius.circular(10),
+                            onTap: _running
+                                ? null
+                                : () => setState(
+                                    () => isSelected
+                                        ? _selected.remove(item)
+                                        : _selected.add(item),
+                                  ),
                             child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 140),
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? (isDark
-                                      ? cs.primary.withValues(alpha: 0.16)
-                                      : cs.primary.withValues(alpha: 0.08))
-                                  : (isDark
-                                      ? const Color(0xFF161B26)
-                                      : Colors.white),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: isSelected
-                                    ? cs.primary.withValues(alpha: isDark ? 0.45 : 0.35)
-                                    : (isDark
-                                        ? const Color(0xFF222838)
-                                        : const Color(0xFFE5E7EB)),
-                                width: isSelected ? 1.2 : 1,
+                              duration: const Duration(milliseconds: 140),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 6,
                               ),
-                            ),
-                            child: Row(
-                              children: [
-                                Checkbox(
-                                  value: isSelected,
-                                  activeColor: cs.primary,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                                  onChanged: _running
-                                      ? null
-                                      : (value) => setState(() => value == true ? _selected.add(item) : _selected.remove(item)),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? (isDark
+                                          ? cs.primary.withValues(alpha: 0.16)
+                                          : cs.primary.withValues(alpha: 0.08))
+                                    : (isDark
+                                          ? const Color(0xFF161B26)
+                                          : Colors.white),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? cs.primary.withValues(
+                                          alpha: isDark ? 0.45 : 0.35,
+                                        )
+                                      : (isDark
+                                            ? const Color(0xFF222838)
+                                            : const Color(0xFFE5E7EB)),
+                                  width: isSelected ? 1.2 : 1,
                                 ),
-                                Container(
-                                  width: 32,
-                                  height: 32,
-                                  decoration: BoxDecoration(
-                                    color: color.withValues(alpha: isDark ? 0.22 : 0.14),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Icon(_typeIcon(item.type), size: 16, color: color),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Tooltip(
-                                        message: item.name,
-                                        child: Text(
-                                          item.name,
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-                                            color: isDark ? Colors.white : const Color(0xFF1E293B),
+                              ),
+                              child: Row(
+                                children: [
+                                  Checkbox(
+                                    value: isSelected,
+                                    activeColor: cs.primary,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    onChanged: _running
+                                        ? null
+                                        : (value) => setState(
+                                            () => value == true
+                                                ? _selected.add(item)
+                                                : _selected.remove(item),
                                           ),
-                                          overflow: TextOverflow.ellipsis,
+                                  ),
+                                  Container(
+                                    width: 32,
+                                    height: 32,
+                                    decoration: BoxDecoration(
+                                      color: color.withValues(
+                                        alpha: isDark ? 0.22 : 0.14,
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Icon(
+                                      _typeIcon(item.type),
+                                      size: 16,
+                                      color: color,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Tooltip(
+                                          message: item.name,
+                                          child: Text(
+                                            item.name,
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: isSelected
+                                                  ? FontWeight.w700
+                                                  : FontWeight.w600,
+                                              color: isDark
+                                                  ? Colors.white
+                                                  : const Color(0xFF1E293B),
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
                                         ),
-                                      ),
-                                      const SizedBox(height: 3),
-                                      Row(
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                                            decoration: BoxDecoration(
-                                              color: color.withValues(alpha: isDark ? 0.18 : 0.12),
-                                              borderRadius: BorderRadius.circular(4),
-                                            ),
-                                            child: Text(
-                                              item.type,
-                                              style: TextStyle(
-                                                fontSize: 9.5,
-                                                fontWeight: FontWeight.w700,
-                                                color: color,
+                                        const SizedBox(height: 3),
+                                        Row(
+                                          children: [
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 6,
+                                                    vertical: 1.5,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: color.withValues(
+                                                  alpha: isDark ? 0.18 : 0.12,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
                                               ),
-                                            ),
-                                          ),
-                                          if (item.owner.isNotEmpty) ...[
-                                            const SizedBox(width: 8),
-                                            Icon(Icons.shield_outlined, size: 11, color: cs.onSurfaceVariant.withValues(alpha: 0.7)),
-                                            const SizedBox(width: 3),
-                                            Flexible(
                                               child: Text(
-                                                item.owner,
-                                                style: TextStyle(fontSize: 10.5, color: cs.onSurfaceVariant),
-                                                overflow: TextOverflow.ellipsis,
+                                                item.type,
+                                                style: TextStyle(
+                                                  fontSize: 9.5,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: color,
+                                                ),
                                               ),
                                             ),
+                                            if (item.owner.isNotEmpty) ...[
+                                              const SizedBox(width: 8),
+                                              Icon(
+                                                Icons.shield_outlined,
+                                                size: 11,
+                                                color: cs.onSurfaceVariant
+                                                    .withValues(alpha: 0.7),
+                                              ),
+                                              const SizedBox(width: 3),
+                                              Flexible(
+                                                child: Text(
+                                                  item.owner,
+                                                  style: TextStyle(
+                                                    fontSize: 10.5,
+                                                    color: cs.onSurfaceVariant,
+                                                  ),
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                            ],
                                           ],
-                                        ],
-                                      ),
-                                    ],
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                ),
-                                IconButton(
-                                  onPressed: _running ? null : () => _toggleItemFavorite(item),
-                                  tooltip: isFavorite ? 'Quitar de favoritos' : 'Agregar a favoritos',
-                                  icon: Icon(
-                                    isFavorite ? Icons.star_rounded : Icons.star_outline_rounded,
-                                    size: 18,
-                                    color: isFavorite ? Colors.amber : cs.outline.withValues(alpha: 0.6),
+                                  IconButton(
+                                    onPressed: _running
+                                        ? null
+                                        : () => _toggleItemFavorite(item),
+                                    tooltip: isFavorite
+                                        ? 'Quitar de favoritos'
+                                        : 'Agregar a favoritos',
+                                    icon: Icon(
+                                      isFavorite
+                                          ? Icons.star_rounded
+                                          : Icons.star_outline_rounded,
+                                      size: 18,
+                                      color: isFavorite
+                                          ? Colors.amber
+                                          : cs.outline.withValues(alpha: 0.6),
+                                    ),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                      minWidth: 28,
+                                      minHeight: 28,
+                                    ),
                                   ),
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                                ),
-                              ],
-                            ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -2149,13 +2609,19 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
               width: 56,
               height: 56,
               decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF1E2433) : const Color(0xFFF1F5F9),
+                color: isDark
+                    ? const Color(0xFF1E2433)
+                    : const Color(0xFFF1F5F9),
                 shape: BoxShape.circle,
                 border: Border.all(
                   color: cs.outlineVariant.withValues(alpha: 0.4),
                 ),
               ),
-              child: Icon(icon, size: 26, color: cs.primary.withValues(alpha: 0.7)),
+              child: Icon(
+                icon,
+                size: 26,
+                color: cs.primary.withValues(alpha: 0.7),
+              ),
             ),
             const SizedBox(height: 12),
             Text(
@@ -2190,153 +2656,215 @@ class _BulkBackupPageState extends State<BulkBackupPage> with TickerProviderStat
                 : (isDark ? const Color(0xFF131722) : const Color(0xFFF8FAFC)),
             border: Border(
               left: BorderSide(
-                color: isDropActive ? cs.primary : cs.outlineVariant.withValues(alpha: 0.4),
+                color: isDropActive
+                    ? cs.primary
+                    : cs.outlineVariant.withValues(alpha: 0.4),
                 width: isDropActive ? 2 : 1,
               ),
             ),
           ),
           child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header del panel lateral
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 10, 8),
-            child: Row(
-              children: [
-                Icon(Icons.inventory_2_rounded, size: 16, color: cs.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Por respaldar (${_selected.length})',
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                  ),
-                ),
-                if (_selected.isNotEmpty)
-                  InkWell(
-                    borderRadius: BorderRadius.circular(6),
-                    onTap: _running ? null : () => setState(_selected.clear),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header del panel lateral
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 10, 8),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.inventory_2_rounded,
+                      size: 16,
+                      color: cs.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
                       child: Text(
-                        'Vaciar',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                          color: cs.error,
+                        'Por respaldar (${_selected.length})',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
                         ),
                       ),
                     ),
-                  ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Text(
-              'Organizados automáticamente por categoría.',
-              style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant.withValues(alpha: 0.8)),
-            ),
-          ),
-          const SizedBox(height: 6),
-          const Divider(height: 1),
-          Expanded(
-            child: _selected.isEmpty
-                ? _buildEmptyState(
-                    icon: Icons.inventory_2_outlined,
-                    message: 'Seleccioná objetos de la lista central para agregarlos aquí',
-                  )
-                : Builder(
-                    builder: (context) {
-                      final grouped = <String, List<BulkBackupItem>>{};
-                      for (final item in _selected) {
-                        grouped.putIfAbsent(item.category, () => []).add(item);
-                      }
-                      final sortedKeys = grouped.keys.toList()..sort();
-                      return ListView(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        children: [
-                          for (final key in sortedKeys) ...[
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
-                              child: Row(
-                                children: [
-                                  Text(
-                                    _categoryLabel(key).toUpperCase(),
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: 0.6,
-                                      color: cs.onSurfaceVariant,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                    decoration: BoxDecoration(
-                                      color: cs.surfaceContainerHighest.withValues(alpha: 0.7),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      '${grouped[key]!.length}',
-                                      style: TextStyle(
-                                        fontSize: 9.5,
-                                        fontWeight: FontWeight.w700,
-                                        color: cs.onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
+                    if (_selected.isNotEmpty)
+                      InkWell(
+                        borderRadius: BorderRadius.circular(6),
+                        onTap: _running
+                            ? null
+                            : () => setState(_selected.clear),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 3,
+                          ),
+                          child: Text(
+                            'Vaciar',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              color: cs.error,
                             ),
-                            ...grouped[key]!.map(
-                              (item) => Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: isDark ? const Color(0xFF1B212D) : Colors.white,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: isDark ? const Color(0xFF262E3D) : const Color(0xFFE2E8F0),
-                                    ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Text(
+                  'Organizados automáticamente por categoría.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: cs.onSurfaceVariant.withValues(alpha: 0.8),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Divider(height: 1),
+              Expanded(
+                child: _selected.isEmpty
+                    ? _buildEmptyState(
+                        icon: Icons.inventory_2_outlined,
+                        message:
+                            'Seleccioná objetos de la lista central para agregarlos aquí',
+                      )
+                    : Builder(
+                        builder: (context) {
+                          final grouped = <String, List<BulkBackupItem>>{};
+                          for (final item in _selected) {
+                            grouped
+                                .putIfAbsent(item.category, () => [])
+                                .add(item);
+                          }
+                          final sortedKeys = grouped.keys.toList()..sort();
+                          return ListView(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            children: [
+                              for (final key in sortedKeys) ...[
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    14,
+                                    10,
+                                    14,
+                                    4,
                                   ),
-                                  child: ListTile(
-                                    dense: true,
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                                    leading: Container(
-                                      width: 6,
-                                      height: 6,
-                                      margin: const EdgeInsets.only(top: 2),
-                                      decoration: BoxDecoration(
-                                        color: _typeColor(item.type),
-                                        shape: BoxShape.circle,
+                                  child: Row(
+                                    children: [
+                                      Text(
+                                        _categoryLabel(key).toUpperCase(),
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: 0.6,
+                                          color: cs.onSurfaceVariant,
+                                        ),
                                       ),
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 5,
+                                          vertical: 1,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: cs.surfaceContainerHighest
+                                              .withValues(alpha: 0.7),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          '${grouped[key]!.length}',
+                                          style: TextStyle(
+                                            fontSize: 9.5,
+                                            fontWeight: FontWeight.w700,
+                                            color: cs.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                ...grouped[key]!.map(
+                                  (item) => Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 2,
                                     ),
-                                    minLeadingWidth: 10,
-                                    title: Text(
-                                      item.name,
-                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    subtitle: _favoriteIds.contains(item.id)
-                                        ? const Text('★ favorito', style: TextStyle(fontSize: 9.5, color: Colors.amber, fontWeight: FontWeight.w600))
-                                        : null,
-                                    trailing: IconButton(
-                                      icon: const Icon(Icons.close_rounded, size: 15),
-                                      padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-                                      onPressed: _running ? null : () => setState(() => _selected.remove(item)),
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: isDark
+                                            ? const Color(0xFF1B212D)
+                                            : Colors.white,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: isDark
+                                              ? const Color(0xFF262E3D)
+                                              : const Color(0xFFE2E8F0),
+                                        ),
+                                      ),
+                                      child: ListTile(
+                                        dense: true,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 0,
+                                            ),
+                                        leading: Container(
+                                          width: 6,
+                                          height: 6,
+                                          margin: const EdgeInsets.only(top: 2),
+                                          decoration: BoxDecoration(
+                                            color: _typeColor(item.type),
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                        minLeadingWidth: 10,
+                                        title: Text(
+                                          item.name,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        subtitle: _favoriteIds.contains(item.id)
+                                            ? const Text(
+                                                '★ favorito',
+                                                style: TextStyle(
+                                                  fontSize: 9.5,
+                                                  color: Colors.amber,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              )
+                                            : null,
+                                        trailing: IconButton(
+                                          icon: const Icon(
+                                            Icons.close_rounded,
+                                            size: 15,
+                                          ),
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(
+                                            minWidth: 24,
+                                            minHeight: 24,
+                                          ),
+                                          onPressed: _running
+                                              ? null
+                                              : () => setState(
+                                                  () => _selected.remove(item),
+                                                ),
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      );
-                    },
-                  ),
-          ),
-        ],
+                              ],
+                            ],
+                          );
+                        },
+                      ),
+              ),
+            ],
           ),
         );
       },

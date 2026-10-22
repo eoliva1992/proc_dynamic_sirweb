@@ -4,7 +4,7 @@
 library;
 
 /// Tipo de sentencia detectado por `sql_statement_analyzer.dart`.
-enum SqlStatementKind { select, dml, ddl, plsql, explainPlan, unknown }
+enum SqlStatementKind { select, dml, ddl, plsql, command, explainPlan, unknown }
 
 extension SqlStatementKindLabel on SqlStatementKind {
   String get label => switch (this) {
@@ -12,6 +12,7 @@ extension SqlStatementKindLabel on SqlStatementKind {
     SqlStatementKind.dml => 'DML',
     SqlStatementKind.ddl => 'DDL',
     SqlStatementKind.plsql => 'PL/SQL',
+    SqlStatementKind.command => 'COMMAND',
     SqlStatementKind.explainPlan => 'EXPLAIN PLAN',
     SqlStatementKind.unknown => '?',
   };
@@ -90,6 +91,22 @@ class SqlQueryResult {
     truncated: false,
     durationMs: 0,
   );
+
+  /// Crea una copia agregando más filas (útil para paginación incremental).
+  SqlQueryResult appendRows(
+    List<List<dynamic>> newRows, {
+    required bool truncated,
+    required int additionalDurationMs,
+  }) {
+    final combined = List<List<dynamic>>.of(rows)..addAll(newRows);
+    return SqlQueryResult(
+      columns: columns,
+      rows: combined,
+      returnedRows: combined.length,
+      truncated: truncated,
+      durationMs: durationMs + additionalDurationMs,
+    );
+  }
 }
 
 /// Un resultado de SELECT con su etiqueta, para mostrar varias ejecuciones
@@ -108,6 +125,16 @@ class SqlNamedResult {
 
   /// Texto SQL de la sentencia que originó este resultado.
   final String statementText;
+
+  /// Retorna una copia con el resultado actualizado.
+  SqlNamedResult withResult(SqlQueryResult updatedResult) {
+    return SqlNamedResult(
+      id: id,
+      label: label,
+      result: updatedResult,
+      statementText: statementText,
+    );
+  }
 }
 
 /// Resultado de un DML o DDL ejecutado vía `POST /tools/sql/statement`
@@ -148,16 +175,40 @@ class SqlDdlError {
   final String? text;
   final String? attribute;
 
-  factory SqlDdlError.fromJson(Map<String, dynamic> json) => SqlDdlError(
-    line: (json['line'] as num?)?.toInt(),
-    position: (json['position'] as num?)?.toInt(),
-    text: json['text']?.toString(),
-    attribute: json['attribute']?.toString(),
-  );
+  factory SqlDdlError.fromJson(Map<String, dynamic> json) {
+    int? parseNum(List<String> keys) {
+      for (final k in keys) {
+        final val = json[k];
+        if (val is num) return val.toInt();
+        if (val != null) {
+          final parsed = int.tryParse(val.toString());
+          if (parsed != null) return parsed;
+        }
+      }
+      return null;
+    }
+
+    String? parseString(List<String> keys) {
+      for (final k in keys) {
+        final val = json[k];
+        if (val != null && val.toString().trim().isNotEmpty) {
+          return val.toString().trim();
+        }
+      }
+      return null;
+    }
+
+    return SqlDdlError(
+      line: parseNum(const ['line', 'LINE', 'Line']),
+      position: parseNum(const ['position', 'POSITION', 'Position', 'col', 'COL', 'column', 'COLUMN']),
+      text: parseString(const ['text', 'TEXT', 'Text', 'message', 'MESSAGE', 'Message', 'msg', 'MSG']),
+      attribute: parseString(const ['attribute', 'ATTRIBUTE', 'Attribute', 'severity', 'SEVERITY']) ?? 'ERROR',
+    );
+  }
 
   @override
   String toString() {
-    final loc = line != null ? 'L$line' : null;
+    final loc = line != null ? (position != null ? 'L$line:$position' : 'L$line') : null;
     final parts = [?loc, ?attribute, ?text];
     return parts.join(' ');
   }
@@ -185,17 +236,77 @@ class SqlDdlResult {
   final int durationMs;
 
   factory SqlDdlResult.fromJson(Map<String, dynamic> json) {
-    final rawErrors = json['errors'] as List? ?? const [];
+    final rawCandidates = <dynamic>[
+      json['errors'],
+      json['compileErrors'],
+      json['compilationErrors'],
+      json['compile_errors'],
+      json['data'],
+    ];
+
+    List<SqlDdlError> parseErrors(dynamic value) {
+      if (value == null) return const [];
+      if (value is List) {
+        final list = <SqlDdlError>[];
+        for (final item in value) {
+          list.addAll(parseErrors(item));
+        }
+        return list;
+      }
+      if (value is Map<String, dynamic>) {
+        final err = SqlDdlError.fromJson(value);
+        if (err.text != null && err.text!.isNotEmpty) return [err];
+        return const [];
+      }
+      if (value is Map) {
+        final err = SqlDdlError.fromJson(Map<String, dynamic>.from(value));
+        if (err.text != null && err.text!.isNotEmpty) return [err];
+        return const [];
+      }
+      if (value is String && value.trim().isNotEmpty) {
+        final list = <SqlDdlError>[];
+        final pattern = RegExp(r'^(\d+)/(\d+)\s+(.+)$', multiLine: true);
+        for (final match in pattern.allMatches(value)) {
+          list.add(
+            SqlDdlError(
+              line: int.tryParse(match.group(1)!),
+              position: int.tryParse(match.group(2)!),
+              text: match.group(3)!.trim(),
+              attribute: 'ERROR',
+            ),
+          );
+        }
+        if (list.isNotEmpty) return list;
+
+        for (final line in value.split('\n')) {
+          final trimmed = line.trim();
+          if (trimmed.contains('PLS-') ||
+              trimmed.contains('ORA-') ||
+              trimmed.contains('PL/SQL:')) {
+            list.add(SqlDdlError(text: trimmed, attribute: 'ERROR'));
+          }
+        }
+        return list;
+      }
+      return const [];
+    }
+
+    final errors = <SqlDdlError>[];
+    for (final candidate in rawCandidates) {
+      final parsed = parseErrors(candidate);
+      if (parsed.isNotEmpty) {
+        errors.addAll(parsed);
+        break;
+      }
+    }
+
     return SqlDdlResult(
       ambiente: json['ambiente']?.toString() ?? '',
       objectName: json['objectName']?.toString(),
       objectType: json['objectType']?.toString(),
       confirmed: json['confirmed'] as bool? ?? false,
       autoCommitPossible: json['autoCommitPossible'] as bool? ?? false,
-      errors: rawErrors
-          .whereType<Map<String, dynamic>>()
-          .map(SqlDdlError.fromJson)
-          .toList(),
+      errors: errors,
       durationMs: (json['durationMs'] as num?)?.toInt() ?? 0,
     );
   }
@@ -227,6 +338,122 @@ class SqlPlSqlResult {
       dbmsOutput: rawDbmsOutput.map((e) => e.toString()).toList(),
       pendingCommit: json['pendingCommit'] as bool? ?? false,
       durationMs: (json['durationMs'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+/// Columna devuelta por un comando cliente (por ejemplo `DESC`).
+class SqlCommandColumn {
+  const SqlCommandColumn({
+    required this.columnName,
+    required this.dataType,
+    this.dataLength,
+    this.dataPrecision,
+    this.dataScale,
+    this.nullable = true,
+  });
+
+  final String columnName;
+  final String dataType;
+  final int? dataLength;
+  final int? dataPrecision;
+  final int? dataScale;
+  final bool nullable;
+
+  factory SqlCommandColumn.fromJson(Map<String, dynamic> json) => SqlCommandColumn(
+    columnName: json['columnName']?.toString() ?? '',
+    dataType: json['dataType']?.toString() ?? '',
+    dataLength: (json['dataLength'] as num?)?.toInt(),
+    dataPrecision: (json['dataPrecision'] as num?)?.toInt(),
+    dataScale: (json['dataScale'] as num?)?.toInt(),
+    nullable: json['nullable'] as bool? ?? true,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'columnName': columnName,
+    'dataType': dataType,
+    'dataLength': dataLength,
+    'dataPrecision': dataPrecision,
+    'dataScale': dataScale,
+    'nullable': nullable,
+  };
+}
+
+/// Resultado de un comando cliente ejecutado vía `POST /tools/sql/statement`
+/// (`data.command`).
+class SqlCommandResult {
+  const SqlCommandResult({
+    required this.command,
+    required this.output,
+    this.columns = const [],
+    this.durationMs = 0,
+  });
+
+  final String command;
+  final String output;
+  final List<SqlCommandColumn> columns;
+  final int durationMs;
+
+  factory SqlCommandResult.fromJson(
+    Map<String, dynamic> json, {
+    int durationMs = 0,
+  }) {
+    final rawData = json['data'] as List<dynamic>? ?? const [];
+    return SqlCommandResult(
+      command: json['command']?.toString() ?? '',
+      output: json['output']?.toString() ?? '',
+      columns: rawData
+          .whereType<Map<String, dynamic>>()
+          .map(SqlCommandColumn.fromJson)
+          .toList(),
+      durationMs: (json['durationMs'] as num?)?.toInt() ?? durationMs,
+    );
+  }
+
+  /// Convierte el resultado estructurado de `DESC` en un `SqlQueryResult`
+  /// para renderizarlo directamente en la grilla interactiva de resultados.
+  SqlQueryResult toSqlQueryResult() {
+    if (columns.isEmpty) {
+      return SqlQueryResult(
+        columns: const [
+          SqlColumn(name: 'SALIDA', dataType: 'VARCHAR2'),
+        ],
+        rows: [
+          [output],
+        ],
+        returnedRows: 1,
+        truncated: false,
+        durationMs: durationMs,
+      );
+    }
+
+    final queryColumns = const [
+      SqlColumn(name: 'COLUMNA', dataType: 'VARCHAR2'),
+      SqlColumn(name: 'TIPO', dataType: 'VARCHAR2'),
+      SqlColumn(name: 'LONGITUD', dataType: 'NUMBER'),
+      SqlColumn(name: 'PRECISIÓN', dataType: 'NUMBER'),
+      SqlColumn(name: 'ESCALA', dataType: 'NUMBER'),
+      SqlColumn(name: 'NULO?', dataType: 'VARCHAR2'),
+    ];
+
+    final rows = <List<dynamic>>[];
+    for (final col in columns) {
+      rows.add([
+        col.columnName,
+        col.dataType,
+        col.dataLength,
+        col.dataPrecision,
+        col.dataScale,
+        col.nullable ? 'Y' : 'N',
+      ]);
+    }
+
+    return SqlQueryResult(
+      columns: queryColumns,
+      rows: rows,
+      returnedRows: rows.length,
+      truncated: false,
+      durationMs: durationMs,
     );
   }
 }

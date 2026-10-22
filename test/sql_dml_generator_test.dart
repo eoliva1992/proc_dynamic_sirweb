@@ -55,6 +55,32 @@ void main() {
         "TO_TIMESTAMP('2026-10-06 12:30:45.123456', 'YYYY-MM-DD HH24:MI:SS.FF6'));",
       );
     });
+
+    test(
+      'soporta fechas en formato DD/MM/YYYY y maneja vacíos/espacios como NULL',
+      () {
+        const result = SqlQueryResult(
+          columns: [
+            SqlColumn(name: 'FE_EFECTIVA', dataType: 'DATE'),
+            SqlColumn(name: 'FE_TERMINO', dataType: 'DATE'),
+            SqlColumn(name: 'FE_NULA', dataType: 'DATE'),
+          ],
+          rows: [
+            ['01/01/2013 00:00:00', ' 00:00:00', null],
+          ],
+          returnedRows: 1,
+          truncated: false,
+          durationMs: 1,
+        );
+        final sql = generateInsert('EVENTOVALOR', result, [0]);
+        expect(
+          sql,
+          "INSERT INTO EVENTOVALOR (FE_EFECTIVA, FE_TERMINO, FE_NULA) VALUES "
+          "(TO_DATE('01/01/2013 00:00:00', 'DD/MM/YYYY HH24:MI:SS'), "
+          "NULL, NULL);",
+        );
+      },
+    );
   });
 
   group('generateUpdate', () {

@@ -597,49 +597,65 @@ class _ProcedureDiffWindowState extends State<ProcedureDiffWindow> {
                     ],
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    minWidth: 0,
-                    maxWidth: double.infinity,
-                    minHeight: 0,
-                    maxHeight: double.infinity,
-                    child: SizedBox(
-                      width: _winW,
-                      height: _winH,
-                      child: Stack(
-                        children: [
-                          Positioned.fill(
-                            child: Column(
+                  child: _minimized
+                      ? MinimizedWindowCard(
+                          title: widget.title,
+                          icon: Icons.difference_outlined,
+                          accentColor: Colors.blue.shade400,
+                          badge: 'DIFF',
+                          onRestore: _toggleMinimized,
+                          onClose: _close,
+                        )
+                      : OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: 0,
+                          maxWidth: double.infinity,
+                          minHeight: 0,
+                          maxHeight: double.infinity,
+                          child: SizedBox(
+                            width: _winW,
+                            height: _winH,
+                            child: Stack(
                               children: [
-                                const SizedBox(height: _kHeaderH),
-                                _buildToolbar(isDark, cs, srcColor, tgtColor),
-                                Expanded(
-                                  child: NativeDiffViewer(
-                                    origText: _currentOriginal,
-                                    modText: _modifiedText,
-                                    sideBySide: _sideBySide,
-                                    showAllLines: _showAllLines,
-                                    controller: _diffCtrl,
-                                    onApplyLineToTarget: _applyLineToTarget,
-                                    onApplyLineToSource: _applyLineToSource,
-                                    searchQuery: _searchQuery,
-                                    editableSide: _editSide,
-                                    onEditLine: _editLine,
+                                Positioned.fill(
+                                  child: Column(
+                                    children: [
+                                      const SizedBox(height: _kHeaderH),
+                                      _buildToolbar(
+                                        isDark,
+                                        cs,
+                                        srcColor,
+                                        tgtColor,
+                                      ),
+                                      Expanded(
+                                        child: NativeDiffViewer(
+                                          origText: _currentOriginal,
+                                          modText: _modifiedText,
+                                          sideBySide: _sideBySide,
+                                          showAllLines: _showAllLines,
+                                          controller: _diffCtrl,
+                                          onApplyLineToTarget:
+                                              _applyLineToTarget,
+                                          onApplyLineToSource:
+                                              _applyLineToSource,
+                                          searchQuery: _searchQuery,
+                                          editableSide: _editSide,
+                                          onEditLine: _editLine,
+                                        ),
+                                      ),
+                                    ],
                                   ),
+                                ),
+                                Positioned(
+                                  left: 0,
+                                  top: 0,
+                                  width: w,
+                                  child: _buildHeader(isDark, cs),
                                 ),
                               ],
                             ),
                           ),
-                          Positioned(
-                            left: 0,
-                            top: 0,
-                            width: w,
-                            child: _buildHeader(isDark, cs),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                        ),
                 ),
               ),
             ),

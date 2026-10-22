@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_monaco/flutter_monaco.dart' as fm;
 
 import '../services/snippet_service.dart';
-import 'code_editor_panel.dart' show showSnippetsManager;
 import 'plsql_symbols.dart';
+import 'snippets/snippets_browser_dialog.dart' show showSnippetsBrowser;
+
+export 'snippets/snippets_browser_dialog.dart'
+    show showSnippetsBrowser, SnippetsBrowserDialog;
 
 // ── Snippets de usuario en editores Monaco ───────────────────────────────────
 //
@@ -18,9 +21,9 @@ import 'plsql_symbols.dart';
 /// completions sin tener que conocerse entre sí.
 final ValueNotifier<int> snippetsRevision = ValueNotifier<int>(0);
 
-/// Abre el gestor de snippets y notifica a los editores abiertos al cerrarlo.
+/// Abre el visor/estación de snippets y notifica a los editores abiertos al cerrarlo.
 Future<void> openSnippetsManager(BuildContext context) async {
-  await showSnippetsManager(context);
+  await showSnippetsBrowser(context);
   snippetsRevision.value++;
 }
 

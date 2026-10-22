@@ -131,4 +131,34 @@ void main() {
       expect(find.text('Salida'), findsOneWidget);
     },
   );
+
+  testWidgets('renderiza las 5 pestañas de salida incluyendo Servidor', (
+    tester,
+  ) async {
+    await setLargeSurface(tester);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SqlExecutorPage(
+            ambiente: 'DES',
+            onAmbienteChanged: (_) {},
+            initialSql: 'SELECT 1 FROM dual;',
+          ),
+        ),
+      ),
+    );
+    await _pumpBounded(tester);
+
+    expect(find.text('Resultados'), findsOneWidget);
+    expect(find.text('Mensajes'), findsOneWidget);
+    expect(find.text('Plan de Ejecución'), findsOneWidget);
+    expect(find.text('Servidor'), findsOneWidget);
+    expect(find.text('Historial'), findsOneWidget);
+
+    // Cambiar a la pestaña Servidor
+    await tester.tap(find.text('Servidor'));
+    await _pumpBounded(tester, times: 3);
+
+    expect(find.text('Sin peticiones HTTP registradas'), findsOneWidget);
+  });
 }

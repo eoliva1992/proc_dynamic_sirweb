@@ -21,11 +21,19 @@ class SqlResultsGrid extends StatefulWidget {
     required this.maxRows,
     this.onMaxRowsChanged,
     this.onGenerateDml,
+    this.onLoadMore,
+    this.isLoadingMore = false,
   });
 
   final SqlQueryResult? result;
   final int maxRows;
   final ValueChanged<int>? onMaxRowsChanged;
+
+  /// Callback para cargar más filas (paginación infinita).
+  final VoidCallback? onLoadMore;
+
+  /// Indica si actualmente se está ejecutando la carga del siguiente lote.
+  final bool isLoadingMore;
 
   /// Se llama con los índices de fila seleccionados cuando el usuario pide
   /// generar INSERT/UPDATE/MERGE.
@@ -62,6 +70,9 @@ class _SqlResultsGridState extends State<SqlResultsGrid> {
   int? _sortColIndex;
   bool _sortAsc = true;
 
+  // Anchos personalizados asignados por el usuario mediante drag-to-resize (por índice de columna real)
+  final Map<int, double> _customColumnWidths = {};
+
   // Cache de anchos de columna e índices filtrados para rendimiento
   List<double>? _cachedWidths;
   SqlQueryResult? _cachedWidthsResult;
@@ -80,6 +91,21 @@ class _SqlResultsGridState extends State<SqlResultsGrid> {
     super.initState();
     _searchCtrl = TextEditingController();
     _searchFocus = FocusNode();
+    _vertCtrl.addListener(_onVerticalScroll);
+  }
+
+  void _onVerticalScroll() {
+    if (widget.isLoadingMore || widget.onLoadMore == null) return;
+    final res = widget.result;
+    if (res == null || !res.truncated) return;
+    if (!_vertCtrl.hasClients) return;
+
+    final maxScroll = _vertCtrl.position.maxScrollExtent;
+    final currentScroll = _vertCtrl.position.pixels;
+    // Dispara al estar cerca del final del scroll (dentro de 60px o si ya llegó al fondo)
+    if (currentScroll >= maxScroll - 60) {
+      widget.onLoadMore!();
+    }
   }
 
   @override
@@ -101,6 +127,7 @@ class _SqlResultsGridState extends State<SqlResultsGrid> {
       _columnFilters.clear();
       _sortColIndex = null;
       _sortAsc = true;
+      _customColumnWidths.clear();
       _cachedWidths = null;
       _cachedDisplayIndices = null;
     }
@@ -108,6 +135,7 @@ class _SqlResultsGridState extends State<SqlResultsGrid> {
 
   @override
   void dispose() {
+    _vertCtrl.removeListener(_onVerticalScroll);
     _searchDebounce?.cancel();
     _searchCtrl.dispose();
     _searchFocus.dispose();
@@ -1091,6 +1119,42 @@ class _SqlResultsGridState extends State<SqlResultsGrid> {
         Expanded(
           child: _buildTable(isDark, result, visibleIdx, displayIndices),
         ),
+        if (widget.isLoadingMore)
+          Container(
+            height: 24,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF161B22) : const Color(0xFFF6F8FA),
+              border: Border(
+                top: BorderSide(
+                  color: isDark ? const Color(0xFF30363D) : cs.outlineVariant.withValues(alpha: 0.8),
+                  width: 1.0,
+                ),
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 1.8,
+                    valueColor: AlwaysStoppedAnimation<Color>(cs.primary),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Cargando siguientes filas...',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: cs.onSurfaceVariant,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }
@@ -1388,7 +1452,42 @@ class _SqlResultsGridState extends State<SqlResultsGrid> {
                                 );
                               },
                             ),
-                            const SizedBox(width: 4),
+                            // Handle de resize interactivo de la columna
+                            MouseRegion(
+                              cursor: SystemMouseCursors.resizeColumn,
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onDoubleTap: () {
+                                  // Doble clic: restablece al ancho estimado por defecto
+                                  setState(() {
+                                    _customColumnWidths.remove(rawColIdx);
+                                    _cachedWidths = null;
+                                  });
+                                },
+                                onHorizontalDragUpdate: (details) {
+                                  final currentW = widths[c];
+                                  final newW = (currentW + details.delta.dx).clamp(48.0, 900.0);
+                                  setState(() {
+                                    _customColumnWidths[rawColIdx] = newW;
+                                    _cachedWidths = null;
+                                  });
+                                },
+                                child: Container(
+                                  width: 8,
+                                  height: double.infinity,
+                                  color: Colors.transparent,
+                                  alignment: Alignment.centerRight,
+                                  child: Container(
+                                    width: 1.5,
+                                    height: 14,
+                                    decoration: BoxDecoration(
+                                      color: cs.outlineVariant.withValues(alpha: 0.4),
+                                      borderRadius: BorderRadius.circular(1),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -1661,43 +1760,70 @@ class _SqlResultsGridState extends State<SqlResultsGrid> {
                   ),
                   if (result.truncated) ...[
                     const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3.5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withValues(
-                          alpha: isDark ? 0.22 : 0.14,
-                        ),
+                    Tooltip(
+                      message: widget.isLoadingMore
+                          ? 'Cargando siguientes filas...'
+                          : 'Consulta truncada. Hacé clic para cargar más filas (o hacé scroll hasta el fondo)',
+                      child: InkWell(
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: Colors.orange.withValues(alpha: 0.6),
-                          width: 0.8,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.warning_amber_rounded,
-                            size: 13,
-                            color: isDark
-                                ? const Color(0xFFFFB74D)
-                                : Colors.orange[800],
+                        onTap: widget.isLoadingMore || widget.onLoadMore == null
+                            ? null
+                            : () => widget.onLoadMore!(),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3.5,
                           ),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Truncado',
-                            style: TextStyle(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w700,
-                              color: isDark
-                                  ? const Color(0xFFFFB74D)
-                                  : Colors.orange[800],
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withValues(
+                              alpha: isDark ? 0.22 : 0.14,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.orange.withValues(alpha: 0.6),
+                              width: 0.8,
                             ),
                           ),
-                        ],
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (widget.isLoadingMore)
+                                SizedBox(
+                                  width: 11,
+                                  height: 11,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 1.6,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      isDark
+                                          ? const Color(0xFFFFB74D)
+                                          : Colors.orange[800]!,
+                                    ),
+                                  ),
+                                )
+                              else
+                                Icon(
+                                  Icons.arrow_circle_down_rounded,
+                                  size: 13,
+                                  color: isDark
+                                      ? const Color(0xFFFFB74D)
+                                      : Colors.orange[800],
+                                ),
+                              const SizedBox(width: 4),
+                              Text(
+                                widget.isLoadingMore
+                                    ? 'Cargando...'
+                                    : 'Truncado · +Cargar más',
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark
+                                      ? const Color(0xFFFFB74D)
+                                      : Colors.orange[800],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -2046,16 +2172,19 @@ class _SqlResultsGridState extends State<SqlResultsGrid> {
     final sampleSize = math.min(5, result.rows.length);
     final widths = [
       for (final i in visibleIdx)
-        () {
-          var w = estimateWidth(result.columns[i].name, true);
-          for (var r = 0; r < sampleSize; r++) {
-            final raw = result.rows[r][i];
-            final str = raw?.toString() ?? 'NULL';
-            final tw = estimateWidth(str, false);
-            if (tw > w) w = tw;
-          }
-          return (w + 28).clamp(72.0, 360.0);
-        }(),
+        if (_customColumnWidths.containsKey(i))
+          _customColumnWidths[i]!
+        else
+          () {
+            var w = estimateWidth(result.columns[i].name, true);
+            for (var r = 0; r < sampleSize; r++) {
+              final raw = result.rows[r][i];
+              final str = raw?.toString() ?? 'NULL';
+              final tw = estimateWidth(str, false);
+              if (tw > w) w = tw;
+            }
+            return (w + 28).clamp(72.0, 360.0);
+          }(),
     ];
 
     _cachedWidths = widths;

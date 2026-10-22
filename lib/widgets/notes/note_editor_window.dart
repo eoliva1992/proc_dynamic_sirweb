@@ -521,26 +521,42 @@ class _NoteEditorWindowState extends State<_NoteEditorWindow> {
                     ],
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    minWidth: 0,
-                    maxWidth: double.infinity,
-                    minHeight: 0,
-                    maxHeight: double.infinity,
-                    child: SizedBox(
-                      width: w,
-                      height: h,
-                      child: Column(
-                        children: [
-                          _buildHeader(headerColor, onBg, w),
-                          if (!_minimized)
-                            Expanded(
-                              child: _buildBody(canEdit, access, bg, onBg),
+                  child: _minimized
+                      ? MinimizedWindowCard(
+                          title: _titleController.text.trim().isEmpty
+                              ? 'Nota sin título'
+                              : _titleController.text.trim(),
+                          icon: Icons.sticky_note_2_outlined,
+                          accentColor: Colors.amber.shade700,
+                          badge: 'NOTA',
+                          onRestore: _toggleMinimized,
+                          onClose: widget.onClose,
+                        )
+                      : OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: 0,
+                          maxWidth: double.infinity,
+                          minHeight: 0,
+                          maxHeight: double.infinity,
+                          child: SizedBox(
+                            width: w,
+                            height: h,
+                            child: Column(
+                              children: [
+                                _buildHeader(headerColor, onBg, w),
+                                if (!_minimized)
+                                  Expanded(
+                                    child: _buildBody(
+                                      canEdit,
+                                      access,
+                                      bg,
+                                      onBg,
+                                    ),
+                                  ),
+                              ],
                             ),
-                        ],
-                      ),
-                    ),
-                  ),
+                          ),
+                        ),
                 ),
               ),
             ),

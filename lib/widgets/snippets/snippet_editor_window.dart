@@ -460,65 +460,76 @@ class _SnippetEditorWindowState extends State<_SnippetEditorWindow> {
                     ],
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    minWidth: 0,
-                    maxWidth: double.infinity,
-                    minHeight: 0,
-                    maxHeight: double.infinity,
-                    child: SizedBox(
-                      width: _winW,
-                      height: _winH,
-                      child: Stack(
-                        children: [
-                          Positioned.fill(
-                            child: Column(
+                  child: _minimized
+                      ? MinimizedWindowCard(
+                          title: _nameCtrl.text.trim().isEmpty
+                              ? 'Editor de Snippet'
+                              : _nameCtrl.text.trim(),
+                          icon: Icons.edit_note_rounded,
+                          accentColor: Colors.amber.shade700,
+                          badge: 'SNIPPET',
+                          onRestore: _toggleMinimized,
+                          onClose: _close,
+                        )
+                      : OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: 0,
+                          maxWidth: double.infinity,
+                          minHeight: 0,
+                          maxHeight: double.infinity,
+                          child: SizedBox(
+                            width: _winW,
+                            height: _winH,
+                            child: Stack(
                               children: [
-                                const SizedBox(height: _kHeaderH),
-                                if (_error != null)
-                                  Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                      vertical: 8,
-                                    ),
-                                    color: Colors.orange.withValues(
-                                      alpha: 0.13,
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          Icons.warning_amber_rounded,
-                                          size: 14,
-                                          color: Colors.orange[800],
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            _error!,
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.orange[800],
-                                            ),
+                                Positioned.fill(
+                                  child: Column(
+                                    children: [
+                                      const SizedBox(height: _kHeaderH),
+                                      if (_error != null)
+                                        Container(
+                                          width: double.infinity,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 14,
+                                            vertical: 8,
+                                          ),
+                                          color: Colors.orange.withValues(
+                                            alpha: 0.13,
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                Icons.warning_amber_rounded,
+                                                size: 14,
+                                                color: Colors.orange[800],
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: Text(
+                                                  _error!,
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    color: Colors.orange[800],
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ),
-                                      ],
-                                    ),
+                                      Expanded(child: _buildForm(cs, divColor)),
+                                    ],
                                   ),
-                                Expanded(child: _buildForm(cs, divColor)),
+                                ),
+                                Positioned(
+                                  left: 0,
+                                  top: 0,
+                                  width: w,
+                                  child: _buildHeader(cs, divColor, isNew),
+                                ),
                               ],
                             ),
                           ),
-                          Positioned(
-                            left: 0,
-                            top: 0,
-                            width: w,
-                            child: _buildHeader(cs, divColor, isNew),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                        ),
                 ),
               ),
             ),

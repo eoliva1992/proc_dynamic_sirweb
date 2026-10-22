@@ -295,6 +295,34 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     AppToast.info('Copiado al portapapeles');
   }
 
+  Future<void> _undo() async {
+    await _withCtrl(
+      (ctrl) => ctrl.evaluateJavaScript<void>(
+        '(()=>{'
+        '  try {'
+        '    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+        '    if (aux) { document.execCommand("undo"); return; }'
+        '    if (window.editor) { window.editor.focus(); window.editor.trigger("keyboard", "undo"); }'
+        '  } catch(e) {}'
+        '})()',
+      ),
+    );
+  }
+
+  Future<void> _redo() async {
+    await _withCtrl(
+      (ctrl) => ctrl.evaluateJavaScript<void>(
+        '(()=>{'
+        '  try {'
+        '    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+        '    if (aux) { document.execCommand("redo"); return; }'
+        '    if (window.editor) { window.editor.focus(); window.editor.trigger("keyboard", "redo"); }'
+        '  } catch(e) {}'
+        '})()',
+      ),
+    );
+  }
+
   Future<void> _cutSelectionToClipboard() async {
     final selected = await _withCtrl(
       (ctrl) => ctrl.evaluateJavaScript<String>(
@@ -497,6 +525,35 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
         ),
         const PopupMenuDivider(),
         const PopupMenuItem(
+          value: _CtxMenuAction.undo,
+          child: Row(
+            children: [
+              Icon(Icons.undo, size: 16),
+              SizedBox(width: 8),
+              Expanded(child: Text('Deshacer')),
+              Text(
+                'Ctrl+Z',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: _CtxMenuAction.redo,
+          child: Row(
+            children: [
+              Icon(Icons.redo, size: 16),
+              SizedBox(width: 8),
+              Expanded(child: Text('Rehacer')),
+              Text(
+                'Ctrl+Y',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
           value: _CtxMenuAction.cut,
           child: Row(
             children: [
@@ -542,6 +599,12 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     ).then((action) {
       if (action == null || !mounted) return;
       switch (action) {
+        case _CtxMenuAction.undo:
+          unawaited(_undo());
+          break;
+        case _CtxMenuAction.redo:
+          unawaited(_redo());
+          break;
         case _CtxMenuAction.gotoDef:
           if (_ctrl != null) unawaited(_goToDefinition(_ctrl!));
           break;
@@ -638,7 +701,11 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
       '    if (pos) {'
       '      var w = window.editor.getModel().getWordAtPosition(pos);'
       '      word = w ? w.word : "";'
-      '      window.editor.setPosition(pos);'
+      '      var sel = window.editor.getSelection();'
+      '      var withinSel = sel && !sel.isEmpty() && sel.containsPosition(pos);'
+      '      if (!withinSel) {'
+      '        window.editor.setPosition(pos);'
+      '      }'
       '    }'
       '    window.FlutterMonaco.emit("fmMenuOpening", {'
       '      x: e.clientX, y: e.clientY, word: word,'
@@ -753,6 +820,37 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     actionFutures.add(
       ctrl.addAction(
         const fm.MonacoActionDescriptor(
+          id: fm.MonacoAction('custom.undo'),
+          label: 'Deshacer',
+          keybindings: [
+            fm.MonacoKeybinding(ctrlCmd: true, key: fm.MonacoKey.keyZ),
+          ],
+        ),
+        () async => _undo(),
+      ),
+    );
+
+    actionFutures.add(
+      ctrl.addAction(
+        const fm.MonacoActionDescriptor(
+          id: fm.MonacoAction('custom.redo'),
+          label: 'Rehacer',
+          keybindings: [
+            fm.MonacoKeybinding(ctrlCmd: true, key: fm.MonacoKey.keyY),
+            fm.MonacoKeybinding(
+              ctrlCmd: true,
+              shift: true,
+              key: fm.MonacoKey.keyZ,
+            ),
+          ],
+        ),
+        () async => _redo(),
+      ),
+    );
+
+    actionFutures.add(
+      ctrl.addAction(
+        const fm.MonacoActionDescriptor(
           id: fm.MonacoAction('custom.find'),
           label: 'Buscar en el documento',
           keybindings: [
@@ -822,6 +920,10 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     });
 
     _contextMenuEventSub = ctrl.events.listen((event) {
+      if (event is fm.MonacoUnknownEvent && event.name == 'fmClipboardCut') {
+        unawaited(_cutSelectionToClipboard());
+        return;
+      }
       if (event is fm.MonacoUnknownEvent && event.name == 'fmMenuOpening') {
         final data = event.data;
         final word = (data['word'] as String?) ?? '';

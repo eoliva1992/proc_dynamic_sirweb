@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/sql_execution.dart';
+import '../models/sql_http_trace.dart';
 import '../providers/procedimientos_provider.dart';
 import '../services/sirweb_service.dart' show SirwebCancelledException;
 import '../services/sql_executor_service.dart';
@@ -12,6 +13,16 @@ import '../services/sql_session_manager.dart';
 import '../services/sql_statement_analyzer.dart';
 import '../widgets/app_toast.dart';
 import '../widgets/editor_split_container.dart';
+
+/// Detecta si una excepción del servidor indica que la sesión SQL expiró, no existe
+/// o quedó inválida.
+bool _isSessionExpiredError(Object error) {
+  final msg = error.toString().toLowerCase();
+  return msg.contains('no existe') ||
+      msg.contains('expir') ||
+      msg.contains('invalida') ||
+      msg.contains('not found');
+}
 
 /// Controlador de estado y lógica de negocio para la ejecución interactiva
 /// de scripts SQL y PL/SQL.
@@ -35,6 +46,19 @@ class SqlExecutorStateController extends ChangeNotifier {
     _loadTimeoutPreference();
     _loadPersistedLog();
     _loadPanelPreferences();
+    _setupTraceListener();
+  }
+
+  void _setupTraceListener() {
+    _svc.onHttpTrace = (trace) {
+      final idx = _httpTraces.indexWhere((t) => t.id == trace.id);
+      if (idx >= 0) {
+        _httpTraces[idx] = trace;
+      } else {
+        _httpTraces.add(trace);
+      }
+      notifyListeners();
+    };
   }
 
   static const _maxRowsPreferenceKey = 'sql_executor_max_rows';
@@ -57,6 +81,7 @@ class SqlExecutorStateController extends ChangeNotifier {
   bool _running = false;
   http.Client? _activeClient;
   bool _cancelRequested = false;
+  bool _loadingMore = false;
   int _maxRows = 1000;
   int _timeoutSeconds = 60;
   bool _resultsPanelVisible = true;
@@ -82,6 +107,11 @@ class SqlExecutorStateController extends ChangeNotifier {
   /// PL-SQL en ambiente Producción. Devuelve `true` para continuar.
   Future<bool> Function(SqlStatement stmt)? confirmProdExecution;
 
+  /// Inyectado por la página: llamado cuando una sentencia DDL termina con errores de compilación,
+  /// o con una lista vacía cuando termina con éxito para limpiar los marcadores.
+  void Function(SqlStatement stmt, List<SqlDdlError> errors)?
+  onDdlCompilationErrors;
+
   DateTime? _runStartedAt;
   DateTime? get runStartedAt => _runStartedAt;
 
@@ -94,6 +124,7 @@ class SqlExecutorStateController extends ChangeNotifier {
   SqlExplainResult? _lastExplainResult;
   List<SqlExplainPlanNode>? _explainNodes;
   final List<SqlExecutionLogEntry> _log = [];
+  final List<SqlHttpTraceEntry> _httpTraces = [];
 
   int _resultSeq = 0;
   final List<SqlNamedResult> _results = [];
@@ -111,9 +142,13 @@ class SqlExecutorStateController extends ChangeNotifier {
   /// Ruta del archivo local en disco si el script actual está vinculado a uno.
   String? _currentFilePath;
 
+  String get _currentOwner => procedimientosProvider.cdUsuario.trim();
+
   // ─── Getters ───────────────────────────────────────────────────────────────
-  String? get sessionId => _sessionMgr.getSessionId(_ambiente) ?? _sessionId;
-  bool get hasPendingChanges => sessionId != null;
+  String? get sessionId =>
+      _sessionMgr.getSessionId(_ambiente, owner: _currentOwner) ?? _sessionId;
+  bool get hasPendingChanges =>
+      _sessionMgr.hasPendingChanges(_ambiente, owner: _currentOwner);
   String? get currentFilePath => _currentFilePath;
   String get ambiente => _ambiente;
   String get text => _text;
@@ -121,6 +156,7 @@ class SqlExecutorStateController extends ChangeNotifier {
   int get cursorCol => _cursorCol;
   bool get running => _running;
   bool get cancelRequested => _cancelRequested;
+  bool get loadingMore => _loadingMore;
   int get maxRows => _maxRows;
   int get timeoutSeconds => _timeoutSeconds;
   bool get resultsPanelVisible => _resultsPanelVisible;
@@ -138,6 +174,7 @@ class SqlExecutorStateController extends ChangeNotifier {
   SqlExplainResult? get lastExplainResult => _lastExplainResult;
   List<SqlExplainPlanNode>? get explainNodes => _explainNodes;
   List<SqlExecutionLogEntry> get log => List.unmodifiable(_log);
+  List<SqlHttpTraceEntry> get httpTraces => List.unmodifiable(_httpTraces);
 
   // Se incrementa en cada `notifyListeners()` salvo `setText`/`setCursor`:
   // permite a la UI cachear el subárbol del workspace (panel de resultados,
@@ -153,8 +190,8 @@ class SqlExecutorStateController extends ChangeNotifier {
   }
 
   void _onSessionManagerChanged() {
-    // Sincroniza _sessionId con el gestor centralizado del ambiente.
-    _sessionId = _sessionMgr.getSessionId(_ambiente);
+    // Sincroniza _sessionId con el gestor centralizado del ambiente y dueño.
+    _sessionId = _sessionMgr.getSessionId(_ambiente, owner: _currentOwner);
     notifyListeners();
   }
 
@@ -168,8 +205,8 @@ class SqlExecutorStateController extends ChangeNotifier {
   void setAmbiente(String value) {
     if (_ambiente == value) return;
     _ambiente = value;
-    // Sincroniza la sesión con el nuevo ambiente.
-    _sessionId = _sessionMgr.getSessionId(_ambiente);
+    // Sincroniza la sesión con el nuevo ambiente y dueño actual.
+    _sessionId = _sessionMgr.getSessionId(_ambiente, owner: _currentOwner);
     notifyListeners();
   }
 
@@ -389,6 +426,97 @@ class SqlExecutorStateController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Carga el siguiente bloque de filas para el resultado activo si fue truncado.
+  Future<bool> loadMoreRows() async {
+    if (_loadingMore || _running || _results.isEmpty) return false;
+    final idx = _selectedResultIndex.clamp(0, _results.length - 1);
+    final namedResult = _results[idx];
+    final currentResult = namedResult.result;
+
+    if (!currentResult.truncated || namedResult.statementText.trim().isEmpty) {
+      return false;
+    }
+
+    var owner = _currentOwner;
+    if (owner.isEmpty) {
+      final resolved = await _requireOwner();
+      if (resolved == null) return false;
+      owner = resolved;
+    }
+
+    _loadingMore = true;
+    notifyListeners();
+
+    final client = http.Client();
+    _activeClient = client;
+
+    try {
+      final offset = currentResult.rows.length;
+      final limit = _maxRows > 0 ? _maxRows : 1000;
+      final pagedSql = buildPagedSelectSql(
+        namedResult.statementText,
+        offset: offset,
+        limit: limit,
+      );
+
+      final nextResult = await _svc.executeSelect(
+        pagedSql,
+        ambiente: _ambiente,
+        owner: _currentOwner,
+        sessionId: sessionId,
+        maxRows: limit,
+        timeoutSegundos: _timeoutSeconds,
+        client: client,
+        cancelado: () => _cancelRequested,
+      );
+
+      _sessionMgr.touch(_ambiente, owner: _currentOwner);
+
+      // Anexar las nuevas filas manteniendo intactas las columnas y el ID de resultado
+      final updatedResult = currentResult.appendRows(
+        nextResult.rows,
+        truncated: nextResult.truncated,
+        additionalDurationMs: nextResult.durationMs,
+      );
+
+      _results[idx] = namedResult.withResult(updatedResult);
+
+      final entry = SqlExecutionLogEntry(
+        id: _logSeq++,
+        timestamp: DateTime.now(),
+        ambiente: _ambiente,
+        kind: SqlStatementKind.select,
+        statementPreview:
+            'FETCH NEXT $limit ROWS (offset $offset) · ${_preview(namedResult.statementText)}',
+        status: SqlLogStatus.success,
+        durationMs: nextResult.durationMs,
+        rowsAffectedOrReturned: nextResult.returnedRows,
+        message:
+            'Lote cargado: +${nextResult.returnedRows} filas (Total: ${updatedResult.rows.length})',
+      );
+      _log.add(entry);
+
+      return true;
+    } catch (e) {
+      final entry = SqlExecutionLogEntry(
+        id: _logSeq++,
+        timestamp: DateTime.now(),
+        ambiente: _ambiente,
+        kind: SqlStatementKind.select,
+        statementPreview: 'FETCH NEXT (offset ${currentResult.rows.length})',
+        status: SqlLogStatus.error,
+        message: e.toString().replaceFirst('Exception: ', ''),
+      );
+      _log.add(entry);
+      return false;
+    } finally {
+      client.close();
+      if (identical(_activeClient, client)) _activeClient = null;
+      _loadingMore = false;
+      notifyListeners();
+    }
+  }
+
   // ─── Análisis de Sentencias ────────────────────────────────────────────────
   /// Sentencias del script actual (cacheadas por texto; ver `_statementsCache`).
   List<SqlStatement> get statements {
@@ -508,6 +636,7 @@ class SqlExecutorStateController extends ChangeNotifier {
     _resultsPanelVisible = true;
     _runStartedAt = DateTime.now();
     _lastRunText = _text;
+    onDdlCompilationErrors?.call(stmt, const []);
     final entry = SqlExecutionLogEntry(
       id: _logSeq++,
       timestamp: DateTime.now(),
@@ -520,130 +649,204 @@ class SqlExecutorStateController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      switch (stmt.kind) {
-        case SqlStatementKind.select:
-          final result = await _svc.executeSelect(
-            stmt.text,
-            ambiente: _ambiente,
-            owner: owner,
-            sessionId: sessionId,
-            maxRows: _maxRows,
-            timeoutSegundos: _timeoutSeconds,
-            client: client,
-            cancelado: () => _cancelRequested,
-          );
-          _results.add(
-            SqlNamedResult(
-              id: _resultSeq++,
-              label: _preview(stmt.text),
-              result: result,
-              statementText: stmt.text,
-            ),
-          );
-          _selectedResultIndex = _results.length - 1;
-          entry
-            ..status = SqlLogStatus.success
-            ..durationMs = result.durationMs
-            ..rowsAffectedOrReturned = result.returnedRows
-            ..message = 'OK';
-          _switchTab(0);
+      var currentSessionId = sessionId;
+      var attempt = 0;
+      const maxAttempts = 2;
 
-        case SqlStatementKind.dml:
-          final result = await _svc.executeDml(
-            stmt.text,
-            ambiente: _ambiente,
-            owner: owner,
-            sessionId: sessionId,
-            maxRows: _maxRows,
-            timeoutSegundos: _timeoutSeconds,
-            client: client,
-            cancelado: () => _cancelRequested,
-          );
-          final updatedSessionId = result.sessionId ?? sessionId;
-          _sessionId = updatedSessionId;
-          _sessionMgr.setSessionId(_ambiente, updatedSessionId);
-          entry
-            ..status = SqlLogStatus.success
-            ..durationMs = result.durationMs
-            ..rowsAffectedOrReturned = result.rowsAffected
-            ..message = result.message ?? 'OK';
-          _switchTab(1);
+      while (attempt < maxAttempts) {
+        attempt++;
+        try {
+          switch (stmt.kind) {
+            case SqlStatementKind.select:
+              final result = await _svc.executeSelect(
+                stmt.text,
+                ambiente: _ambiente,
+                owner: owner,
+                sessionId: currentSessionId,
+                maxRows: _maxRows,
+                timeoutSegundos: _timeoutSeconds,
+                client: client,
+                cancelado: () => _cancelRequested,
+              );
+              _sessionMgr.touch(_ambiente, owner: owner);
+              _results.add(
+                SqlNamedResult(
+                  id: _resultSeq++,
+                  label: _preview(stmt.text),
+                  result: result,
+                  statementText: stmt.text,
+                ),
+              );
+              _selectedResultIndex = _results.length - 1;
+              entry
+                ..status = SqlLogStatus.success
+                ..durationMs = result.durationMs
+                ..rowsAffectedOrReturned = result.returnedRows
+                ..message = 'OK';
+              _switchTab(0);
 
-        case SqlStatementKind.ddl:
-          final result = await _svc.executeDdl(
-            stmt.text,
-            ambiente: _ambiente,
-            owner: owner,
-            timeoutSegundos: _timeoutSeconds,
-            client: client,
-            cancelado: () => _cancelRequested,
-          );
-          entry
-            ..status = result.errors.isEmpty
-                ? SqlLogStatus.success
-                : SqlLogStatus.error
-            ..durationMs = result.durationMs
-            ..message = result.errors.isNotEmpty
-                ? result.errors.join('; ')
-                : 'OK';
-          _switchTab(1);
+            case SqlStatementKind.dml:
+              final result = await _svc.executeDml(
+                stmt.text,
+                ambiente: _ambiente,
+                owner: owner,
+                sessionId: currentSessionId,
+                maxRows: _maxRows,
+                timeoutSegundos: _timeoutSeconds,
+                client: client,
+                cancelado: () => _cancelRequested,
+              );
+              final updatedSessionId = result.sessionId ?? currentSessionId;
+              _sessionId = updatedSessionId;
+              _sessionMgr.setSessionId(
+                _ambiente,
+                updatedSessionId,
+                owner: owner,
+                hasPendingChanges:
+                    result.pendingCommit || (result.rowsAffected > 0),
+              );
+              entry
+                ..status = SqlLogStatus.success
+                ..durationMs = result.durationMs
+                ..rowsAffectedOrReturned = result.rowsAffected
+                ..message = result.message ?? 'OK';
+              _switchTab(1);
 
-        case SqlStatementKind.plsql:
-          final result = await _svc.executePlSql(
-            stmt.text,
-            ambiente: _ambiente,
-            owner: owner,
-            sessionId: sessionId,
-            timeoutSegundos: _timeoutSeconds,
-            client: client,
-            cancelado: () => _cancelRequested,
-          );
-          final updatedSessionId = result.sessionId ?? sessionId;
-          _sessionId = updatedSessionId;
-          _sessionMgr.setSessionId(_ambiente, updatedSessionId);
-          entry
-            ..status = SqlLogStatus.success
-            ..durationMs = result.durationMs
-            ..message = result.dbmsOutput.isNotEmpty
-                ? result.dbmsOutput.join('\n')
-                : 'OK';
-          _switchTab(1);
+            case SqlStatementKind.ddl:
+              final target = extractDdlTarget(stmt.text);
+              final result = await _svc.executeDdl(
+                stmt.text,
+                ambiente: _ambiente,
+                owner: owner,
+                sessionId: currentSessionId,
+                objectName: target.objectName,
+                objectType: target.objectType,
+                timeoutSegundos: _timeoutSeconds,
+                client: client,
+                cancelado: () => _cancelRequested,
+              );
+              _sessionMgr.touch(_ambiente, owner: owner);
+              final hasErrors = result.errors.isNotEmpty;
+              entry
+                ..status = hasErrors ? SqlLogStatus.error : SqlLogStatus.success
+                ..durationMs = result.durationMs
+                ..message = hasErrors
+                    ? result.errors.map((e) => e.toString()).join('\n')
+                    : 'OK';
+              onDdlCompilationErrors?.call(stmt, result.errors);
+              _switchTab(1);
 
-        case SqlStatementKind.explainPlan:
-          await _explainPlanFor(
-            stmt.text,
-            entry,
-            client: client,
-            cancelado: () => _cancelRequested,
-          );
+            case SqlStatementKind.plsql:
+              final result = await _svc.executePlSql(
+                stmt.text,
+                ambiente: _ambiente,
+                owner: owner,
+                sessionId: currentSessionId,
+                timeoutSegundos: _timeoutSeconds,
+                client: client,
+                cancelado: () => _cancelRequested,
+              );
+              final updatedSessionId = result.sessionId ?? currentSessionId;
+              _sessionId = updatedSessionId;
+              _sessionMgr.setSessionId(
+                _ambiente,
+                updatedSessionId,
+                owner: owner,
+                hasPendingChanges: result.pendingCommit,
+              );
+              entry
+                ..status = SqlLogStatus.success
+                ..durationMs = result.durationMs
+                ..message = result.dbmsOutput.isNotEmpty
+                    ? result.dbmsOutput.join('\n')
+                    : 'OK';
+              _switchTab(1);
 
-        case SqlStatementKind.unknown:
+            case SqlStatementKind.command:
+              final cmdResult = await _svc.executeCommand(
+                stmt.text,
+                ambiente: _ambiente,
+                owner: owner,
+                sessionId: currentSessionId,
+                timeoutSegundos: _timeoutSeconds,
+                client: client,
+                cancelado: () => _cancelRequested,
+              );
+              _sessionMgr.touch(_ambiente, owner: owner);
+              final queryResult = cmdResult.toSqlQueryResult();
+              _results.add(
+                SqlNamedResult(
+                  id: _resultSeq++,
+                  label: _preview(stmt.text),
+                  result: queryResult,
+                  statementText: stmt.text,
+                ),
+              );
+              _selectedResultIndex = _results.length - 1;
+              entry
+                ..status = SqlLogStatus.success
+                ..durationMs = cmdResult.durationMs
+                ..rowsAffectedOrReturned = cmdResult.columns.isNotEmpty
+                    ? cmdResult.columns.length
+                    : 1
+                ..message = cmdResult.output.isNotEmpty
+                    ? cmdResult.output
+                    : 'OK';
+              _switchTab(0);
+
+            case SqlStatementKind.explainPlan:
+              await _explainPlanFor(
+                stmt.text,
+                entry,
+                client: client,
+                cancelado: () => _cancelRequested,
+              );
+
+            case SqlStatementKind.unknown:
+              entry
+                ..status = SqlLogStatus.warning
+                ..message = 'No se pudo determinar el tipo de sentencia';
+              _switchTab(1);
+          }
+          break; // Ejecución exitosa, sale del bucle de reintento.
+        } on SirwebCancelledException {
           entry
             ..status = SqlLogStatus.warning
-            ..message = 'No se pudo determinar el tipo de sentencia';
+            ..message = 'Operación cancelada por el usuario';
           _switchTab(1);
+          break;
+        } on SqlServiceNotImplementedException catch (e) {
+          entry
+            ..status = SqlLogStatus.warning
+            ..message = e.message;
+          _switchTab(1);
+          break;
+        } catch (e) {
+          // Si el fallo se debe a que la sesión expiró o no existe y se envió un sessionId,
+          // limpiamos la sesión expirada y reintentamos de inmediato con sessionId = null.
+          if (currentSessionId != null &&
+              _isSessionExpiredError(e) &&
+              attempt < maxAttempts &&
+              !_cancelRequested) {
+            _sessionId = null;
+            _sessionMgr.clearSession(_ambiente, owner: owner);
+            currentSessionId = null;
+            continue; // Reintento con nueva sesión (sessionId = null)
+          }
+
+          if (_cancelRequested) {
+            entry
+              ..status = SqlLogStatus.warning
+              ..message = 'Operación cancelada por el usuario';
+          } else {
+            entry
+              ..status = SqlLogStatus.error
+              ..message = e.toString().replaceFirst('Exception: ', '');
+          }
+          _switchTab(1);
+          break;
+        }
       }
-    } on SirwebCancelledException {
-      entry
-        ..status = SqlLogStatus.warning
-        ..message = 'Operación cancelada por el usuario';
-      _switchTab(1);
-    } on SqlServiceNotImplementedException catch (e) {
-      entry
-        ..status = SqlLogStatus.warning
-        ..message = e.message;
-      _switchTab(1);
-    } catch (e) {
-      if (_cancelRequested) {
-        entry
-          ..status = SqlLogStatus.warning
-          ..message = 'Operación cancelada por el usuario';
-      } else {
-        entry
-          ..status = SqlLogStatus.error
-          ..message = e.toString().replaceFirst('Exception: ', '');
-      }
-      _switchTab(1);
     } finally {
       client.close();
       if (identical(_activeClient, client)) {
@@ -750,6 +953,7 @@ class SqlExecutorStateController extends ChangeNotifier {
 
   void clearOutput() {
     _log.clear();
+    _httpTraces.clear();
     _results.clear();
     _selectedResultIndex = 0;
     _lastExplainResult = null;
@@ -763,6 +967,12 @@ class SqlExecutorStateController extends ChangeNotifier {
   void clearLog() {
     _log.clear();
     _savePersistedLog();
+    notifyListeners();
+  }
+
+  /// Limpia únicamente el historial de trazas de envíos y respuestas HTTP.
+  void clearHttpTraces() {
+    _httpTraces.clear();
     notifyListeners();
   }
 
@@ -807,8 +1017,9 @@ class SqlExecutorStateController extends ChangeNotifier {
           cancelado: () => _cancelRequested,
         );
       }
-      _sessionId = null;
-      _sessionMgr.clearSession(_ambiente);
+      // La sesión NO se destruye: se mantiene viva en Oracle y en SqlSessionManager,
+      // actualizando únicamente el estado de cambios pendientes para ocultar los botones.
+      _sessionMgr.markPendingChanges(_ambiente, false, owner: owner);
       entry
         ..status = SqlLogStatus.success
         ..message = action == 'commit'
@@ -819,10 +1030,20 @@ class SqlExecutorStateController extends ChangeNotifier {
         ..status = SqlLogStatus.warning
         ..message = 'Operación cancelada por el usuario';
     } catch (e) {
+      final isExpired = _isSessionExpiredError(e);
+      if (isExpired) {
+        _sessionId = null;
+        _sessionMgr.clearSession(_ambiente, owner: owner);
+      }
       if (_cancelRequested) {
         entry
           ..status = SqlLogStatus.warning
           ..message = 'Operación cancelada por el usuario';
+      } else if (isExpired) {
+        entry
+          ..status = SqlLogStatus.warning
+          ..message =
+              'La sesión expiró o ya no existe en el servidor. Se restableció la sesión.';
       } else {
         entry
           ..status = SqlLogStatus.error

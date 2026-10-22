@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../models/schema_source_search.dart';
+import '../models/sql_http_trace.dart';
 import 'app_log.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -98,7 +99,11 @@ class SchemaService {
   // Completers replace busy-wait loops for concurrent callers
   final _loadCompleters = <String, Completer<SchemaMetadata>>{};
   int _nextId = 1;
+  static int _httpTraceSeq = 1;
   final _client = http.Client();
+
+  /// Callback global o suscriptor para recibir las trazas HTTP de peticiones del schema service.
+  void Function(SqlHttpTraceEntry trace)? onHttpTrace;
 
   /// Normaliza el nombre del ambiente para usarlo como clave de caché.
   static String _env(String? a) => (a == null || a.isEmpty) ? 'Desa' : a;
@@ -575,7 +580,15 @@ class SchemaService {
       'objectType': objectType.toUpperCase(),
       if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
     });
+    // Extraer diagnósticos de compilación si existen en la respuesta (data, errors, etc.)
+    final errors = _compileErrorsFromResult(result);
+
     if (result['success'] == false) {
+      // Si la respuesta incluye errores de compilación específicos en data/errors,
+      // retornarlos para que la UI pueda mostrarlos y saltar a las líneas afectadas.
+      if (errors.isNotEmpty) {
+        return errors;
+      }
       // El detalle (ORA-, argumentos y DDL enviado) ya quedó en el log dentro
       // de `_callInner`; acá sólo se propaga el mensaje al llamador.
       throw Exception(
@@ -584,7 +597,7 @@ class SchemaService {
             'Error ejecutando el DDL',
       );
     }
-    return _compileErrorsFromResult(result);
+    return errors;
   }
 
   /// Normaliza las respuestas del endpoint de compilación.
@@ -1125,6 +1138,12 @@ class SchemaService {
   /// Devuelve el schema en memoria para el ambiente dado, sin disparar carga ni refresco.
   SchemaMetadata? getCached({String? ambiente}) => _caches[_env(ambiente)];
 
+  /// Permite inyectar un schema en cache directamente para tests.
+  @visibleForTesting
+  void overrideCacheForTesting(String ambiente, SchemaMetadata metadata) {
+    _caches[_env(ambiente)] = metadata;
+  }
+
   // ── Internos: servidor ─────────────────────────────────────────────────────
 
   Future<SchemaMetadata> _fetchFromServer({String? ambiente}) async {
@@ -1326,17 +1345,34 @@ class SchemaService {
   ) async {
     final reloj = Stopwatch()..start();
     final mcpUrl = await getMcpUrl();
+    final headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json, text/event-stream',
+    };
+    final requestBodyJson = jsonEncode({
+      'jsonrpc': '2.0',
+      'id': _nextId++,
+      'method': 'tools/call',
+      'params': {'name': toolName, 'arguments': arguments},
+    });
+
+    final trace = SqlHttpTraceEntry(
+      id: _httpTraceSeq++,
+      timestamp: DateTime.now(),
+      method: 'POST',
+      url: mcpUrl,
+      endpoint: '/mcp/$toolName',
+      requestHeaders: headers,
+      requestBody: requestBodyJson,
+      status: SqlHttpTraceStatus.running,
+    );
+    try {
+      onHttpTrace?.call(trace);
+    } catch (_) {}
+
     final request = http.Request('POST', Uri.parse(mcpUrl))
-      ..headers.addAll({
-        'Content-Type': 'application/json',
-        'Accept': 'application/json, text/event-stream',
-      })
-      ..body = jsonEncode({
-        'jsonrpc': '2.0',
-        'id': _nextId++,
-        'method': 'tools/call',
-        'params': {'name': toolName, 'arguments': arguments},
-      });
+      ..headers.addAll(headers)
+      ..body = requestBodyJson;
 
     final http.StreamedResponse streamed;
     final String payload;
@@ -1354,6 +1390,13 @@ class SchemaService {
         timeout: timeout,
       );
     } catch (e) {
+      trace.durationMs = reloj.elapsedMilliseconds;
+      trace.status = SqlHttpTraceStatus.error;
+      trace.error = e.toString();
+      try {
+        onHttpTrace?.call(trace);
+      } catch (_) {}
+
       // Fallo de transporte (timeout, socket, TLS…): el servidor no respondió.
       AppLog.instance.server(
         toolName,
@@ -1364,11 +1407,21 @@ class SchemaService {
       rethrow;
     }
 
+    trace.statusCode = streamed.statusCode;
+    trace.durationMs = reloj.elapsedMilliseconds;
+    trace.responseBody = payload;
+
     final envelope = jsonDecode(payload) as Map<String, dynamic>;
 
     if (envelope.containsKey('error')) {
       final err = envelope['error'] as Map<String, dynamic>;
       final msg = err['message']?.toString() ?? 'Error MCP';
+      trace.status = SqlHttpTraceStatus.error;
+      trace.error = msg;
+      try {
+        onHttpTrace?.call(trace);
+      } catch (_) {}
+
       AppLog.instance.server(
         toolName,
         message: msg,
@@ -1382,6 +1435,18 @@ class SchemaService {
     final contentList = envelope['result']['content'] as List<dynamic>;
     final text = contentList.first['text'] as String;
     final data = jsonDecode(text) as Map<String, dynamic>;
+
+    if (data['success'] == false || data['ok'] == false) {
+      trace.status = SqlHttpTraceStatus.error;
+      trace.error = data['error']?.toString() ?? data['message']?.toString();
+    } else {
+      trace.status = SqlHttpTraceStatus.success;
+    }
+    try {
+      onHttpTrace?.call(trace);
+    } catch (_) {}
+
+    // El backend puede responder 200 con `success:false`: se registra siempre,
 
     // El backend puede responder 200 con `success:false`: se registra siempre,
     // aunque el llamador decida ignorarlo o convertirlo en excepción.

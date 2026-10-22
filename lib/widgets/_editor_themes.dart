@@ -1026,11 +1026,11 @@ class EditorThemeStore extends ChangeNotifier {
     await themeStore.setMode(isDark ? ThemeMode.dark : ThemeMode.light);
   }
 
-  /// Registers all custom theme definitions in a MonacoController.
+  /// Registers all custom theme definitions in a MonacoController or MonacoDiffController.
   /// Must be called in onReady before setTheme with a custom id.
-  static Future<void> defineAllThemes(MonacoController ctrl) => Future.wait([
+  static Future<void> defineAllThemes(dynamic ctrl) => Future.wait<dynamic>([
     for (final t in kEditorThemes)
-      if (t.definition != null) ctrl.defineTheme(t.definition!),
+      if (t.definition != null) ctrl.defineTheme(t.definition!) as Future<dynamic>,
   ]);
 }
 

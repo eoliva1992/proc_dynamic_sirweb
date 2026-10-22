@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 
 import '../../models/sql_execution.dart';
+import '../../models/sql_http_trace.dart';
 import 'sql_executor_toolbar.dart'
     show kSqlTooltipDecoration, kSqlTooltipTextStyle, kSqlTooltipWait;
 import 'sql_explain_plan_view.dart';
 import 'sql_output_console.dart';
 import 'sql_results_grid.dart';
 import 'sql_results_tab_strip.dart';
+import 'sql_server_trace_console.dart';
 
 /// Panel inferior deslizable y redimensionable con los resultados de la consulta,
-/// consola de mensajes, árbol Explain Plan e historial de sentencias.
+/// consola de mensajes, árbol Explain Plan, trazas HTTP de servidor e historial de sentencias.
 class SqlExecutorResultsPanel extends StatelessWidget {
   final TabController tabController;
   final bool visible;
@@ -20,6 +22,7 @@ class SqlExecutorResultsPanel extends StatelessWidget {
   final int selectedResultIndex;
   final ValueChanged<int> onSelectResult;
   final List<SqlExecutionLogEntry> log;
+  final List<SqlHttpTraceEntry> httpTraces;
   final List<SqlExplainPlanNode>? explainNodes;
   final List<String>? explainText;
   final int maxRows;
@@ -27,11 +30,14 @@ class SqlExecutorResultsPanel extends StatelessWidget {
   final void Function(List<int> rowIndexes) onGenerateDml;
   final void Function(SqlExecutionLogEntry entry)? onReplay;
   final VoidCallback? onClearLog;
+  final VoidCallback? onClearHttpTraces;
   final bool isDetached;
   final VoidCallback? onToggleDetached;
   final bool isPinned;
   final VoidCallback? onTogglePinned;
   final ValueChanged<Offset>? onHeaderDrag;
+  final VoidCallback? onLoadMore;
+  final bool isLoadingMore;
 
   const SqlExecutorResultsPanel({
     super.key,
@@ -44,6 +50,7 @@ class SqlExecutorResultsPanel extends StatelessWidget {
     required this.selectedResultIndex,
     required this.onSelectResult,
     required this.log,
+    this.httpTraces = const [],
     required this.explainNodes,
     this.explainText,
     required this.maxRows,
@@ -51,11 +58,14 @@ class SqlExecutorResultsPanel extends StatelessWidget {
     required this.onGenerateDml,
     this.onReplay,
     this.onClearLog,
+    this.onClearHttpTraces,
     this.isDetached = false,
     this.onToggleDetached,
     this.isPinned = true,
     this.onTogglePinned,
     this.onHeaderDrag,
+    this.onLoadMore,
+    this.isLoadingMore = false,
   });
 
   SqlQueryResult? get _selectedResult =>
@@ -286,6 +296,30 @@ class SqlExecutorResultsPanel extends StatelessWidget {
                                   ],
                                 ),
                               ),
+                              Tab(
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.dns_outlined, size: 14),
+                                    const SizedBox(width: 6),
+                                    const Text('Servidor'),
+                                    if (httpTraces.isNotEmpty) ...[
+                                      const SizedBox(width: 6),
+                                      _buildCountBadge(
+                                        '${httpTraces.length}',
+                                        httpTraces.any(
+                                              (t) =>
+                                                  t.status ==
+                                                  SqlHttpTraceStatus.error,
+                                            )
+                                            ? const Color(0xFFE5484D)
+                                            : cs.onSurfaceVariant,
+                                        isDark,
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
                               const Tab(
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
@@ -410,6 +444,8 @@ class SqlExecutorResultsPanel extends StatelessWidget {
                               maxRows: maxRows,
                               onMaxRowsChanged: onMaxRowsChanged,
                               onGenerateDml: onGenerateDml,
+                              onLoadMore: onLoadMore,
+                              isLoadingMore: isLoadingMore,
                             ),
                           ),
                         ],
@@ -421,7 +457,12 @@ class SqlExecutorResultsPanel extends StatelessWidget {
                         nodes: explainNodes,
                         textPlan: explainText,
                       ),
-                      // Tab 3: Historial
+                      // Tab 3: Servidor (Trazas HTTP)
+                      SqlServerTraceConsole(
+                        traces: httpTraces,
+                        onClear: onClearHttpTraces,
+                      ),
+                      // Tab 4: Historial
                       SqlOutputConsole(
                         entries: log,
                         onReplay: onReplay,

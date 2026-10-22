@@ -110,10 +110,32 @@ const String _kFindAndFocusGuardJs =
     '      }'
     '    }, 25);'
     '  };'
+    '  window.__fmUndo = function(){'
+    '    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+    '    if (aux) { document.execCommand("undo"); return; }'
+    '    if (window.editor) { try { window.editor.trigger("keyboard", "undo"); } catch(e){} }'
+    '  };'
+    '  window.__fmRedo = function(){'
+    '    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+    '    if (aux) { document.execCommand("redo"); return; }'
+    '    if (window.editor) { try { window.editor.trigger("keyboard", "redo"); } catch(e){} }'
+    '  };'
     '  document.addEventListener("keydown",function(e){'
-    '    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="f"){'
+    '    var isMod = e.ctrlKey || e.metaKey;'
+    '    if (!isMod) return;'
+    '    var key = e.key.toLowerCase();'
+    '    if (key === "f" && !e.shiftKey) {'
     '      e.preventDefault();'
     '      window.__fmOpenFind();'
+    '    } else if (key === "x" && !e.shiftKey) {'
+    '      e.preventDefault();'
+    '      window.FlutterMonaco.emit("fmClipboardCut", {});'
+    '    } else if (key === "z" && !e.shiftKey) {'
+    '      e.preventDefault();'
+    '      window.__fmUndo();'
+    '    } else if ((key === "y" && !e.shiftKey) || (key === "z" && e.shiftKey)) {'
+    '      e.preventDefault();'
+    '      window.__fmRedo();'
     '    }'
     '  },true);'
     '})()';
@@ -128,6 +150,8 @@ enum _CtxMenuAction {
   infoDato,
   ejecutar,
   ejecutarLlamada,
+  undo,
+  redo,
   cut,
   copy,
   paste,
@@ -196,7 +220,7 @@ class MonacoEditorController {
   }
 
   /// Muestra squiggles rojos para cada error del checker Dart.
-  void setErrors(List<MonacoError> errors) {
+  void setErrors(List<MonacoError> errors, {String owner = 'plsql-checker'}) {
     _enqueue((ctrl) async {
       final markers = errors
           .map(
@@ -208,19 +232,17 @@ class MonacoEditorController {
                 endColumn: e.col + 1,
               ),
               message: e.message,
-              source: 'Checker',
+              source: owner == 'oracle-compile' ? 'Oracle' : 'Checker',
             ),
           )
           .toList();
-      await ctrl.document.setMarkers(markers, owner: 'plsql-checker');
+      await ctrl.document.setMarkers(markers, owner: owner);
     });
   }
 
-  /// Limpia todos los squiggles del checker.
-  void clearErrors() {
-    _enqueue(
-      (ctrl) async => ctrl.document.clearMarkers(owner: 'plsql-checker'),
-    );
+  /// Limpia todos los squiggles del checker u owner especificado.
+  void clearErrors({String owner = 'plsql-checker'}) {
+    _enqueue((ctrl) async => ctrl.document.clearMarkers(owner: owner));
   }
 
   // Decoraciones de línea reutilizadas para los separadores visuales entre
@@ -629,6 +651,7 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
     try {
       final word = await _wordAtContextMenu();
       if (word == null || word.isEmpty) return;
+      if (!mounted) return;
       await navigateToDefinition(context, word, ambiente: widget.ambiente);
     } catch (e, st) {
       debugPrint('[GotoDef] Error: $e\n$st');
@@ -662,13 +685,6 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
         showInfoDatoWindow(context, word, widget.ambiente);
       }
     });
-  }
-
-  Future<void> _openInfoDatoWindow() async {
-    if (!mounted) return;
-    final word = _wordAtCachedPosition()?.trim() ?? '';
-    final esCodigo = word.isNotEmpty && RegExp(r'^\d{3,}$').hasMatch(word);
-    showInfoDatoWindow(context, esCodigo ? word : '', widget.ambiente);
   }
 
   Future<void> _openAutorizacionesWindow() async {
@@ -755,6 +771,44 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
         );
       }
     });
+  }
+
+  Future<void> _undo() async {
+    final ctrl = _rawCtrl;
+    if (ctrl == null) return;
+    await ctrl.evaluateJavaScript<void>(
+      '(()=>{'
+      '  try {'
+      '    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+      '    if (aux) {'
+      '      document.execCommand("undo");'
+      '      return;'
+      '    }'
+      '    if (window.editor) {'
+      '      window.editor.trigger("keyboard", "undo");'
+      '    }'
+      '  } catch(e) {}'
+      '})()',
+    );
+  }
+
+  Future<void> _redo() async {
+    final ctrl = _rawCtrl;
+    if (ctrl == null) return;
+    await ctrl.evaluateJavaScript<void>(
+      '(()=>{'
+      '  try {'
+      '    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+      '    if (aux) {'
+      '      document.execCommand("redo");'
+      '      return;'
+      '    }'
+      '    if (window.editor) {'
+      '      window.editor.trigger("keyboard", "redo");'
+      '    }'
+      '  } catch(e) {}'
+      '})()',
+    );
   }
 
   Future<void> _copySelectionToClipboard() async {
@@ -1019,6 +1073,35 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
         ),
         const PopupMenuDivider(),
         const PopupMenuItem(
+          value: _CtxMenuAction.undo,
+          child: Row(
+            children: [
+              Icon(Icons.undo_rounded, size: 16),
+              SizedBox(width: 8),
+              Expanded(child: Text('Deshacer')),
+              Text(
+                'Ctrl+Z',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: _CtxMenuAction.redo,
+          child: Row(
+            children: [
+              Icon(Icons.redo_rounded, size: 16),
+              SizedBox(width: 8),
+              Expanded(child: Text('Rehacer')),
+              Text(
+                'Ctrl+Y',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
           value: _CtxMenuAction.cut,
           child: Row(
             children: [
@@ -1092,6 +1175,12 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
           break;
         case _CtxMenuAction.ejecutarLlamada:
           unawaited(_ejecutarLlamadaPlsql());
+          break;
+        case _CtxMenuAction.undo:
+          unawaited(_undo());
+          break;
+        case _CtxMenuAction.redo:
+          unawaited(_redo());
           break;
         case _CtxMenuAction.cut:
           unawaited(_cutSelectionToClipboard());
@@ -1194,9 +1283,12 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
       ),
     );
 
-    // Escucha fmMenuOpening para abrir el menú contextual nativo Flutter
+    // Escucha fmMenuOpening para abrir el menú contextual nativo Flutter y fmClipboardCut
     _contextMenuEventSub = ctrl.events.listen((event) {
-      if (event is fm.MonacoUnknownEvent && event.name == 'fmMenuOpening') {
+      if (event is! fm.MonacoUnknownEvent) return;
+      if (event.name == 'fmClipboardCut') {
+        unawaited(_cutSelectionToClipboard());
+      } else if (event.name == 'fmMenuOpening') {
         final data = event.data;
         final word = (data['word'] as String?) ?? '';
         final line = (data['line'] as num?)?.toInt() ?? 0;
@@ -1499,6 +1591,41 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
             () async {
               unawaited(_openAutorizacionesWindow());
             },
+          )
+          .then((action) => _registeredActions.add(action)),
+    );
+
+    // Deshacer / Rehacer (Ctrl+Z, Ctrl+Y)
+    unawaited(
+      ctrl
+          .addAction(
+            const fm.MonacoActionDescriptor(
+              id: fm.MonacoAction('custom.undo'),
+              label: 'Deshacer',
+              keybindings: [
+                fm.MonacoKeybinding(ctrlCmd: true, key: fm.MonacoKey.keyZ),
+              ],
+            ),
+            () async => _undo(),
+          )
+          .then((action) => _registeredActions.add(action)),
+    );
+    unawaited(
+      ctrl
+          .addAction(
+            const fm.MonacoActionDescriptor(
+              id: fm.MonacoAction('custom.redo'),
+              label: 'Rehacer',
+              keybindings: [
+                fm.MonacoKeybinding(ctrlCmd: true, key: fm.MonacoKey.keyY),
+                fm.MonacoKeybinding(
+                  ctrlCmd: true,
+                  shift: true,
+                  key: fm.MonacoKey.keyZ,
+                ),
+              ],
+            ),
+            () async => _redo(),
           )
           .then((action) => _registeredActions.add(action)),
     );

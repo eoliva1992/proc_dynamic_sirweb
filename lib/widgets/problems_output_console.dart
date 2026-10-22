@@ -6,6 +6,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_monaco/flutter_monaco.dart';
+import '../models/object_compilation_entry.dart';
 import '_editor_plsql_checker.dart';
 import 'app_toast.dart';
 
@@ -17,11 +18,15 @@ class ProblemsOutputConsole extends StatefulWidget {
     required this.issues,
     required this.checking,
     required this.onJumpTo,
+    this.lastCompilation,
+    this.onClear,
   });
 
   final List<PlSqlIssue> issues;
   final bool checking;
   final void Function(PlSqlIssue issue) onJumpTo;
+  final ObjectCompilationEntry? lastCompilation;
+  final VoidCallback? onClear;
 
   @override
   State<ProblemsOutputConsole> createState() => _ProblemsOutputConsoleState();
@@ -48,6 +53,37 @@ class _ProblemsOutputConsoleState extends State<ProblemsOutputConsole> {
   void _toggleExpanded(int key) => setState(() {
     if (!_expanded.remove(key)) _expanded.add(key);
   });
+
+  Future<void> _handleClear(BuildContext context) async {
+    if (widget.onClear == null) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Limpiar mensajes'),
+        content: const Text(
+          '¿Deseas vaciar todos los mensajes y problemas de compilación?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE5484D),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Limpiar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      widget.onClear!();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -82,6 +118,8 @@ class _ProblemsOutputConsoleState extends State<ProblemsOutputConsole> {
           thickness: 1,
           color: cs.outlineVariant.withValues(alpha: 0.8),
         ),
+        if (widget.lastCompilation != null)
+          _buildCompilationBanner(widget.lastCompilation!, cs, isDark),
         Expanded(
           child: widget.issues.isEmpty
               ? _buildEmpty(cs)
@@ -108,26 +146,229 @@ class _ProblemsOutputConsoleState extends State<ProblemsOutputConsole> {
     );
   }
 
-  Widget _buildEmpty(ColorScheme cs) => Center(
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          Icons.task_alt_rounded,
-          size: 32,
-          color: cs.onSurfaceVariant.withValues(alpha: 0.35),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Sin problemas detectados',
-          style: TextStyle(
-            fontSize: 12,
-            color: cs.onSurfaceVariant.withValues(alpha: 0.7),
+  Widget _buildEmpty(ColorScheme cs) {
+    if (widget.lastCompilation != null) {
+      final isSuccess =
+          widget.lastCompilation!.status == ObjectCompilationStatus.success;
+      if (isSuccess) {
+        return Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.check_circle_rounded,
+                  size: 36,
+                  color: Color(0xFF2EA043),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Compilación completada sin errores',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: cs.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${widget.lastCompilation!.targetTitle} en ambiente ${widget.lastCompilation!.ambiente} (${widget.lastCompilation!.durationMs} ms)',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: cs.onSurfaceVariant.withValues(alpha: 0.75),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      } else {
+        // Falló la compilación pero no hay issues individuales o fueron filtrados
+        return Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.error_outline_rounded,
+                  size: 36,
+                  color: Color(0xFFE5484D),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Error en la compilación',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: cs.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                if (widget.lastCompilation!.message != null &&
+                    widget.lastCompilation!.message!.isNotEmpty) ...[
+                  SelectableText(
+                    widget.lastCompilation!.message!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontFamily: 'Consolas',
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Clipboard.setData(
+                        ClipboardData(text: widget.lastCompilation!.message!),
+                      );
+                      AppToast.success('Mensaje de error copiado');
+                    },
+                    icon: const Icon(Icons.copy_rounded, size: 14),
+                    label: const Text(
+                      'Copiar error',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                  ),
+                ] else ...[
+                  Text(
+                    'Revisa la pestaña "Servidor" para ver los detalles de la respuesta de Oracle.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: cs.onSurfaceVariant.withValues(alpha: 0.75),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      }
+    }
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.task_alt_rounded,
+            size: 32,
+            color: cs.onSurfaceVariant.withValues(alpha: 0.35),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Sin problemas detectados',
+            style: TextStyle(
+              fontSize: 12,
+              color: cs.onSurfaceVariant.withValues(alpha: 0.7),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompilationBanner(
+    ObjectCompilationEntry entry,
+    ColorScheme cs,
+    bool isDark,
+  ) {
+    final isSuccess = entry.status == ObjectCompilationStatus.success;
+    final isError = entry.status == ObjectCompilationStatus.error;
+    final statusColor = isSuccess
+        ? const Color(0xFF2EA043)
+        : isError
+        ? const Color(0xFFE5484D)
+        : const Color(0xFF388BFD);
+    final statusBg = isDark
+        ? statusColor.withValues(alpha: 0.12)
+        : statusColor.withValues(alpha: 0.08);
+
+    final statusIcon = isSuccess
+        ? Icons.check_circle_rounded
+        : isError
+        ? Icons.error_rounded
+        : Icons.hourglass_top_rounded;
+
+    final statusLabel = isSuccess
+        ? 'Compilado exitosamente'
+        : isError
+        ? 'Compilación con errores'
+        : 'Compilando...';
+
+    final timeStr =
+        '${entry.timestamp.hour.toString().padLeft(2, '0')}:'
+        '${entry.timestamp.minute.toString().padLeft(2, '0')}:'
+        '${entry.timestamp.second.toString().padLeft(2, '0')}';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: statusBg,
+        border: Border(
+          bottom: BorderSide(
+            color: statusColor.withValues(alpha: 0.3),
+            width: 1,
           ),
         ),
-      ],
-    ),
-  );
+      ),
+      child: Row(
+        children: [
+          Icon(statusIcon, size: 15, color: statusColor),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Row(
+              children: [
+                Text(
+                  statusLabel,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: statusColor,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '•',
+                  style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  entry.targetTitle,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: cs.onSurface,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '•',
+                  style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${entry.ambiente} (${entry.durationMs} ms)',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: cs.onSurfaceVariant.withValues(alpha: 0.85),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            timeStr,
+            style: TextStyle(
+              fontSize: 10.5,
+              color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildFilterBar(
     ColorScheme cs,
@@ -214,6 +455,14 @@ class _ProblemsOutputConsoleState extends State<ProblemsOutputConsole> {
                   ),
                 ),
               ],
+              if (widget.onClear != null &&
+                  (widget.issues.isNotEmpty || widget.lastCompilation != null))
+                _iconBtn(
+                  Icons.delete_sweep_outlined,
+                  'Limpiar mensajes',
+                  () => _handleClear(context),
+                  cs,
+                ),
               _iconBtn(Icons.copy_all_rounded, 'Copiar todo', () {
                 final text = filtered
                     .map(

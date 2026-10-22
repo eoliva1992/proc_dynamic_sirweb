@@ -425,6 +425,11 @@
 			"command": "flutter run -d windows",
 			"isBackground": true,
 			"problemMatcher": []
+		},
+		{
+			"label": "dart analyze sql http trace",
+			"type": "shell",
+			"command": "dart analyze lib/models/sql_http_trace.dart lib/services/sql_executor_service.dart lib/services/sql_executor_state_controller.dart lib/widgets/sql_executor/sql_server_trace_console.dart lib/widgets/sql_executor/sql_executor_results_panel.dart lib/screens/sql_executor_page.dart test/sql_http_trace_test.dart"
 		}
 	]
 }

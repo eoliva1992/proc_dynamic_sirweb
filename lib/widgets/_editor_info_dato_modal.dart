@@ -40,12 +40,17 @@ class _InfoDatoModal extends StatefulWidget {
 }
 
 class _InfoDatoModalState extends State<_InfoDatoModal> {
+  late String _ambiente;
   int _tab = 0;
   late Future<List<DatoInfo>> _datoFuture;
   Future<TablaDefinicion>? _defFuture;
   Future<List<ValorTabla>>? _infoFuture;
+  Future<List<TablaDefinicionAdicional>>? _defAdicionalFuture;
+  Future<List<ValorTabla>>? _infoAdicionalFuture;
   int? _cdTabla;
   int _productosCount = 0;
+  int _defAdicionalCount = 0;
+  int _infoAdicionalCount = 0;
 
   /// Código de dato actualmente consultado.
   late String _cdDato;
@@ -115,17 +120,44 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
   // Scroll controllers
   final _vertCtrl = ScrollController();
   final _horizCtrl = ScrollController();
+  final _tableVertCtrl = ScrollController();
+  final _tableHorizCtrl = ScrollController();
 
-  // Tabla Información filters
+  // Tabla Información selection and filters
+  final Set<int> _selectedRowIndices = {};
   final _indexCtrl = TextEditingController();
   final _fechaDesdeCtrl = TextEditingController();
   final _fechaHastaCtrl = TextEditingController();
   int? _inSuspendido;
   Set<String> _hiddenCols = {};
 
+  // Filtros avanzados y búsqueda para Tab 2 (Tabla Información)
+  final _tab2GlobalSearchCtrl = TextEditingController();
+  final _tab2DescCtrl = TextEditingController();
+  final _tab2TablaCtrl = TextEditingController();
+  final _tab2UsuarioCtrl = TextEditingController();
+  final _tab2FeModifCtrl = TextEditingController();
+  bool _tab2ShowAdvancedFilters = false;
+
+  // Filtro de búsqueda para Tab 3 (Productos: código o descripción)
+  final _tab3FilterCtrl = TextEditingController();
+
+  // Filtros avanzados y búsqueda para Tab 5 (Información Adicional)
+  final _tab5GlobalSearchCtrl = TextEditingController();
+  final _tab5IndexCtrl = TextEditingController();
+  final _tab5DescCtrl = TextEditingController();
+  final _tab5TablaCtrl = TextEditingController();
+  final _tab5UsuarioCtrl = TextEditingController();
+  final _tab5FeDesdeCtrl = TextEditingController();
+  final _tab5FeHastaCtrl = TextEditingController();
+  final _tab5FeModifCtrl = TextEditingController();
+  int? _tab5InSuspendido;
+  bool _tab5ShowAdvancedFilters = false;
+
   @override
   void initState() {
     super.initState();
+    _ambiente = widget.ambiente;
     _cdDato = widget.cdDatoStr.trim();
     if (_cdDato.isEmpty) {
       _editandoDato = true;
@@ -143,9 +175,25 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
     _MinimizedSlots.release(_slot);
     _vertCtrl.dispose();
     _horizCtrl.dispose();
+    _tableVertCtrl.dispose();
+    _tableHorizCtrl.dispose();
     _indexCtrl.dispose();
     _fechaDesdeCtrl.dispose();
     _fechaHastaCtrl.dispose();
+    _tab2GlobalSearchCtrl.dispose();
+    _tab2DescCtrl.dispose();
+    _tab2TablaCtrl.dispose();
+    _tab2UsuarioCtrl.dispose();
+    _tab2FeModifCtrl.dispose();
+    _tab3FilterCtrl.dispose();
+    _tab5GlobalSearchCtrl.dispose();
+    _tab5IndexCtrl.dispose();
+    _tab5DescCtrl.dispose();
+    _tab5TablaCtrl.dispose();
+    _tab5UsuarioCtrl.dispose();
+    _tab5FeDesdeCtrl.dispose();
+    _tab5FeHastaCtrl.dispose();
+    _tab5FeModifCtrl.dispose();
     _datoCtrl.dispose();
     _datoFocus.dispose();
     super.dispose();
@@ -156,15 +204,45 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
     _datoFuture = SirwebService().buscarDato(
       cdDato: parsed,
       deDato: parsed == null && _cdDato.isNotEmpty ? _cdDato : null,
-      ambiente: widget.ambiente,
+      ambiente: _ambiente,
     );
     _datoFuture.then((datos) {
       if (!mounted) return;
+      final cdTabla = datos.isNotEmpty ? datos.first.cdTabla : null;
       setState(() {
-        _cdTabla = datos.isNotEmpty ? datos.first.cdTabla : null;
+        _cdTabla = cdTabla;
         _productosCount = datos.isNotEmpty ? datos.first.productos.length : 0;
       });
+      if (cdTabla != null) {
+        _verificarTablasAdicionales(cdTabla);
+      }
     });
+  }
+
+  void _verificarTablasAdicionales(int cdTabla) {
+    _defAdicionalFuture = SirwebService().infoTablaAdicional(
+      cdTabla,
+      ambiente: _ambiente,
+    );
+    _defAdicionalFuture!
+        .then((items) {
+          if (mounted) setState(() => _defAdicionalCount = items.length);
+        })
+        .catchError((_) {
+          if (mounted) setState(() => _defAdicionalCount = 0);
+        });
+
+    _infoAdicionalFuture = SirwebService().valoresTablaAdicional(
+      cdTabla,
+      ambiente: _ambiente,
+    );
+    _infoAdicionalFuture!
+        .then((items) {
+          if (mounted) setState(() => _infoAdicionalCount = items.length);
+        })
+        .catchError((_) {
+          if (mounted) setState(() => _infoAdicionalCount = 0);
+        });
   }
 
   void _toggleCambiarDato() {
@@ -197,7 +275,38 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
       _tab = 0;
       _defFuture = null;
       _infoFuture = null;
+      _defAdicionalFuture = null;
+      _infoAdicionalFuture = null;
+      _defAdicionalCount = 0;
+      _infoAdicionalCount = 0;
       _loadDato();
+    });
+  }
+
+  void _cambiarAmbiente(String nuevo) {
+    if (nuevo == _ambiente) return;
+    setState(() {
+      _ambiente = nuevo;
+      _defFuture = null;
+      _infoFuture = null;
+      _defAdicionalFuture = null;
+      _infoAdicionalFuture = null;
+      _defAdicionalCount = 0;
+      _infoAdicionalCount = 0;
+      _selectedRowIndices.clear();
+      _loadDato();
+      if (_tab == 1 && _cdTabla != null) {
+        _defFuture = SirwebService().infoTabla(_cdTabla!, ambiente: _ambiente);
+      } else if (_tab == 2 && _cdTabla != null) {
+        _buscarInfo();
+      } else if (_tab == 4 && _cdTabla != null) {
+        _defAdicionalFuture = SirwebService().infoTablaAdicional(
+          _cdTabla!,
+          ambiente: _ambiente,
+        );
+      } else if (_tab == 5 && _cdTabla != null) {
+        _buscarInfoAdicional();
+      }
     });
   }
 
@@ -206,6 +315,7 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
     setState(() {
       _tab = idx;
       _hiddenCols = {};
+      _selectedRowIndices.clear();
     });
     final cdTabla = _cdTabla;
     if (cdTabla == null) return;
@@ -213,14 +323,28 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
       setState(
         () => _defFuture = SirwebService().infoTabla(
           cdTabla,
-          ambiente: widget.ambiente,
+          ambiente: _ambiente,
         ),
       );
     } else if (idx == 2 && _infoFuture == null) {
       setState(
         () => _infoFuture = SirwebService().valoresTabla(
           cdTabla,
-          ambiente: widget.ambiente,
+          ambiente: _ambiente,
+        ),
+      );
+    } else if (idx == 4 && _defAdicionalFuture == null) {
+      setState(
+        () => _defAdicionalFuture = SirwebService().infoTablaAdicional(
+          cdTabla,
+          ambiente: _ambiente,
+        ),
+      );
+    } else if (idx == 5 && _infoAdicionalFuture == null) {
+      setState(
+        () => _infoAdicionalFuture = SirwebService().valoresTablaAdicional(
+          cdTabla,
+          ambiente: _ambiente,
         ),
       );
     }
@@ -231,9 +355,10 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
     if (cdTabla == null) return;
     setState(() {
       _hiddenCols = {};
+      _selectedRowIndices.clear();
       _infoFuture = SirwebService().valoresTabla(
         cdTabla,
-        ambiente: widget.ambiente,
+        ambiente: _ambiente,
         deIndiceDato: _indexCtrl.text.trim().isEmpty
             ? null
             : _indexCtrl.text.trim(),
@@ -245,6 +370,173 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
             : _fechaHastaCtrl.text.trim(),
         inSuspendido: _inSuspendido,
       );
+    });
+  }
+
+  void _buscarInfoAdicional() {
+    final cdTabla = _cdTabla;
+    if (cdTabla == null) return;
+    setState(() {
+      _hiddenCols = {};
+      _selectedRowIndices.clear();
+      _infoAdicionalFuture = SirwebService().valoresTablaAdicional(
+        cdTabla,
+        ambiente: _ambiente,
+        deIndiceDato: _tab5IndexCtrl.text.trim().isEmpty
+            ? null
+            : _tab5IndexCtrl.text.trim(),
+      );
+    });
+  }
+
+  /// Evalúa si el valor textual cumple con comodines ('%') o contención case-insensitive.
+  static bool _matchesPattern(String value, String query) {
+    final q = query.trim();
+    if (q.isEmpty) return true;
+    final vLower = value.toLowerCase();
+    final qLower = q.toLowerCase();
+    if (qLower.contains('%')) {
+      final parts = qLower.split('%').where((p) => p.isNotEmpty).toList();
+      if (parts.isEmpty) return true;
+      var currentIdx = 0;
+      for (final part in parts) {
+        final matchIdx = vLower.indexOf(part, currentIdx);
+        if (matchIdx == -1) return false;
+        currentIdx = matchIdx + part.length;
+      }
+      return true;
+    }
+    return vLower.contains(qLower);
+  }
+
+  /// Extrae el valor textual de un campo específico en ValorTabla
+  static String _extractValorCampo(
+    ValorTabla item,
+    String fieldKey,
+    int? defaultCdTabla,
+  ) {
+    final keyUpper = fieldKey.toUpperCase().replaceAll('_', '');
+    if (keyUpper == 'CDTABLA' || keyUpper == 'TABLA') {
+      final direct =
+          item.raw['cdTabla'] ??
+          item.raw['CD_TABLA'] ??
+          item.raw['cdtabla'] ??
+          defaultCdTabla;
+      return direct?.toString() ?? '';
+    }
+    for (final entry in item.raw.entries) {
+      final kClean = entry.key.toUpperCase().replaceAll('_', '');
+      if (kClean == keyUpper) {
+        return entry.value?.toString() ?? '';
+      }
+    }
+    return '';
+  }
+
+  /// Filtra una lista de [ValorTabla] evaluando los 7 campos:
+  /// índice, descripción, tabla, usuario, fecha término, fecha efectiva, fecha modificación.
+  List<ValorTabla> _aplicarFiltrosMulticampo({
+    required List<ValorTabla> items,
+    required String globalQuery,
+    required String indiceQuery,
+    required String descQuery,
+    required String tablaQuery,
+    required String usuarioQuery,
+    required String feEfectivaQuery,
+    required String feTerminoQuery,
+    required String feModifQuery,
+    required int? inSuspendido,
+  }) {
+    return items.where((item) {
+      // Filtro de suspendido si se especificó
+      if (inSuspendido != null) {
+        final rawSusp = _extractValorCampo(item, 'inSuspendido', _cdTabla);
+        final suspNum =
+            int.tryParse(rawSusp) ??
+            (rawSusp.toLowerCase() == 'true' || rawSusp == 's' || rawSusp == '1'
+                ? 1
+                : 0);
+        if (suspNum != inSuspendido) return false;
+      }
+
+      final indice = _extractValorCampo(item, 'deIndiceDato', _cdTabla);
+      final desc = _extractValorCampo(item, 'deDato', _cdTabla);
+      final tabla = _extractValorCampo(item, 'cdTabla', _cdTabla);
+      final usuario = _extractValorCampo(item, 'cdUsuario', _cdTabla);
+      final feEfectiva = _extractValorCampo(
+        item,
+        'feEfectivaInformacion',
+        _cdTabla,
+      );
+      final feTermino = _extractValorCampo(
+        item,
+        'feTerminoInformacion',
+        _cdTabla,
+      );
+      final feModif = _extractValorCampo(item, 'feModificacion', _cdTabla);
+
+      // Filtro global sobre cualquiera de los 7 campos
+      if (globalQuery.trim().isNotEmpty) {
+        final matchesAny =
+            _matchesPattern(indice, globalQuery) ||
+            _matchesPattern(desc, globalQuery) ||
+            _matchesPattern(tabla, globalQuery) ||
+            _matchesPattern(usuario, globalQuery) ||
+            _matchesPattern(feEfectiva, globalQuery) ||
+            _matchesPattern(feTermino, globalQuery) ||
+            _matchesPattern(feModif, globalQuery);
+        if (!matchesAny) return false;
+      }
+
+      // Filtros específicos
+      if (indiceQuery.trim().isNotEmpty &&
+          !_matchesPattern(indice, indiceQuery)) {
+        return false;
+      }
+      if (descQuery.trim().isNotEmpty && !_matchesPattern(desc, descQuery)) {
+        return false;
+      }
+      if (tablaQuery.trim().isNotEmpty && !_matchesPattern(tabla, tablaQuery)) {
+        return false;
+      }
+      if (usuarioQuery.trim().isNotEmpty &&
+          !_matchesPattern(usuario, usuarioQuery)) {
+        return false;
+      }
+      if (feEfectivaQuery.trim().isNotEmpty &&
+          !_matchesPattern(feEfectiva, feEfectivaQuery)) {
+        return false;
+      }
+      if (feTerminoQuery.trim().isNotEmpty &&
+          !_matchesPattern(feTermino, feTerminoQuery)) {
+        return false;
+      }
+      if (feModifQuery.trim().isNotEmpty &&
+          !_matchesPattern(feModif, feModifQuery)) {
+        return false;
+      }
+
+      return true;
+    }).toList();
+  }
+
+  void _onToggleSelectAll(List<ValorTabla> valores, bool? allSelected) {
+    setState(() {
+      if (allSelected == true) {
+        _selectedRowIndices.addAll(List.generate(valores.length, (i) => i));
+      } else {
+        _selectedRowIndices.clear();
+      }
+    });
+  }
+
+  void _onToggleRow(int index, bool? selected) {
+    setState(() {
+      if (selected == true) {
+        _selectedRowIndices.add(index);
+      } else {
+        _selectedRowIndices.remove(index);
+      }
     });
   }
 
@@ -320,32 +612,41 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                     ],
                   ),
                   clipBehavior: Clip.antiAlias,
-                  // El contenido se maqueta siempre con el tamaño final y se
-                  // recorta mientras corre la animación de minimizar/restaurar.
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    minWidth: 0,
-                    maxWidth: double.infinity,
-                    minHeight: 0,
-                    maxHeight: double.infinity,
-                    child: SizedBox(
-                      width: w,
-                      height: h,
-                      child: Column(
-                        children: [
-                          _buildHeader(isDark, accent),
-                          if (!_minimized) ...[
-                            _buildTabBar(
-                              isDark,
-                              accent,
-                              productosCount: _productosCount,
+                  child: _minimized
+                      ? MinimizedWindowCard(
+                          title: 'Dato $_cdDato',
+                          icon: Icons.info_outline_rounded,
+                          accentColor: accent,
+                          badge: 'DATO',
+                          onRestore: _toggleMinimize,
+                          onClose: _cerrar,
+                        )
+                      : OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: 0,
+                          maxWidth: double.infinity,
+                          minHeight: 0,
+                          maxHeight: double.infinity,
+                          child: SizedBox(
+                            width: w,
+                            height: h,
+                            child: Column(
+                              children: [
+                                _buildHeader(isDark, accent),
+                                if (!_minimized) ...[
+                                  _buildTabBar(
+                                    isDark,
+                                    accent,
+                                    productosCount: _productosCount,
+                                  ),
+                                  Expanded(
+                                    child: _buildTabContent(isDark, accent),
+                                  ),
+                                ],
+                              ],
                             ),
-                            Expanded(child: _buildTabContent(isDark, accent)),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
+                          ),
+                        ),
                 ),
               ),
             ),
@@ -584,6 +885,8 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                   ),
                 ),
               if (_cdTabla != null && !_minimized) ...[
+                AmbienteSelector(value: _ambiente, onChanged: _cambiarAmbiente),
+                const SizedBox(width: 8),
                 Container(
                   margin: const EdgeInsets.only(right: 8),
                   padding: const EdgeInsets.symmetric(
@@ -606,6 +909,9 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                     ),
                   ),
                 ),
+              ] else if (!_minimized) ...[
+                AmbienteSelector(value: _ambiente, onChanged: _cambiarAmbiente),
+                const SizedBox(width: 8),
               ],
               IconButton(
                 tooltip: _minimized ? 'Restaurar' : 'Minimizar',
@@ -669,15 +975,20 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
         color: isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA),
         border: Border(bottom: BorderSide(color: borderColor)),
       ),
-      child: Row(
-        children: [
-          _tab0(isDark, accent),
-          if (productosCount > 0) _tab3(isDark, accent, productosCount),
-          if (_cdTabla != null) ...[
-            _tab1(isDark, accent),
-            _tab2(isDark, accent),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            _tab0(isDark, accent),
+            if (productosCount > 0) _tab3(isDark, accent, productosCount),
+            if (_cdTabla != null) ...[
+              _tab1(isDark, accent),
+              _tab2(isDark, accent),
+              _tab4(isDark, accent, _defAdicionalCount),
+              _tab5(isDark, accent, _infoAdicionalCount),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -765,6 +1076,22 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
     accent,
     badge: count.toString(),
   );
+  Widget _tab4(bool isDark, Color accent, int count) => _tabItem(
+    4,
+    'Definición Adicional',
+    Icons.playlist_add_check_outlined,
+    isDark,
+    accent,
+    badge: count > 0 ? count.toString() : null,
+  );
+  Widget _tab5(bool isDark, Color accent, int count) => _tabItem(
+    5,
+    'Información Adicional',
+    Icons.playlist_add_outlined,
+    isDark,
+    accent,
+    badge: count > 0 ? count.toString() : null,
+  );
 
   // ── Tab content router ────────────────────────────────────────────────────
 
@@ -786,6 +1113,8 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
           1 => _buildDefTab(isDark, accent),
           2 => _buildInfoTab(isDark, accent),
           3 => _buildProductosTab(d.productos, isDark, accent),
+          4 => _buildDefAdicionalTab(isDark, accent),
+          5 => _buildInfoAdicionalTab(isDark, accent),
           _ => _buildDatoTabContent(datos, isDark, accent),
         };
       },
@@ -815,6 +1144,7 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
         : Colors.black87;
 
     final props = <(String, String)>[
+      if (d.version != null) ('Versión', d.version.toString()),
       if (d.cdDato != null) ('Código', d.cdDato.toString()),
       if (d.deDato != null) ('Descripción', d.deDato!),
       if (d.tpDato != null) ('Tipo', d.tpDato!),
@@ -834,6 +1164,7 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
     ];
 
     const knownKeys = {
+      'version',
       'cdDato',
       'deDato',
       'tpDato',
@@ -863,6 +1194,17 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              _buildMiniIconButton(
+                icon: Icons.copy_all_rounded,
+                tooltip: 'Copiar toda la información del dato',
+                color: accent,
+                onTap: () => _copyDatoCard(d, props, flags, extras),
+              ),
+            ],
+          ),
           for (final (label, value) in props)
             Padding(
               padding: const EdgeInsets.only(bottom: 6),
@@ -870,7 +1212,7 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   SizedBox(
-                    width: 88,
+                    width: 95,
                     child: Text(
                       label,
                       style: TextStyle(
@@ -881,10 +1223,17 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                     ),
                   ),
                   Expanded(
-                    child: Text(
+                    child: SelectableText(
                       value,
                       style: TextStyle(fontSize: 13, color: textColor),
                     ),
+                  ),
+                  const SizedBox(width: 4),
+                  _buildMiniIconButton(
+                    icon: Icons.copy_rounded,
+                    tooltip: 'Copiar $label',
+                    color: labelColor,
+                    onTap: () => _copyText(value, label),
                   ),
                 ],
               ),
@@ -976,7 +1325,7 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     SizedBox(
-                      width: 88,
+                      width: 95,
                       child: Text(
                         e.key,
                         style: TextStyle(
@@ -987,10 +1336,17 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                       ),
                     ),
                     Expanded(
-                      child: Text(
+                      child: SelectableText(
                         e.value.toString(),
                         style: TextStyle(fontSize: 11, color: textColor),
                       ),
+                    ),
+                    const SizedBox(width: 4),
+                    _buildMiniIconButton(
+                      icon: Icons.copy_rounded,
+                      tooltip: 'Copiar ${e.key}',
+                      color: labelColor,
+                      onTap: () => _copyText(e.value.toString(), e.key),
                     ),
                   ],
                 ),
@@ -1015,17 +1371,36 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
       );
     }
 
+    final query = _tab3FilterCtrl.text.trim().toLowerCase();
+    final productosFiltrados = query.isEmpty
+        ? productos
+        : productos.where((p) {
+            final cdMatches = p.cdProducto?.toString().toLowerCase().contains(query) ?? false;
+            final deMatches = p.deProducto?.toLowerCase().contains(query) ?? false;
+            return cdMatches || deMatches;
+          }).toList();
+
     final borderColor = isDark
         ? const Color(0xFF3A3A3A)
         : const Color(0xFFDDE2EA);
     final labelColor = isDark ? Colors.white54 : Colors.black45;
+    final hintStyle = TextStyle(
+      fontSize: 12,
+      color: isDark ? Colors.white38 : Colors.black38,
+    );
+    final inputBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(6),
+      borderSide: BorderSide(
+        color: isDark ? const Color(0xFF444444) : const Color(0xFFCCCCCC),
+      ),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Header count
+        // Header con buscador y contador
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
             color: isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA),
             border: Border(bottom: BorderSide(color: borderColor)),
@@ -1035,29 +1410,104 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
               Icon(Icons.inventory_2_outlined, size: 15, color: accent),
               const SizedBox(width: 8),
               Text(
-                '${productos.length} producto${productos.length != 1 ? 's' : ''} encontrado${productos.length != 1 ? 's' : ''}',
+                query.isEmpty
+                    ? '${productos.length} producto${productos.length != 1 ? 's' : ''} encontrado${productos.length != 1 ? 's' : ''}'
+                    : '${productosFiltrados.length} de ${productos.length} producto${productos.length != 1 ? 's' : ''}',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                   color: isDark ? Colors.white70 : Colors.black87,
                 ),
               ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: SizedBox(
+                  height: 32,
+                  child: TextField(
+                    controller: _tab3FilterCtrl,
+                    style: const TextStyle(fontSize: 12),
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      hintText: 'Filtrar por código o descripción de producto…',
+                      hintStyle: hintStyle,
+                      prefixIcon: const Icon(Icons.search, size: 14),
+                      prefixIconConstraints: const BoxConstraints(minWidth: 30),
+                      suffixIcon: _tab3FilterCtrl.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 14),
+                              tooltip: 'Limpiar filtro',
+                              onPressed: () {
+                                setState(() {
+                                  _tab3FilterCtrl.clear();
+                                });
+                              },
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 24,
+                                minHeight: 24,
+                              ),
+                            )
+                          : null,
+                      border: inputBorder,
+                      enabledBorder: inputBorder,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 0,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
-        // List of products
+        // List of products or empty search result
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.all(14),
-            itemCount: productos.length,
-            itemBuilder: (ctx, i) => _buildProductoCard(
-              productos[i],
-              isDark,
-              accent,
-              borderColor,
-              labelColor,
-            ),
-          ),
+          child: productosFiltrados.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.search_off_outlined,
+                        size: 36,
+                        color: isDark ? Colors.white24 : Colors.black26,
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'No hay productos que coincidan con "$query"',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: isDark ? Colors.white60 : Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextButton.icon(
+                        icon: const Icon(Icons.clear, size: 14),
+                        label: const Text(
+                          'Limpiar filtro',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _tab3FilterCtrl.clear();
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(14),
+                  itemCount: productosFiltrados.length,
+                  itemBuilder: (ctx, i) => _buildProductoCard(
+                    productosFiltrados[i],
+                    isDark,
+                    accent,
+                    borderColor,
+                    labelColor,
+                  ),
+                ),
         ),
       ],
     );
@@ -1161,6 +1611,7 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                   ),
                 if (p.inActivo != null)
                   Container(
+                    margin: const EdgeInsets.only(right: 6),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 6,
                       vertical: 2,
@@ -1187,6 +1638,12 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                       ),
                     ),
                   ),
+                _buildMiniIconButton(
+                  icon: Icons.copy_all_rounded,
+                  tooltip: 'Copiar ficha completa del producto',
+                  color: accent,
+                  onTap: () => _copyProductoCard(p),
+                ),
               ],
             ),
           ),
@@ -1322,6 +1779,11 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                       p.cdProcedimientoAntes!,
                       const Color(0xFF0078D4),
                       isDark,
+                      onOpen: () => _abrirProcedimientoDinamico(
+                        context,
+                        p.cdProcedimientoAntes!,
+                      ),
+                      openTooltip: 'Abrir procedimiento dinámico en pestaña',
                     ),
                   if (p.cdProcedimientoDespues != null)
                     _buildCodeProp(
@@ -1329,6 +1791,11 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                       p.cdProcedimientoDespues!,
                       const Color(0xFF0078D4),
                       isDark,
+                      onOpen: () => _abrirProcedimientoDinamico(
+                        context,
+                        p.cdProcedimientoDespues!,
+                      ),
+                      openTooltip: 'Abrir procedimiento dinámico en pestaña',
                     ),
                   if (p.cdJavascriptDespues != null)
                     _buildCodeProp(
@@ -1343,6 +1810,9 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                       p.nmPackageAjax!,
                       const Color(0xFF4EC9B0),
                       isDark,
+                      onOpen: () =>
+                          _abrirCodigoFuente(p.nmPackageAjax!, 'PACKAGE'),
+                      openTooltip: 'Ver código fuente del package Ajax',
                     ),
                 ],
 
@@ -1630,7 +2100,7 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
             fontWeight: FontWeight.w500,
           ),
         ),
-        Text(
+        SelectableText(
           value,
           style: TextStyle(
             fontSize: 11.5,
@@ -1639,11 +2109,63 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
             fontFamily: 'Consolas',
           ),
         ),
+        const SizedBox(width: 4),
+        _buildMiniIconButton(
+          icon: Icons.copy_rounded,
+          tooltip: 'Copiar $label',
+          color: labelColor,
+          onTap: () => _copyText(value, label),
+        ),
       ],
     );
   }
 
-  Widget _buildCodeProp(String label, String code, Color color, bool isDark) {
+  void _abrirProcedimientoDinamico(BuildContext context, String rawCode) {
+    final clean = rawCode
+        .trim()
+        .replaceAll(RegExp(r'[\(\);].*'), '')
+        .trim()
+        .toUpperCase();
+    if (clean.isEmpty) return;
+
+    final openTab = DynamicProcedureTabController.openTabOf(context);
+    if (openTab != null) {
+      openTab(cdProcedimiento: clean, ambiente: _ambiente);
+      if (!_minimized) {
+        _toggleMinimize();
+      }
+    } else {
+      AppToast.info('No se pudo abrir el procedimiento "$clean".');
+    }
+  }
+
+  void _abrirCodigoFuente(String objectName, String objectType) {
+    final clean = objectName
+        .trim()
+        .replaceAll(RegExp(r'[\(\);].*'), '')
+        .trim()
+        .toUpperCase();
+    if (clean.isEmpty) return;
+
+    openSourceWindow(
+      context,
+      name: clean,
+      objectType: objectType,
+      ambiente: _ambiente,
+    );
+    if (!_minimized) {
+      _toggleMinimize();
+    }
+  }
+
+  Widget _buildCodeProp(
+    String label,
+    String code,
+    Color color,
+    bool isDark, {
+    VoidCallback? onOpen,
+    String? openTooltip,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 5),
       child: Row(
@@ -1668,14 +2190,36 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                 borderRadius: BorderRadius.circular(4),
                 border: Border.all(color: color.withValues(alpha: 0.3)),
               ),
-              child: Text(
-                code,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontFamily: 'Consolas',
-                  fontWeight: FontWeight.w600,
-                  color: isDark ? color.withValues(alpha: 0.9) : color,
-                ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: SelectableText(
+                      code,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontFamily: 'Consolas',
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? color.withValues(alpha: 0.9) : color,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  if (onOpen != null) ...[
+                    _buildMiniIconButton(
+                      icon: Icons.open_in_new_rounded,
+                      tooltip: openTooltip ?? 'Abrir $label',
+                      color: color,
+                      onTap: onOpen,
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                  _buildMiniIconButton(
+                    icon: Icons.copy_rounded,
+                    tooltip: 'Copiar $label',
+                    color: color,
+                    onTap: () => _copyText(code, label),
+                  ),
+                ],
               ),
             ),
           ),
@@ -1717,6 +2261,12 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
       'deTabla',
       'CD_TABLA',
       'DE_TABLA',
+      'version',
+      'VERSION',
+      'inComboConsulta',
+      'IN_COMBO_CONSULTA',
+      'nmPackageLlenado',
+      'NM_PACKAGE_LLENADO',
       'datos',
       'columnas',
       'items',
@@ -1768,7 +2318,59 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                         color: textColor,
                       ),
                     ),
+                    if (def.version != null) ...[
+                      const SizedBox(width: 16),
+                      Text(
+                        'Versión: ',
+                        style: TextStyle(fontSize: 11, color: labelColor),
+                      ),
+                      Text(
+                        def.version.toString(),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontFamily: 'Consolas',
+                          color: textColor,
+                        ),
+                      ),
+                    ],
                   ],
+                ),
+              if (def.inComboConsulta != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Combo consulta: ',
+                        style: TextStyle(fontSize: 11, color: labelColor),
+                      ),
+                      Text(
+                        def.inComboConsulta! ? 'Sí' : 'No',
+                        style: TextStyle(fontSize: 11, color: textColor),
+                      ),
+                    ],
+                  ),
+                ),
+              if (def.nmPackageLlenado != null &&
+                  def.nmPackageLlenado!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Package llenado: ',
+                        style: TextStyle(fontSize: 11, color: labelColor),
+                      ),
+                      Text(
+                        def.nmPackageLlenado!,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontFamily: 'Consolas',
+                          color: textColor,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               // Extra raw fields
               for (final e in def.raw.entries.where(
@@ -1883,6 +2485,70 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
                             style: TextStyle(fontSize: 12, color: textColor),
                           ),
                         ),
+                        // Acceso directo al dato (excluyendo el dato que se está consultando)
+                        if (col.cdDato != null) ...[
+                          const SizedBox(width: 8),
+                          if (col.cdDato.toString() == _cdDato)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: accent.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                'Actual',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: accent,
+                                ),
+                              ),
+                            )
+                          else
+                            InkWell(
+                              onTap: () => showInfoDatoWindow(
+                                context,
+                                col.cdDato.toString(),
+                                _ambiente,
+                              ),
+                              borderRadius: BorderRadius.circular(4),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: accent.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(
+                                    color: accent.withValues(alpha: 0.3),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.open_in_new_rounded,
+                                      size: 11,
+                                      color: accent,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Ver dato',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                        color: accent,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
                       ],
                     ),
                   );
@@ -1931,93 +2597,301 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
         color: isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA),
         border: Border(bottom: BorderSide(color: borderColor)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            flex: 3,
-            child: SizedBox(
-              height: 32,
-              child: TextField(
-                controller: _indexCtrl,
-                style: const TextStyle(fontSize: 12),
-                decoration: InputDecoration(
-                  hintText: 'Índice dato (admite %)',
-                  hintStyle: hintStyle,
-                  prefixIcon: const Icon(Icons.search, size: 14),
-                  prefixIconConstraints: const BoxConstraints(minWidth: 30),
-                  border: inputBorder,
-                  enabledBorder: inputBorder,
-                  contentPadding: contentPad,
-                ),
-                onSubmitted: (_) => _buscarInfo(),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            flex: 2,
-            child: SizedBox(
-              height: 32,
-              child: TextField(
-                controller: _fechaDesdeCtrl,
-                style: const TextStyle(fontSize: 12),
-                decoration: InputDecoration(
-                  hintText: 'Desde dd/MM/yyyy',
-                  hintStyle: hintStyle,
-                  border: inputBorder,
-                  enabledBorder: inputBorder,
-                  contentPadding: contentPad,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            flex: 2,
-            child: SizedBox(
-              height: 32,
-              child: TextField(
-                controller: _fechaHastaCtrl,
-                style: const TextStyle(fontSize: 12),
-                decoration: InputDecoration(
-                  hintText: 'Hasta dd/MM/yyyy',
-                  hintStyle: hintStyle,
-                  border: inputBorder,
-                  enabledBorder: inputBorder,
-                  contentPadding: contentPad,
+          Row(
+            children: [
+              // Buscador unificado rápido
+              Expanded(
+                flex: 4,
+                child: SizedBox(
+                  height: 32,
+                  child: TextField(
+                    controller: _tab2GlobalSearchCtrl,
+                    style: const TextStyle(fontSize: 12),
+                    decoration: InputDecoration(
+                      hintText:
+                          'Buscar en índice, desc, tabla, usuario, fechas…',
+                      hintStyle: hintStyle,
+                      prefixIcon: const Icon(Icons.search, size: 14),
+                      prefixIconConstraints: const BoxConstraints(minWidth: 30),
+                      suffixIcon: _tab2GlobalSearchCtrl.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 14),
+                              onPressed: () {
+                                setState(() {
+                                  _tab2GlobalSearchCtrl.clear();
+                                  _selectedRowIndices.clear();
+                                });
+                              },
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 24,
+                                minHeight: 24,
+                              ),
+                            )
+                          : null,
+                      border: inputBorder,
+                      enabledBorder: inputBorder,
+                      contentPadding: contentPad,
+                    ),
+                    onChanged: (_) =>
+                        setState(() => _selectedRowIndices.clear()),
+                    onSubmitted: (_) => _buscarInfo(),
+                  ),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          DropdownButton<int?>(
-            value: _inSuspendido,
-            isDense: true,
-            underline: const SizedBox.shrink(),
-            style: TextStyle(
-              fontSize: 12,
-              color: isDark ? Colors.white70 : Colors.black87,
-            ),
-            items: const [
-              DropdownMenuItem<int?>(value: null, child: Text('Todos')),
-              DropdownMenuItem<int?>(value: 0, child: Text('Activos')),
-              DropdownMenuItem<int?>(value: 1, child: Text('Suspendidos')),
+              const SizedBox(width: 8),
+              // Botón desplegable de filtros específicos
+              OutlinedButton.icon(
+                onPressed: () => setState(
+                  () => _tab2ShowAdvancedFilters = !_tab2ShowAdvancedFilters,
+                ),
+                icon: Icon(
+                  _tab2ShowAdvancedFilters
+                      ? Icons.filter_alt
+                      : Icons.filter_alt_outlined,
+                  size: 14,
+                  color: _tab2ShowAdvancedFilters
+                      ? accent
+                      : (isDark ? Colors.white70 : Colors.black87),
+                ),
+                label: Text(
+                  _tab2ShowAdvancedFilters
+                      ? 'Ocultar filtros'
+                      : 'Filtros detallados',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: _tab2ShowAdvancedFilters
+                        ? accent
+                        : (isDark ? Colors.white70 : Colors.black87),
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 0,
+                  ),
+                  minimumSize: const Size(0, 32),
+                  side: BorderSide(
+                    color: _tab2ShowAdvancedFilters ? accent : borderColor,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                height: 32,
+                child: FilledButton.icon(
+                  onPressed: _buscarInfo,
+                  icon: const Icon(Icons.refresh, size: 14),
+                  label: const Text(
+                    'Consultar BD',
+                    style: TextStyle(fontSize: 11),
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: accent,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                ),
+              ),
             ],
-            onChanged: (v) => setState(() => _inSuspendido = v),
           ),
-          const SizedBox(width: 8),
-          SizedBox(
-            height: 32,
-            child: FilledButton.icon(
-              onPressed: _buscarInfo,
-              icon: const Icon(Icons.search, size: 14),
-              label: const Text('Buscar', style: TextStyle(fontSize: 12)),
-              style: FilledButton.styleFrom(
-                backgroundColor: accent,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-              ),
+          if (_tab2ShowAdvancedFilters) ...[
+            const SizedBox(height: 8),
+            // Fila 1 de filtros específicos: Índice, Descripción, Tabla, Usuario
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: SizedBox(
+                    height: 30,
+                    child: TextField(
+                      controller: _indexCtrl,
+                      style: const TextStyle(fontSize: 11),
+                      decoration: InputDecoration(
+                        hintText: 'Índice (admite %)',
+                        hintStyle: hintStyle,
+                        border: inputBorder,
+                        enabledBorder: inputBorder,
+                        contentPadding: contentPad,
+                      ),
+                      onChanged: (_) =>
+                          setState(() => _selectedRowIndices.clear()),
+                      onSubmitted: (_) => _buscarInfo(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  flex: 3,
+                  child: SizedBox(
+                    height: 30,
+                    child: TextField(
+                      controller: _tab2DescCtrl,
+                      style: const TextStyle(fontSize: 11),
+                      decoration: InputDecoration(
+                        hintText: 'Descripción',
+                        hintStyle: hintStyle,
+                        border: inputBorder,
+                        enabledBorder: inputBorder,
+                        contentPadding: contentPad,
+                      ),
+                      onChanged: (_) =>
+                          setState(() => _selectedRowIndices.clear()),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  flex: 2,
+                  child: SizedBox(
+                    height: 30,
+                    child: TextField(
+                      controller: _tab2TablaCtrl,
+                      style: const TextStyle(fontSize: 11),
+                      decoration: InputDecoration(
+                        hintText: 'Tabla',
+                        hintStyle: hintStyle,
+                        border: inputBorder,
+                        enabledBorder: inputBorder,
+                        contentPadding: contentPad,
+                      ),
+                      onChanged: (_) =>
+                          setState(() => _selectedRowIndices.clear()),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  flex: 2,
+                  child: SizedBox(
+                    height: 30,
+                    child: TextField(
+                      controller: _tab2UsuarioCtrl,
+                      style: const TextStyle(fontSize: 11),
+                      decoration: InputDecoration(
+                        hintText: 'Usuario',
+                        hintStyle: hintStyle,
+                        border: inputBorder,
+                        enabledBorder: inputBorder,
+                        contentPadding: contentPad,
+                      ),
+                      onChanged: (_) =>
+                          setState(() => _selectedRowIndices.clear()),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ),
+            const SizedBox(height: 6),
+            // Fila 2 de filtros específicos: F. Efectiva (Desde), F. Término (Hasta), F. Modificación, Estado
+            Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: SizedBox(
+                    height: 30,
+                    child: TextField(
+                      controller: _fechaDesdeCtrl,
+                      style: const TextStyle(fontSize: 11),
+                      decoration: InputDecoration(
+                        hintText: 'F. Efectiva (dd/MM/yyyy)',
+                        hintStyle: hintStyle,
+                        border: inputBorder,
+                        enabledBorder: inputBorder,
+                        contentPadding: contentPad,
+                      ),
+                      onChanged: (_) =>
+                          setState(() => _selectedRowIndices.clear()),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  flex: 2,
+                  child: SizedBox(
+                    height: 30,
+                    child: TextField(
+                      controller: _fechaHastaCtrl,
+                      style: const TextStyle(fontSize: 11),
+                      decoration: InputDecoration(
+                        hintText: 'F. Término (dd/MM/yyyy)',
+                        hintStyle: hintStyle,
+                        border: inputBorder,
+                        enabledBorder: inputBorder,
+                        contentPadding: contentPad,
+                      ),
+                      onChanged: (_) =>
+                          setState(() => _selectedRowIndices.clear()),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  flex: 2,
+                  child: SizedBox(
+                    height: 30,
+                    child: TextField(
+                      controller: _tab2FeModifCtrl,
+                      style: const TextStyle(fontSize: 11),
+                      decoration: InputDecoration(
+                        hintText: 'F. Modificación',
+                        hintStyle: hintStyle,
+                        border: inputBorder,
+                        enabledBorder: inputBorder,
+                        contentPadding: contentPad,
+                      ),
+                      onChanged: (_) =>
+                          setState(() => _selectedRowIndices.clear()),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                DropdownButton<int?>(
+                  value: _inSuspendido,
+                  isDense: true,
+                  underline: const SizedBox.shrink(),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? Colors.white70 : Colors.black87,
+                  ),
+                  items: const [
+                    DropdownMenuItem<int?>(value: null, child: Text('Todos')),
+                    DropdownMenuItem<int?>(value: 0, child: Text('Activos')),
+                    DropdownMenuItem<int?>(
+                      value: 1,
+                      child: Text('Suspendidos'),
+                    ),
+                  ],
+                  onChanged: (v) {
+                    setState(() {
+                      _inSuspendido = v;
+                      _selectedRowIndices.clear();
+                    });
+                  },
+                ),
+                const SizedBox(width: 6),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _tab2GlobalSearchCtrl.clear();
+                      _indexCtrl.clear();
+                      _tab2DescCtrl.clear();
+                      _tab2TablaCtrl.clear();
+                      _tab2UsuarioCtrl.clear();
+                      _fechaDesdeCtrl.clear();
+                      _fechaHastaCtrl.clear();
+                      _tab2FeModifCtrl.clear();
+                      _inSuspendido = null;
+                      _selectedRowIndices.clear();
+                    });
+                  },
+                  child: const Text('Limpiar', style: TextStyle(fontSize: 11)),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -2059,13 +2933,35 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
           return const Center(child: CircularProgressIndicator());
         }
         if (snap.hasError) return _buildError(snap.error.toString(), isDark);
-        final valores = snap.data ?? [];
-        if (valores.isEmpty) {
+        final todosValores = snap.data ?? [];
+        if (todosValores.isEmpty) {
           return _buildEmpty(
             'Sin resultados con los filtros indicados',
             isDark,
           );
         }
+
+        // Aplicar filtros multicampo locales (índice, descripción, tabla, usuario, fechas, suspendido)
+        final valores = _aplicarFiltrosMulticampo(
+          items: todosValores,
+          globalQuery: _tab2GlobalSearchCtrl.text,
+          indiceQuery: _indexCtrl.text,
+          descQuery: _tab2DescCtrl.text,
+          tablaQuery: _tab2TablaCtrl.text,
+          usuarioQuery: _tab2UsuarioCtrl.text,
+          feEfectivaQuery: _fechaDesdeCtrl.text,
+          feTerminoQuery: _fechaHastaCtrl.text,
+          feModifQuery: _tab2FeModifCtrl.text,
+          inSuspendido: _inSuspendido,
+        );
+
+        if (valores.isEmpty) {
+          return _buildEmpty(
+            'Ningún registro coincide con la búsqueda actual (${todosValores.length} registros cargados)',
+            isDark,
+          );
+        }
+
         final allCols = _detectInfoCols(valores);
         final effectiveCols = _hiddenCols.isEmpty
             ? allCols
@@ -2081,11 +2977,17 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
               valores,
             ),
             Expanded(
-              child: _buildInfoTable(
-                isDark,
-                borderColor,
-                effectiveCols,
-                valores,
+              child: InfoDatoVirtualTable(
+                isDark: isDark,
+                borderColor: borderColor,
+                cols: effectiveCols,
+                valores: valores,
+                cdTabla: _cdTabla,
+                vertCtrl: _tableVertCtrl,
+                horizCtrl: _tableHorizCtrl,
+                selectedRowIndices: _selectedRowIndices,
+                onToggleSelectAll: (val) => _onToggleSelectAll(valores, val),
+                onToggleRow: _onToggleRow,
               ),
             ),
           ],
@@ -2101,6 +3003,7 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
       keys.addAll(v.raw.keys);
     }
     const preferred = [
+      'version',
       'deIndiceDato',
       'deDato',
       'vaDato1',
@@ -2129,6 +3032,7 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
 
   String _infoColLabel(String col) {
     const labels = <String, String>{
+      'version': 'Versión',
       'deIndiceDato': 'Índice',
       'deDato': 'Descripción',
       'vaDato1': 'Dato 1',
@@ -2152,7 +3056,196 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
     return labels[col] ?? col;
   }
 
-  // ── Toolbar (Tab 2) ──────────────────────────────────────────────────────
+  static const _kKnownDbColumnAliases = <String, String>{
+    'VERSION': 'VERSION',
+    'DEINDICEDATO': 'DE_INDICE_DATO',
+    'DEDATO': 'DE_DATO',
+    'VADATO1': 'VA_DATO1',
+    'VADATO2': 'VA_DATO2',
+    'VADATO3': 'VA_DATO3',
+    'VADATO4': 'VA_DATO4',
+    'VADATO5': 'VA_DATO5',
+    'VADATO6': 'VA_DATO6',
+    'FEEFECTIVAINFORMACION': 'FE_EFECTIVA_INFORMACION',
+    'FETERMINOINFORMACION': 'FE_TERMINO_INFORMACION',
+    'INSUSPENDIDO': 'IN_SUSPENDIDO',
+    'INVALORDEFECTO': 'IN_VALOR_DEFECTO',
+    'INNOVALIDO': 'IN_NO_VALIDO',
+    'INNOMOSTRARWEBEXTERNA': 'IN_NO_MOSTRAR_WEB_EXTERNA',
+    'INNOMOSTRARWEBMEDIADOR': 'IN_NO_MOSTRAR_WEB_MEDIADOR',
+    'INNOMOSTRARWEBPROVEEDOR': 'IN_NO_MOSTRAR_WEB_PROVEEDOR',
+    'INNOMOSTRARWEBDELEGADO': 'IN_NO_MOSTRAR_WEB_DELEGADO',
+    'FEMODIFICACION': 'FE_MODIFICACION',
+    'CDUSUARIO': 'CD_USUARIO',
+    'CDTABLA': 'CD_TABLA',
+  };
+
+  static bool _isNumericField(String col) {
+    final upper = col.toUpperCase();
+    final clean = upper.replaceAll('_', '');
+    if (upper.startsWith('VA_DATO') ||
+        upper == 'CD_TABLA' ||
+        upper == 'CD_DATO' ||
+        upper == 'VERSION' ||
+        clean.startsWith('VADATO') ||
+        clean == 'CDTABLA' ||
+        clean == 'CDDATO' ||
+        clean == 'VERSION') {
+      return true;
+    }
+    const numericFields = [
+      'version',
+      'vaDato1',
+      'vaDato2',
+      'vaDato3',
+      'vaDato4',
+      'vaDato5',
+      'vaDato6',
+      'cdTabla',
+      'cdDato',
+    ];
+    return numericFields.contains(col);
+  }
+
+  Future<SqlQueryResult> _buildSqlQueryResult(
+    List<String> visibleCols,
+    List<ValorTabla> valores, {
+    String suggestedTable = 'TABLAINFORMACION',
+  }) async {
+    // Consultar las columnas del esquema
+    final dbColumns = await SchemaService.instance.getColumns(
+      suggestedTable,
+      ambiente: _ambiente,
+    );
+
+    final dbColMap = <String, ({String name, String dataType})>{};
+    for (final col in dbColumns) {
+      final clean = col.name.replaceAll('_', '').toUpperCase();
+      dbColMap[clean] = col;
+      dbColMap[col.name.toUpperCase()] = col;
+    }
+
+    final sqlCols = <SqlColumn>[];
+    final seenSqlColNames = <String>{};
+    final resolvedColIndices = <int>[];
+
+    for (var idx = 0; idx < visibleCols.length; idx++) {
+      final col = visibleCols[idx];
+      final upper = col.toUpperCase();
+      final clean = upper.replaceAll('_', '');
+      var matched = dbColMap[upper] ?? dbColMap[clean];
+      if (matched == null && _kKnownDbColumnAliases.containsKey(clean)) {
+        final aliasTarget = _kKnownDbColumnAliases[clean]!;
+        matched = dbColMap[aliasTarget];
+        if (matched == null) {
+          final colName = aliasTarget;
+          if (seenSqlColNames.add(colName.toUpperCase())) {
+            sqlCols.add(
+              SqlColumn(
+                name: colName,
+                dataType: _isNumericField(col) ? 'NUMBER' : 'VARCHAR2',
+              ),
+            );
+            resolvedColIndices.add(idx);
+          }
+          continue;
+        }
+      }
+
+      final colName = matched?.name ?? upper;
+      if (seenSqlColNames.add(colName.toUpperCase())) {
+        sqlCols.add(
+          SqlColumn(
+            name: colName,
+            dataType:
+                matched?.dataType ??
+                (_isNumericField(col) ? 'NUMBER' : 'VARCHAR2'),
+          ),
+        );
+        resolvedColIndices.add(idx);
+      }
+    }
+
+    final sqlRows = [
+      for (final v in valores)
+        [
+          for (final idx in resolvedColIndices)
+            () {
+              final col = visibleCols[idx];
+              final colUpper = col.toUpperCase();
+              final colClean = colUpper.replaceAll('_', '');
+
+              if (colUpper == 'CD_TABLA' || colClean == 'CDTABLA') {
+                final direct =
+                    v.raw[col] ??
+                    v.raw['cdTabla'] ??
+                    v.raw['CD_TABLA'] ??
+                    v.raw['cdtabla'];
+                return direct ?? _cdTabla;
+              }
+
+              if (v.raw.containsKey(col)) {
+                return v.raw[col];
+              }
+
+              for (final entry in v.raw.entries) {
+                final kUpper = entry.key.toUpperCase();
+                final kClean = kUpper.replaceAll('_', '');
+                if (kUpper == colUpper || kClean == colClean) {
+                  return entry.value;
+                }
+                final alias =
+                    _kKnownDbColumnAliases[kClean] ??
+                    _kKnownDbColumnAliases[kUpper];
+                if (alias != null &&
+                    (alias.toUpperCase() == colUpper ||
+                        alias.replaceAll('_', '').toUpperCase() == colClean)) {
+                  return entry.value;
+                }
+              }
+
+              return null;
+            }(),
+        ],
+    ];
+
+    return SqlQueryResult(
+      columns: sqlCols,
+      rows: sqlRows,
+      returnedRows: valores.length,
+      truncated: false,
+      durationMs: 0,
+    );
+  }
+
+  Future<void> _abrirGeneradorDml(
+    BuildContext context,
+    List<String> cols,
+    List<ValorTabla> valores, {
+    String suggestedTable = 'TABLAINFORMACION',
+  }) async {
+    if (valores.isEmpty) return;
+    final rowIndexes = _selectedRowIndices.isEmpty
+        ? List<int>.generate(valores.length, (i) => i)
+        : (_selectedRowIndices.toList()..sort());
+
+    final sqlResult = await _buildSqlQueryResult(
+      cols,
+      valores,
+      suggestedTable: suggestedTable,
+    );
+    if (!context.mounted) return;
+
+    showSqlDmlGeneratorDialog(
+      context,
+      result: sqlResult,
+      rowIndexes: rowIndexes,
+      suggestedTable: suggestedTable,
+      ambiente: _ambiente,
+    );
+  }
+
+  // ── Toolbar (Tab 2 / Tab 5) ──────────────────────────────────────────────
 
   Widget _buildInfoToolbar(
     BuildContext context,
@@ -2160,11 +3253,13 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
     Color borderColor,
     List<String> allCols,
     List<String> effectiveCols,
-    List<ValorTabla> valores,
-  ) {
+    List<ValorTabla> valores, {
+    String suggestedTable = 'TABLAINFORMACION',
+  }) {
     final bg = isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA);
     final labelColor = isDark ? Colors.white54 : Colors.black45;
     final hiddenCount = allCols.length - effectiveCols.length;
+    final selectedCount = _selectedRowIndices.length;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
@@ -2175,15 +3270,32 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
       child: Row(
         children: [
           Text(
-            '${valores.length} registro${valores.length != 1 ? 's' : ''}',
+            selectedCount > 0
+                ? '$selectedCount de ${valores.length} seleccionado${selectedCount != 1 ? 's' : ''}'
+                : '${valores.length} registro${valores.length != 1 ? 's' : ''}',
             style: TextStyle(fontSize: 11, color: labelColor),
           ),
           const Spacer(),
           _infoToolBtn(
             isDark,
             Icons.view_column_outlined,
-            hiddenCount > 0 ? 'Columnas ($hiddenCount)' : 'Columnas',
+            hiddenCount > 0 ? 'Columnas ($hiddenCount ocultas)' : 'Columnas',
             () => _showInfoColSelector(context, allCols),
+          ),
+          const SizedBox(width: 4),
+          _infoToolBtn(
+            isDark,
+            Icons.data_object_outlined,
+            'Generar SQL',
+            () => _abrirGeneradorDml(
+              context,
+              effectiveCols,
+              valores,
+              suggestedTable: suggestedTable,
+            ),
+            tooltip: selectedCount > 0
+                ? 'Generar INSERT / MERGE ($selectedCount filas seleccionadas)'
+                : 'Generar INSERT / MERGE (todas las filas)',
           ),
           const SizedBox(width: 4),
           _infoToolBtn(
@@ -2208,10 +3320,11 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
     bool isDark,
     IconData icon,
     String label,
-    VoidCallback onTap,
-  ) {
+    VoidCallback onTap, {
+    String? tooltip,
+  }) {
     final color = isDark ? Colors.white54 : Colors.black54;
-    return InkWell(
+    final btn = InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(4),
       child: Padding(
@@ -2226,6 +3339,10 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
         ),
       ),
     );
+    if (tooltip != null) {
+      return Tooltip(message: tooltip, child: btn);
+    }
+    return btn;
   }
 
   void _showInfoColSelector(BuildContext context, List<String> allCols) {
@@ -2297,81 +3414,27 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
     );
   }
 
-  // ── Table (Tab 2) ────────────────────────────────────────────────────────
-
-  Widget _buildInfoTable(
-    bool isDark,
-    Color borderColor,
-    List<String> cols,
-    List<ValorTabla> valores,
-  ) {
-    final headerBg = isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA);
-
-    return Scrollbar(
-      controller: _horizCtrl,
-      thumbVisibility: true,
-      trackVisibility: true,
-      notificationPredicate: (n) => n.depth == 1,
-      child: Scrollbar(
-        controller: _vertCtrl,
-        thumbVisibility: true,
-        trackVisibility: true,
-        child: SingleChildScrollView(
-          controller: _vertCtrl,
-          child: SingleChildScrollView(
-            controller: _horizCtrl,
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              columnSpacing: 24,
-              headingRowHeight: 32,
-              dataRowMinHeight: 32,
-              dataRowMaxHeight: 44,
-              dividerThickness: 1,
-              headingRowColor: WidgetStatePropertyAll(headerBg),
-              headingTextStyle: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: isDark ? Colors.white54 : Colors.black45,
-                letterSpacing: 0.3,
-              ),
-              dataTextStyle: TextStyle(
-                fontSize: 12,
-                color: isDark
-                    ? Colors.white.withValues(alpha: 0.87)
-                    : Colors.black87,
-              ),
-              border: TableBorder(
-                top: BorderSide(color: borderColor),
-                horizontalInside: BorderSide(color: borderColor, width: 0.5),
-              ),
-              columns: [
-                for (final col in cols)
-                  DataColumn(label: Text(_infoColLabel(col))),
-              ],
-              rows: [
-                for (final v in valores)
-                  DataRow(
-                    cells: [
-                      for (final col in cols)
-                        DataCell(Text(v.raw[col]?.toString() ?? '')),
-                    ],
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   // ── CSV export ────────────────────────────────────────────────────────────
 
   String _buildInfoCsv(List<String> cols, List<ValorTabla> valores) {
+    final effectiveRows = _selectedRowIndices.isEmpty
+        ? valores
+        : [
+            for (final i in (_selectedRowIndices.toList()..sort()))
+              if (i >= 0 && i < valores.length) valores[i],
+          ];
+
     final buf = StringBuffer();
     buf.writeln(cols.map((c) => _escInfo(_infoColLabel(c))).join(','));
-    for (final v in valores) {
+    for (final v in effectiveRows) {
       buf.writeln(
-        cols.map((c) => _escInfo(v.raw[c]?.toString() ?? '')).join(','),
+        cols
+            .map(
+              (c) => _escInfo(
+                InfoDatoVirtualTable.resolveCellValue(v, c, _cdTabla),
+              ),
+            )
+            .join(','),
       );
     }
     return buf.toString();
@@ -2386,9 +3449,12 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
 
   Future<void> _copyInfoCsv(List<String> cols, List<ValorTabla> valores) async {
     final csv = _buildInfoCsv(cols, valores);
+    final count = _selectedRowIndices.isEmpty
+        ? valores.length
+        : _selectedRowIndices.length;
     await Clipboard.setData(ClipboardData(text: csv));
     AppToast.success(
-      'Copiado al portapapeles — ${valores.length} fila${valores.length != 1 ? 's' : ''}',
+      'Copiado al portapapeles — $count fila${count != 1 ? 's' : ''}',
     );
   }
 
@@ -2406,6 +3472,773 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
       lockParentWindow: true,
     );
     if (path != null) AppToast.success('CSV exportado correctamente');
+  }
+
+  Widget _buildMiniIconButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+    Color? color,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(4),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(2),
+          child: Icon(icon, size: 13, color: color),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _copyText(String text, String label) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    AppToast.success('$label copiado al portapapeles');
+  }
+
+  Future<void> _copyDatoCard(
+    DatoInfo d,
+    List<(String, String)> props,
+    List<(String, bool)> flags,
+    List<MapEntry<String, dynamic>> extras,
+  ) async {
+    final buf = StringBuffer();
+    buf.writeln('INFORMACIÓN DE DATO');
+    buf.writeln('====================');
+    for (final (label, value) in props) {
+      buf.writeln('$label: $value');
+    }
+    if (flags.isNotEmpty) {
+      buf.writeln();
+      buf.writeln('Indicadores:');
+      for (final (label, value) in flags) {
+        buf.writeln(' - $label: ${value ? 'Sí' : 'No'}');
+      }
+    }
+    if (extras.isNotEmpty) {
+      buf.writeln();
+      buf.writeln('Campos adicionales:');
+      for (final e in extras) {
+        buf.writeln(' - ${e.key}: ${e.value}');
+      }
+    }
+    await Clipboard.setData(ClipboardData(text: buf.toString().trimRight()));
+    AppToast.success('Ficha del dato copiada al portapapeles');
+  }
+
+  Future<void> _copyProductoCard(DatoProducto p) async {
+    final buf = StringBuffer();
+    buf.writeln('PRODUCTO: ${p.cdProducto ?? ''} - ${p.deProducto ?? ''}');
+    buf.writeln('====================');
+    if (p.version != null) buf.writeln('Versión: ${p.version}');
+    if (p.inActivo != null) {
+      buf.writeln('Estado: ${p.inActivo == 1 ? 'ACTIVO' : 'INACTIVO'}');
+    }
+    if (p.nuBienAsegurado != null) {
+      buf.writeln('Bien Asegurado: ${p.nuBienAsegurado}');
+    }
+    if (p.cdGrupo != null) buf.writeln('Grupo: ${p.cdGrupo}');
+    if (p.nuConsecutivo != null) {
+      buf.writeln('Consecutivo: ${p.nuConsecutivo}');
+    }
+    if (p.inLugarUsoDato != null) {
+      buf.writeln('Lugar Uso: ${p.inLugarUsoDato}');
+    }
+    if (p.cdDatoPadre != null) buf.writeln('Dato Padre: ${p.cdDatoPadre}');
+
+    if (p.vaDefectoDato != null && p.vaDefectoDato!.isNotEmpty) {
+      buf.writeln('Defecto General: ${p.vaDefectoDato}');
+    }
+    if (p.vaDefectoDatoWebExterna != null &&
+        p.vaDefectoDatoWebExterna!.isNotEmpty) {
+      buf.writeln('Defecto Web Ext.: ${p.vaDefectoDatoWebExterna}');
+    }
+    if (p.vaDefectoDatoWebMediador != null &&
+        p.vaDefectoDatoWebMediador!.isNotEmpty) {
+      buf.writeln('Defecto Web Med.: ${p.vaDefectoDatoWebMediador}');
+    }
+    if (p.vaDefectoDatoWebDelegado != null &&
+        p.vaDefectoDatoWebDelegado!.isNotEmpty) {
+      buf.writeln('Defecto Web Del.: ${p.vaDefectoDatoWebDelegado}');
+    }
+
+    if (p.cdProcedimientoAntes != null) {
+      buf.writeln('Proc. Antes: ${p.cdProcedimientoAntes}');
+    }
+    if (p.cdProcedimientoDespues != null) {
+      buf.writeln('Proc. Después: ${p.cdProcedimientoDespues}');
+    }
+    if (p.cdJavascriptDespues != null) {
+      buf.writeln('JS Después: ${p.cdJavascriptDespues}');
+    }
+    if (p.nmPackageAjax != null) {
+      buf.writeln('Package Ajax: ${p.nmPackageAjax}');
+    }
+
+    await Clipboard.setData(ClipboardData(text: buf.toString().trimRight()));
+    AppToast.success('Ficha del producto copiada al portapapeles');
+  }
+
+  // ── Tab 4: Definición Adicional ───────────────────────────────────────────
+
+  Widget _buildDefAdicionalTab(bool isDark, Color accent) {
+    if (_defAdicionalFuture == null) {
+      return _buildEmpty('No hay definición adicional para este dato', isDark);
+    }
+    return FutureBuilder<List<TablaDefinicionAdicional>>(
+      future: _defAdicionalFuture,
+      builder: (ctx, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snap.hasError) {
+          return _buildError(snap.error.toString(), isDark);
+        }
+        final list = snap.data ?? [];
+        if (list.isEmpty) {
+          return _buildEmpty('Sin definiciones adicionales', isDark);
+        }
+
+        final borderColor = isDark
+            ? const Color(0xFF3A3A3A)
+            : const Color(0xFFDDE2EA);
+        final labelColor = isDark ? Colors.white54 : Colors.black45;
+        final textColor = isDark
+            ? Colors.white.withValues(alpha: 0.87)
+            : Colors.black87;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+              child: Text(
+                '${list.length} campo${list.length != 1 ? 's' : ''} adicional${list.length != 1 ? 'es' : ''}',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: labelColor,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            Expanded(
+              child: Scrollbar(
+                controller: _vertCtrl,
+                thumbVisibility: true,
+                trackVisibility: true,
+                child: ListView.builder(
+                  controller: _vertCtrl,
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  itemCount: list.length,
+                  itemBuilder: (ctx, i) {
+                    final item = list[i];
+                    final rowBg = i.isEven
+                        ? (isDark
+                              ? const Color(0xFF252526)
+                              : const Color(0xFFF8F9FA))
+                        : Colors.transparent;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 4),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: rowBg,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: borderColor.withValues(alpha: 0.5),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: accent.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  '#${item.cdConsecutivoDatoAdicional ?? (i + 1)}',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontFamily: 'Consolas',
+                                    fontWeight: FontWeight.w700,
+                                    color: accent,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              if (item.cdDatoAdicional != null)
+                                Text(
+                                  'Cód: ${item.cdDatoAdicional}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontFamily: 'Consolas',
+                                    color: accent,
+                                  ),
+                                ),
+                              const Spacer(),
+                              if (item.version != null)
+                                Text(
+                                  'v${item.version}',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontFamily: 'Consolas',
+                                    color: labelColor,
+                                  ),
+                                ),
+                              if (item.cdDatoAdicional != null) ...[
+                                const SizedBox(width: 8),
+                                if (item.cdDatoAdicional.toString() == _cdDato)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: accent.withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      'Actual',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                        color: accent,
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  InkWell(
+                                    onTap: () => showInfoDatoWindow(
+                                      ctx,
+                                      item.cdDatoAdicional.toString(),
+                                      _ambiente,
+                                    ),
+                                    borderRadius: BorderRadius.circular(4),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: accent.withValues(alpha: 0.1),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(
+                                          color: accent.withValues(alpha: 0.3),
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.open_in_new_rounded,
+                                            size: 11,
+                                            color: accent,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'Ver dato',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w600,
+                                              color: accent,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                              if (item.inDatoAdicionalRequerido != null) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: item.inDatoAdicionalRequerido!
+                                        ? Colors.orange.withValues(alpha: 0.15)
+                                        : Colors.grey.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    item.inDatoAdicionalRequerido!
+                                        ? 'Requerido'
+                                        : 'Opcional',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: item.inDatoAdicionalRequerido!
+                                          ? Colors.orange
+                                          : labelColor,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          if (item.deDatoAdicional != null &&
+                              item.deDatoAdicional!.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              item.deDatoAdicional!,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: textColor,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // ── Tab 5: Información Adicional ──────────────────────────────────────────
+
+  Widget _buildInfoAdicionalFilters(
+    bool isDark,
+    Color accent,
+    Color borderColor,
+  ) {
+    final hintStyle = TextStyle(
+      fontSize: 11,
+      color: isDark ? Colors.white38 : Colors.black38,
+    );
+    final inputBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(6),
+      borderSide: BorderSide(color: borderColor),
+    );
+    const contentPad = EdgeInsets.symmetric(horizontal: 10, vertical: 0);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA),
+        border: Border(bottom: BorderSide(color: borderColor)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              // Buscador unificado rápido Tab 5
+              Expanded(
+                flex: 4,
+                child: SizedBox(
+                  height: 32,
+                  child: TextField(
+                    controller: _tab5GlobalSearchCtrl,
+                    style: const TextStyle(fontSize: 12),
+                    decoration: InputDecoration(
+                      hintText:
+                          'Buscar en índice, desc, tabla, usuario, fechas…',
+                      hintStyle: hintStyle,
+                      prefixIcon: const Icon(Icons.search, size: 14),
+                      prefixIconConstraints: const BoxConstraints(minWidth: 30),
+                      suffixIcon: _tab5GlobalSearchCtrl.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 14),
+                              onPressed: () {
+                                setState(() {
+                                  _tab5GlobalSearchCtrl.clear();
+                                  _selectedRowIndices.clear();
+                                });
+                              },
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 24,
+                                minHeight: 24,
+                              ),
+                            )
+                          : null,
+                      border: inputBorder,
+                      enabledBorder: inputBorder,
+                      contentPadding: contentPad,
+                    ),
+                    onChanged: (_) =>
+                        setState(() => _selectedRowIndices.clear()),
+                    onSubmitted: (_) => _buscarInfoAdicional(),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              // Botón desplegable de filtros específicos Tab 5
+              OutlinedButton.icon(
+                onPressed: () => setState(
+                  () => _tab5ShowAdvancedFilters = !_tab5ShowAdvancedFilters,
+                ),
+                icon: Icon(
+                  _tab5ShowAdvancedFilters
+                      ? Icons.filter_alt
+                      : Icons.filter_alt_outlined,
+                  size: 14,
+                  color: _tab5ShowAdvancedFilters
+                      ? accent
+                      : (isDark ? Colors.white70 : Colors.black87),
+                ),
+                label: Text(
+                  _tab5ShowAdvancedFilters
+                      ? 'Ocultar filtros'
+                      : 'Filtros detallados',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: _tab5ShowAdvancedFilters
+                        ? accent
+                        : (isDark ? Colors.white70 : Colors.black87),
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 0,
+                  ),
+                  minimumSize: const Size(0, 32),
+                  side: BorderSide(
+                    color: _tab5ShowAdvancedFilters ? accent : borderColor,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                height: 32,
+                child: FilledButton.icon(
+                  onPressed: _buscarInfoAdicional,
+                  icon: const Icon(Icons.refresh, size: 14),
+                  label: const Text(
+                    'Consultar BD',
+                    style: TextStyle(fontSize: 11),
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: accent,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_tab5ShowAdvancedFilters) ...[
+            const SizedBox(height: 8),
+            // Fila 1 Tab 5: Índice, Descripción, Tabla, Usuario
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: SizedBox(
+                    height: 30,
+                    child: TextField(
+                      controller: _tab5IndexCtrl,
+                      style: const TextStyle(fontSize: 11),
+                      decoration: InputDecoration(
+                        hintText: 'Índice (admite %)',
+                        hintStyle: hintStyle,
+                        border: inputBorder,
+                        enabledBorder: inputBorder,
+                        contentPadding: contentPad,
+                      ),
+                      onChanged: (_) =>
+                          setState(() => _selectedRowIndices.clear()),
+                      onSubmitted: (_) => _buscarInfoAdicional(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  flex: 3,
+                  child: SizedBox(
+                    height: 30,
+                    child: TextField(
+                      controller: _tab5DescCtrl,
+                      style: const TextStyle(fontSize: 11),
+                      decoration: InputDecoration(
+                        hintText: 'Descripción',
+                        hintStyle: hintStyle,
+                        border: inputBorder,
+                        enabledBorder: inputBorder,
+                        contentPadding: contentPad,
+                      ),
+                      onChanged: (_) =>
+                          setState(() => _selectedRowIndices.clear()),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  flex: 2,
+                  child: SizedBox(
+                    height: 30,
+                    child: TextField(
+                      controller: _tab5TablaCtrl,
+                      style: const TextStyle(fontSize: 11),
+                      decoration: InputDecoration(
+                        hintText: 'Tabla',
+                        hintStyle: hintStyle,
+                        border: inputBorder,
+                        enabledBorder: inputBorder,
+                        contentPadding: contentPad,
+                      ),
+                      onChanged: (_) =>
+                          setState(() => _selectedRowIndices.clear()),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  flex: 2,
+                  child: SizedBox(
+                    height: 30,
+                    child: TextField(
+                      controller: _tab5UsuarioCtrl,
+                      style: const TextStyle(fontSize: 11),
+                      decoration: InputDecoration(
+                        hintText: 'Usuario',
+                        hintStyle: hintStyle,
+                        border: inputBorder,
+                        enabledBorder: inputBorder,
+                        contentPadding: contentPad,
+                      ),
+                      onChanged: (_) =>
+                          setState(() => _selectedRowIndices.clear()),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            // Fila 2 Tab 5: F. Efectiva, F. Término, F. Modificación, Estado
+            Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: SizedBox(
+                    height: 30,
+                    child: TextField(
+                      controller: _tab5FeDesdeCtrl,
+                      style: const TextStyle(fontSize: 11),
+                      decoration: InputDecoration(
+                        hintText: 'F. Efectiva (dd/MM/yyyy)',
+                        hintStyle: hintStyle,
+                        border: inputBorder,
+                        enabledBorder: inputBorder,
+                        contentPadding: contentPad,
+                      ),
+                      onChanged: (_) =>
+                          setState(() => _selectedRowIndices.clear()),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  flex: 2,
+                  child: SizedBox(
+                    height: 30,
+                    child: TextField(
+                      controller: _tab5FeHastaCtrl,
+                      style: const TextStyle(fontSize: 11),
+                      decoration: InputDecoration(
+                        hintText: 'F. Término (dd/MM/yyyy)',
+                        hintStyle: hintStyle,
+                        border: inputBorder,
+                        enabledBorder: inputBorder,
+                        contentPadding: contentPad,
+                      ),
+                      onChanged: (_) =>
+                          setState(() => _selectedRowIndices.clear()),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  flex: 2,
+                  child: SizedBox(
+                    height: 30,
+                    child: TextField(
+                      controller: _tab5FeModifCtrl,
+                      style: const TextStyle(fontSize: 11),
+                      decoration: InputDecoration(
+                        hintText: 'F. Modificación',
+                        hintStyle: hintStyle,
+                        border: inputBorder,
+                        enabledBorder: inputBorder,
+                        contentPadding: contentPad,
+                      ),
+                      onChanged: (_) =>
+                          setState(() => _selectedRowIndices.clear()),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                DropdownButton<int?>(
+                  value: _tab5InSuspendido,
+                  isDense: true,
+                  underline: const SizedBox.shrink(),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? Colors.white70 : Colors.black87,
+                  ),
+                  items: const [
+                    DropdownMenuItem<int?>(value: null, child: Text('Todos')),
+                    DropdownMenuItem<int?>(value: 0, child: Text('Activos')),
+                    DropdownMenuItem<int?>(
+                      value: 1,
+                      child: Text('Suspendidos'),
+                    ),
+                  ],
+                  onChanged: (v) {
+                    setState(() {
+                      _tab5InSuspendido = v;
+                      _selectedRowIndices.clear();
+                    });
+                  },
+                ),
+                const SizedBox(width: 6),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _tab5GlobalSearchCtrl.clear();
+                      _tab5IndexCtrl.clear();
+                      _tab5DescCtrl.clear();
+                      _tab5TablaCtrl.clear();
+                      _tab5UsuarioCtrl.clear();
+                      _tab5FeDesdeCtrl.clear();
+                      _tab5FeHastaCtrl.clear();
+                      _tab5FeModifCtrl.clear();
+                      _tab5InSuspendido = null;
+                      _selectedRowIndices.clear();
+                    });
+                  },
+                  child: const Text('Limpiar', style: TextStyle(fontSize: 11)),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoAdicionalTab(bool isDark, Color accent) {
+    if (_infoAdicionalFuture == null) {
+      return _buildEmpty('No hay información adicional para este dato', isDark);
+    }
+    final borderColor = isDark
+        ? const Color(0xFF3A3A3A)
+        : const Color(0xFFDDE2EA);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildInfoAdicionalFilters(isDark, accent, borderColor),
+        Expanded(
+          child: FutureBuilder<List<ValorTabla>>(
+            future: _infoAdicionalFuture,
+            builder: (ctx, snap) {
+              if (snap.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snap.hasError) {
+                return _buildError(snap.error.toString(), isDark);
+              }
+              final todosValores = snap.data ?? [];
+              if (todosValores.isEmpty) {
+                return _buildEmpty(
+                  'Sin registros de información adicional',
+                  isDark,
+                );
+              }
+
+              final valores = _aplicarFiltrosMulticampo(
+                items: todosValores,
+                globalQuery: _tab5GlobalSearchCtrl.text,
+                indiceQuery: _tab5IndexCtrl.text,
+                descQuery: _tab5DescCtrl.text,
+                tablaQuery: _tab5TablaCtrl.text,
+                usuarioQuery: _tab5UsuarioCtrl.text,
+                feEfectivaQuery: _tab5FeDesdeCtrl.text,
+                feTerminoQuery: _tab5FeHastaCtrl.text,
+                feModifQuery: _tab5FeModifCtrl.text,
+                inSuspendido: _tab5InSuspendido,
+              );
+
+              if (valores.isEmpty) {
+                return _buildEmpty(
+                  'Ningún registro coincide con la búsqueda actual (${todosValores.length} registros cargados)',
+                  isDark,
+                );
+              }
+
+              final allCols = _detectInfoCols(valores);
+              _hiddenCols.removeWhere((c) => !allCols.contains(c));
+              final effectiveCols = allCols
+                  .where((c) => !_hiddenCols.contains(c))
+                  .toList();
+
+              return Column(
+                children: [
+                  _buildInfoToolbar(
+                    ctx,
+                    isDark,
+                    borderColor,
+                    allCols,
+                    effectiveCols,
+                    valores,
+                    suggestedTable: 'TABLAINFORMACIONADICIONAL',
+                  ),
+                  Expanded(
+                    child: InfoDatoVirtualTable(
+                      isDark: isDark,
+                      borderColor: borderColor,
+                      cols: effectiveCols,
+                      valores: valores,
+                      cdTabla: _cdTabla,
+                      vertCtrl: _vertCtrl,
+                      horizCtrl: _horizCtrl,
+                      selectedRowIndices: _selectedRowIndices,
+                      onToggleSelectAll: (val) {
+                        setState(() {
+                          if (val == true) {
+                            _selectedRowIndices.addAll(
+                              List<int>.generate(valores.length, (i) => i),
+                            );
+                          } else {
+                            _selectedRowIndices.clear();
+                          }
+                        });
+                      },
+                      onToggleRow: (rowIdx, val) {
+                        setState(() {
+                          if (val == true) {
+                            _selectedRowIndices.add(rowIdx);
+                          } else {
+                            _selectedRowIndices.remove(rowIdx);
+                          }
+                        });
+                      },
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 
   // ── Shared helpers ────────────────────────────────────────────────────────
@@ -2444,4 +4277,380 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
       ),
     ),
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Grilla Virtualizada de InfoDato (two_dimensional_scrollables)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class InfoDatoVirtualTable extends StatefulWidget {
+  final bool isDark;
+  final Color borderColor;
+  final List<String> cols;
+  final List<ValorTabla> valores;
+  final int? cdTabla;
+  final ScrollController vertCtrl;
+  final ScrollController horizCtrl;
+  final Set<int> selectedRowIndices;
+  final ValueChanged<bool?> onToggleSelectAll;
+  final void Function(int index, bool? selected) onToggleRow;
+
+  const InfoDatoVirtualTable({
+    super.key,
+    required this.isDark,
+    required this.borderColor,
+    required this.cols,
+    required this.valores,
+    required this.cdTabla,
+    required this.vertCtrl,
+    required this.horizCtrl,
+    required this.selectedRowIndices,
+    required this.onToggleSelectAll,
+    required this.onToggleRow,
+  });
+
+  static String resolveCellValue(ValorTabla item, String col, int? cdTabla) {
+    final colUpper = col.toUpperCase();
+    final colClean = colUpper.replaceAll('_', '');
+
+    if (colUpper == 'CD_TABLA' || colClean == 'CDTABLA') {
+      final direct =
+          item.raw[col] ??
+          item.raw['cdTabla'] ??
+          item.raw['CD_TABLA'] ??
+          item.raw['cdtabla'];
+      final val = direct?.toString().trim();
+      return (val == null || val.isEmpty) ? (cdTabla?.toString() ?? '') : val;
+    }
+
+    if (item.raw.containsKey(col)) {
+      return item.raw[col]?.toString() ?? '';
+    }
+
+    for (final entry in item.raw.entries) {
+      final kUpper = entry.key.toUpperCase();
+      final kClean = kUpper.replaceAll('_', '');
+      if (kUpper == colUpper || kClean == colClean) {
+        return entry.value?.toString() ?? '';
+      }
+      final alias =
+          _InfoDatoModalState._kKnownDbColumnAliases[kClean] ??
+          _InfoDatoModalState._kKnownDbColumnAliases[kUpper];
+      if (alias != null && alias.toUpperCase() == colUpper) {
+        return entry.value?.toString() ?? '';
+      }
+    }
+
+    return '';
+  }
+
+  static bool isNumericField(String col) {
+    final upper = col.toUpperCase();
+    final clean = upper.replaceAll('_', '');
+    if (upper.startsWith('VA_DATO') ||
+        upper == 'CD_TABLA' ||
+        upper == 'CD_DATO' ||
+        upper == 'VERSION' ||
+        clean.startsWith('VADATO') ||
+        clean == 'CDTABLA' ||
+        clean == 'CDDATO' ||
+        clean == 'VERSION') {
+      return true;
+    }
+    const numericFields = [
+      'version',
+      'vaDato1',
+      'vaDato2',
+      'vaDato3',
+      'vaDato4',
+      'vaDato5',
+      'vaDato6',
+      'cdTabla',
+      'cdDato',
+    ];
+    return numericFields.contains(col);
+  }
+
+  static String colLabel(String col) {
+    const labels = <String, String>{
+      'version': 'Versión',
+      'deIndiceDato': 'Índice',
+      'deDato': 'Descripción',
+      'vaDato1': 'Dato 1',
+      'vaDato2': 'Dato 2',
+      'vaDato3': 'Dato 3',
+      'vaDato4': 'Dato 4',
+      'vaDato5': 'Dato 5',
+      'vaDato6': 'Dato 6',
+      'feEfectivaInformacion': 'F. efectiva',
+      'feTerminoInformacion': 'F. término',
+      'inSuspendido': 'Suspendido',
+      'inValorDefecto': 'Por defecto',
+      'inNoValido': 'No válido',
+      'inNoMostrarWebExterna': 'Oculto externo',
+      'inNoMostrarWebMediador': 'Oculto mediador',
+      'inNoMostrarWebProveedor': 'Oculto proveedor',
+      'inNoMostrarWebDelegado': 'Oculto delegado',
+      'feModificacion': 'F. modificación',
+      'cdUsuario': 'Usuario',
+      'cdTabla': 'Tabla',
+    };
+    return labels[col] ?? col;
+  }
+
+  @override
+  State<InfoDatoVirtualTable> createState() => _InfoDatoVirtualTableState();
+}
+
+class _InfoDatoVirtualTableState extends State<InfoDatoVirtualTable> {
+  static const double _headerHeight = 32.0;
+  static const double _rowHeight = 30.0;
+  static const double _checkboxColWidth = 44.0;
+
+  late List<List<String>> _cellMatrix;
+  late List<double> _colWidths;
+  late List<bool> _colIsNumeric;
+
+  @override
+  void initState() {
+    super.initState();
+    _recomputeData();
+  }
+
+  @override
+  void didUpdateWidget(covariant InfoDatoVirtualTable oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.valores != widget.valores ||
+        oldWidget.cols != widget.cols ||
+        oldWidget.cdTabla != widget.cdTabla) {
+      _recomputeData();
+    }
+  }
+
+  void _recomputeData() {
+    final cols = widget.cols;
+    final valores = widget.valores;
+    final cdTabla = widget.cdTabla;
+
+    _colIsNumeric = List<bool>.generate(
+      cols.length,
+      (c) => InfoDatoVirtualTable.isNumericField(cols[c]),
+    );
+
+    // Precomputar matriz fila x columna en O(1) de renderizado
+    _cellMatrix = List<List<String>>.generate(valores.length, (r) {
+      final item = valores[r];
+      return List<String>.generate(cols.length, (c) {
+        return InfoDatoVirtualTable.resolveCellValue(item, cols[c], cdTabla);
+      });
+    });
+
+    // Calcular anchos de columna basados en contenido y cabecera
+    _colWidths = List<double>.generate(cols.length, (c) {
+      final colName = cols[c];
+      final headerText = InfoDatoVirtualTable.colLabel(colName);
+      double maxLen = headerText.length.toDouble();
+
+      final sampleCount = valores.length > 40 ? 40 : valores.length;
+      for (var r = 0; r < sampleCount; r++) {
+        final valLen = _cellMatrix[r][c].length;
+        if (valLen > maxLen) {
+          maxLen = valLen.toDouble();
+        }
+      }
+
+      final computed = (maxLen * 7.8) + 24.0;
+      return computed.clamp(85.0, 420.0);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+    final headerBg = isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA);
+    final rowCount = widget.valores.length;
+    final colCount = widget.cols.length;
+    final allSelected =
+        rowCount > 0 && widget.selectedRowIndices.length == rowCount;
+    final hasSelection = widget.selectedRowIndices.isNotEmpty;
+
+    final cellRightBorder = BorderSide(
+      color: widget.borderColor.withValues(alpha: isDark ? 0.35 : 0.5),
+      width: 0.5,
+    );
+    final cellBottomBorder = BorderSide(
+      color: widget.borderColor.withValues(alpha: isDark ? 0.35 : 0.5),
+      width: 0.5,
+    );
+
+    return Scrollbar(
+      controller: widget.vertCtrl,
+      thumbVisibility: true,
+      trackVisibility: true,
+      child: Scrollbar(
+        controller: widget.horizCtrl,
+        thumbVisibility: true,
+        trackVisibility: true,
+        notificationPredicate: (notif) =>
+            notif.depth == 1 || notif.metrics.axis == Axis.horizontal,
+        child: TableView.builder(
+          verticalDetails: ScrollableDetails.vertical(
+            controller: widget.vertCtrl,
+          ),
+          horizontalDetails: ScrollableDetails.horizontal(
+            controller: widget.horizCtrl,
+          ),
+          pinnedRowCount: 1,
+          pinnedColumnCount: 1,
+          rowCount: rowCount + 1,
+          columnCount: colCount + 1,
+          rowBuilder: (int row) {
+            return TableSpan(
+              extent: FixedTableSpanExtent(
+                row == 0 ? _headerHeight : _rowHeight,
+              ),
+              backgroundDecoration: row == 0
+                  ? TableSpanDecoration(color: headerBg)
+                  : null,
+            );
+          },
+          columnBuilder: (int col) {
+            return TableSpan(
+              extent: FixedTableSpanExtent(
+                col == 0 ? _checkboxColWidth : _colWidths[col - 1],
+              ),
+            );
+          },
+          cellBuilder: (BuildContext context, TableVicinity vicinity) {
+            final row = vicinity.row;
+            final col = vicinity.column;
+
+            // 1. Esquina superior izquierda: Checkbox para seleccionar todo
+            if (row == 0 && col == 0) {
+              return TableViewCell(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: headerBg,
+                    border: Border(
+                      right: cellRightBorder,
+                      bottom: cellBottomBorder,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Checkbox(
+                    value: allSelected ? true : (hasSelection ? null : false),
+                    tristate: true,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    onChanged: widget.onToggleSelectAll,
+                  ),
+                ),
+              );
+            }
+
+            // 2. Encabezado de columnas (row == 0, col > 0)
+            if (row == 0) {
+              final c = col - 1;
+              final colName = widget.cols[c];
+              final label = InfoDatoVirtualTable.colLabel(colName);
+              final isNumeric = _colIsNumeric[c];
+
+              return TableViewCell(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: headerBg,
+                    border: Border(
+                      right: cellRightBorder,
+                      bottom: cellBottomBorder,
+                    ),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  alignment: isNumeric
+                      ? Alignment.centerRight
+                      : Alignment.centerLeft,
+                  child: Tooltip(
+                    message: colName,
+                    waitDuration: const Duration(milliseconds: 600),
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white54 : Colors.black45,
+                        letterSpacing: 0.3,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            // 3. Columna de checkbox de fila (row > 0, col == 0)
+            final r = row - 1;
+            final isRowSelected = widget.selectedRowIndices.contains(r);
+            final rowBg = isRowSelected
+                ? (isDark ? const Color(0xFF1E3A5F) : const Color(0xFFD6E4FF))
+                : (r.isOdd
+                      ? (isDark
+                            ? const Color(0xFF181818)
+                            : const Color(0xFFF9FAFB))
+                      : (isDark ? const Color(0xFF1F1F1F) : Colors.white));
+
+            if (col == 0) {
+              return TableViewCell(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: rowBg,
+                    border: Border(
+                      right: cellRightBorder,
+                      bottom: cellBottomBorder,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Checkbox(
+                    value: isRowSelected,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    onChanged: (val) => widget.onToggleRow(r, val),
+                  ),
+                ),
+              );
+            }
+
+            // 4. Celda de datos (row > 0, col > 0)
+            final c = col - 1;
+            final text = _cellMatrix[r][c];
+            final isNumeric = _colIsNumeric[c];
+
+            return TableViewCell(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: rowBg,
+                  border: Border(
+                    right: cellRightBorder,
+                    bottom: cellBottomBorder,
+                  ),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                alignment: isNumeric
+                    ? Alignment.centerRight
+                    : Alignment.centerLeft,
+                child: SelectableText(
+                  text,
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontFamily: isNumeric ? 'Consolas' : null,
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.87)
+                        : Colors.black87,
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
 }

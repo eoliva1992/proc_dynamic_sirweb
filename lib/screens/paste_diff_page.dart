@@ -381,37 +381,44 @@ class _PasteDiffPageState extends State<PasteDiffPage> {
                     ],
                   ),
                   clipBehavior: Clip.antiAlias,
-                  // El contenido se mantiene SIEMPRE montado con el tamaño de
-                  // la ventana restaurada: al minimizar sólo se recorta.
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    minWidth: 0,
-                    maxWidth: double.infinity,
-                    minHeight: 0,
-                    maxHeight: double.infinity,
-                    child: SizedBox(
-                      width: _winW,
-                      height: _winH,
-                      child: Stack(
-                        children: [
-                          Positioned.fill(
-                            child: Column(
+                  child: _minimized
+                      ? MinimizedWindowCard(
+                          title: 'Comparador de Texto (Diff)',
+                          icon: Icons.compare_arrows_rounded,
+                          accentColor: Colors.blue.shade400,
+                          badge: 'DIFF',
+                          onRestore: _toggleMinimized,
+                          onClose: _close,
+                        )
+                      : OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: 0,
+                          maxWidth: double.infinity,
+                          minHeight: 0,
+                          maxHeight: double.infinity,
+                          child: SizedBox(
+                            width: _winW,
+                            height: _winH,
+                            child: Stack(
                               children: [
-                                const SizedBox(height: _kHeaderH),
-                                Expanded(child: _buildBody()),
+                                Positioned.fill(
+                                  child: Column(
+                                    children: [
+                                      const SizedBox(height: _kHeaderH),
+                                      Expanded(child: _buildBody()),
+                                    ],
+                                  ),
+                                ),
+                                Positioned(
+                                  left: 0,
+                                  top: 0,
+                                  width: w,
+                                  child: _buildHeader(isDark, cs),
+                                ),
                               ],
                             ),
                           ),
-                          Positioned(
-                            left: 0,
-                            top: 0,
-                            width: w,
-                            child: _buildHeader(isDark, cs),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                        ),
                 ),
               ),
             ),
