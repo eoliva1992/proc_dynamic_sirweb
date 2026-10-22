@@ -163,8 +163,10 @@ void main() {
         final query = q.trim().toLowerCase();
         if (query.isEmpty) return lista;
         return lista.where((p) {
-          final cdMatches = p.cdProducto?.toString().toLowerCase().contains(query) ?? false;
-          final deMatches = p.deProducto?.toLowerCase().contains(query) ?? false;
+          final cdMatches =
+              p.cdProducto?.toString().toLowerCase().contains(query) ?? false;
+          final deMatches =
+              p.deProducto?.toLowerCase().contains(query) ?? false;
           return cdMatches || deMatches;
         }).toList();
       }

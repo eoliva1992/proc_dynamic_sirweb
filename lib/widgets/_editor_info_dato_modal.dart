@@ -1375,8 +1375,10 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
     final productosFiltrados = query.isEmpty
         ? productos
         : productos.where((p) {
-            final cdMatches = p.cdProducto?.toString().toLowerCase().contains(query) ?? false;
-            final deMatches = p.deProducto?.toLowerCase().contains(query) ?? false;
+            final cdMatches =
+                p.cdProducto?.toString().toLowerCase().contains(query) ?? false;
+            final deMatches =
+                p.deProducto?.toLowerCase().contains(query) ?? false;
             return cdMatches || deMatches;
           }).toList();
 

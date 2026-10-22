@@ -1030,7 +1030,8 @@ class EditorThemeStore extends ChangeNotifier {
   /// Must be called in onReady before setTheme with a custom id.
   static Future<void> defineAllThemes(dynamic ctrl) => Future.wait<dynamic>([
     for (final t in kEditorThemes)
-      if (t.definition != null) ctrl.defineTheme(t.definition!) as Future<dynamic>,
+      if (t.definition != null)
+        ctrl.defineTheme(t.definition!) as Future<dynamic>,
   ]);
 }
 

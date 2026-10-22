@@ -229,102 +229,102 @@ void main() {
     },
   );
 
-  testWidgets('ObjectSourceCollapsedHandle se renderiza y responde a onExpand', (
-    tester,
-  ) async {
-    bool expanded = false;
-    final issues = [
-      PlSqlIssue(
-        line: 10,
-        col: 1,
-        endCol: 10,
-        message: 'PLS-00103',
-        severity: fm.MarkerSeverity.error,
-        source: 'Oracle',
-      ),
-    ];
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Stack(
-            children: [
-              ObjectSourceCollapsedHandle(
-                onExpand: () => expanded = true,
-                issues: issues,
-                lastCompilation: ObjectCompilationEntry(
-                  id: 4,
-                  timestamp: DateTime.now(),
-                  objectName: 'SP_DEMO',
-                  objectType: 'PROCEDURE',
-                  ambiente: 'Desa',
-                  status: ObjectCompilationStatus.error,
-                  durationMs: 50,
-                  errorCount: 1,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('Mostrar salida'), findsOneWidget);
-    expect(find.text('1 error'), findsOneWidget);
-
-    await tester.tap(find.text('Mostrar salida'));
-    expect(expanded, isTrue);
-  });
-
   testWidgets(
-    'ProblemsOutputConsole invoca onClear tras confirmar diálogo',
+    'ObjectSourceCollapsedHandle se renderiza y responde a onExpand',
     (tester) async {
-      bool cleared = false;
+      bool expanded = false;
       final issues = [
         PlSqlIssue(
           line: 10,
           col: 1,
           endCol: 10,
-          message: 'Error sintaxis',
+          message: 'PLS-00103',
           severity: fm.MarkerSeverity.error,
           source: 'Oracle',
         ),
       ];
 
-      final tabController = TabController(length: 2, vsync: const TestVSync());
-
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: ObjectSourceResultsPanel(
-              tabController: tabController,
-              visible: true,
-              height: 250,
-              onHeightChanged: (_) {},
-              onToggleVisible: () {},
-              issues: issues,
-              checking: false,
-              onJumpTo: (_) {},
-              onClearIssues: () => cleared = true,
+            body: Stack(
+              children: [
+                ObjectSourceCollapsedHandle(
+                  onExpand: () => expanded = true,
+                  issues: issues,
+                  lastCompilation: ObjectCompilationEntry(
+                    id: 4,
+                    timestamp: DateTime.now(),
+                    objectName: 'SP_DEMO',
+                    objectType: 'PROCEDURE',
+                    ambiente: 'Desa',
+                    status: ObjectCompilationStatus.error,
+                    durationMs: 50,
+                    errorCount: 1,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
       );
       await tester.pumpAndSettle();
 
-      final clearBtn = find.byTooltip('Limpiar mensajes');
-      expect(clearBtn, findsOneWidget);
-      await tester.tap(clearBtn);
-      await tester.pumpAndSettle();
+      expect(find.text('Mostrar salida'), findsOneWidget);
+      expect(find.text('1 error'), findsOneWidget);
 
-      expect(find.text('Limpiar mensajes'), findsWidgets);
-      expect(find.text('Cancelar'), findsOneWidget);
-
-      await tester.tap(find.widgetWithText(ElevatedButton, 'Limpiar'));
-      await tester.pumpAndSettle();
-
-      expect(cleared, isTrue);
+      await tester.tap(find.text('Mostrar salida'));
+      expect(expanded, isTrue);
     },
   );
+
+  testWidgets('ProblemsOutputConsole invoca onClear tras confirmar diálogo', (
+    tester,
+  ) async {
+    bool cleared = false;
+    final issues = [
+      PlSqlIssue(
+        line: 10,
+        col: 1,
+        endCol: 10,
+        message: 'Error sintaxis',
+        severity: fm.MarkerSeverity.error,
+        source: 'Oracle',
+      ),
+    ];
+
+    final tabController = TabController(length: 2, vsync: const TestVSync());
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ObjectSourceResultsPanel(
+            tabController: tabController,
+            visible: true,
+            height: 250,
+            onHeightChanged: (_) {},
+            onToggleVisible: () {},
+            issues: issues,
+            checking: false,
+            onJumpTo: (_) {},
+            onClearIssues: () => cleared = true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final clearBtn = find.byTooltip('Limpiar mensajes');
+    expect(clearBtn, findsOneWidget);
+    await tester.tap(clearBtn);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Limpiar mensajes'), findsWidgets);
+    expect(find.text('Cancelar'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Limpiar'));
+    await tester.pumpAndSettle();
+
+    expect(cleared, isTrue);
+  });
 }

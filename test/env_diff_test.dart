@@ -59,8 +59,10 @@ void main() {
     });
 
     test('identical content with different line endings produces 0 hunks', () {
-      const origCrlf = 'CREATE OR REPLACE PROCEDURE PR_TEST IS\r\nBEGIN\r\n  NULL;\r\nEND;';
-      const modLf = 'CREATE OR REPLACE PROCEDURE PR_TEST IS\nBEGIN\n  NULL;\nEND;';
+      const origCrlf =
+          'CREATE OR REPLACE PROCEDURE PR_TEST IS\r\nBEGIN\r\n  NULL;\r\nEND;';
+      const modLf =
+          'CREATE OR REPLACE PROCEDURE PR_TEST IS\nBEGIN\n  NULL;\nEND;';
 
       final hunks = computeHunks(origCrlf, modLf);
       expect(hunks, isEmpty);
@@ -80,7 +82,8 @@ void main() {
 
     test('detects added and removed lines accurately', () {
       const orig = 'PROCEDURE P IS\nBEGIN\n  NULL;\nEND;';
-      const mod = 'PROCEDURE P IS\nBEGIN\n  DBMS_OUTPUT.PUT_LINE(\'START\');\n  NULL;\n  DBMS_OUTPUT.PUT_LINE(\'END\');\nEND;';
+      const mod =
+          'PROCEDURE P IS\nBEGIN\n  DBMS_OUTPUT.PUT_LINE(\'START\');\n  NULL;\n  DBMS_OUTPUT.PUT_LINE(\'END\');\nEND;';
 
       final hunks = computeHunks(orig, mod);
       expect(hunks.length, 2);

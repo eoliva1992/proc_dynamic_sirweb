@@ -76,21 +76,18 @@ class _ObjectSourcePackageNavState extends State<ObjectSourcePackageNav> {
     final border = widget.isDark
         ? const Color(0xFF3A3A3A)
         : const Color(0xFFDDE2EA);
-    final typeColor =
-        kTypeColors[widget.objectType] ?? const Color(0xFF0078D4);
+    final typeColor = kTypeColors[widget.objectType] ?? const Color(0xFF0078D4);
     final query = _navSearchCtrl.text.toLowerCase();
     final filtered = query.isEmpty
         ? widget.subprograms
         : widget.subprograms
-            .where((s) => s.name.toLowerCase().contains(query))
-            .toList();
+              .where((s) => s.name.toLowerCase().contains(query))
+              .toList();
 
     return Container(
       width: 200,
       decoration: BoxDecoration(
-        color: widget.isDark
-            ? const Color(0xFF1E1F22)
-            : cs.surfaceContainerLow,
+        color: widget.isDark ? const Color(0xFF1E1F22) : cs.surfaceContainerLow,
         border: Border(right: BorderSide(color: border)),
       ),
       child: Column(
