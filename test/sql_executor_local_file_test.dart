@@ -155,6 +155,33 @@ void main() {
 
       expect(find.text('Script nuevo (sin guardar)'), findsOneWidget);
       expect(find.byIcon(Icons.edit_document), findsOneWidget);
+      expect(find.text('Modificado'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'SqlExecutorStatusBar muestra indicador "Modificado" cuando isDirty es true',
+    (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: SqlExecutorStatusBar(
+              cursorLine: 1,
+              cursorCol: 1,
+              statementCount: 1,
+              statement: null,
+              running: false,
+              lastEntry: null,
+              ambiente: 'Desa',
+              currentFilePath: 'C:\\scripts\\report.sql',
+              isDirty: true,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('C:\\scripts\\report.sql'), findsOneWidget);
+      expect(find.text('Modificado'), findsOneWidget);
     },
   );
 

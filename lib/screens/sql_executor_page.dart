@@ -38,6 +38,7 @@ class SqlExecutorPage extends StatefulWidget {
     this.initialFilePath,
     this.onCodeChanged,
     this.onFilePathChanged,
+    this.onDirtyChanged,
   });
 
   final String ambiente;
@@ -55,6 +56,9 @@ class SqlExecutorPage extends StatefulWidget {
   /// Notifica cambios en la ruta del archivo local cuando se abre o guarda con nueva ruta.
   final ValueChanged<String?>? onFilePathChanged;
 
+  /// Notifica si el contenido actual tiene modificaciones sin guardar.
+  final ValueChanged<bool>? onDirtyChanged;
+
   @override
   State<SqlExecutorPage> createState() => _SqlExecutorPageState();
 }
@@ -67,10 +71,13 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
     vsync: this,
   );
   late final SqlExecutorStateController _stateCtrl;
+  late String _savedBaselineText;
+  bool _isDirty = false;
 
   @override
   void initState() {
     super.initState();
+    _savedBaselineText = widget.initialSql;
     _stateCtrl = SqlExecutorStateController(
       initialAmbiente: widget.ambiente,
       initialSql: widget.initialSql,
@@ -207,6 +214,23 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
     );
   }
 
+  void _checkDirtyState(String currentCode) {
+    final isDirty = currentCode != _savedBaselineText;
+    if (_isDirty != isDirty) {
+      if (mounted) {
+        setState(() => _isDirty = isDirty);
+      } else {
+        _isDirty = isDirty;
+      }
+      widget.onDirtyChanged?.call(isDirty);
+    }
+  }
+
+  void _onEditorCodeChanged(String code) {
+    widget.onCodeChanged?.call(code);
+    _checkDirtyState(code);
+  }
+
   Future<void> _openLocalSqlFile() async {
     final opened = await LocalFileService.openFile(
       dialogTitle: 'Abrir script SQL',
@@ -214,6 +238,8 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
     );
     if (opened == null || !mounted) return;
     _stateCtrl.loadFromLocalFile(path: opened.path, content: opened.content);
+    _savedBaselineText = opened.content;
+    _checkDirtyState(opened.content);
     widget.onFilePathChanged?.call(opened.path);
     _monacoCtrl.setText(opened.content);
   }
@@ -229,6 +255,8 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
       allowedExtensions: const ['sql', 'txt', 'pls'],
     );
     if (savedPath != null && mounted) {
+      _savedBaselineText = code;
+      _checkDirtyState(code);
       _stateCtrl.setCurrentFilePath(savedPath);
       widget.onFilePathChanged?.call(savedPath);
     }
@@ -268,6 +296,8 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
 
     _monacoCtrl.setText('');
     _stateCtrl.setText('');
+    _savedBaselineText = '';
+    _checkDirtyState('');
     _stateCtrl.setCurrentFilePath(null);
     widget.onFilePathChanged?.call(null);
     _stateCtrl.clearOutput();
@@ -334,7 +364,7 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
       onGenerateDml: _onGenerateDml,
       onSave: () => unawaited(_saveLocalSqlFile()),
       onSaveAs: () => unawaited(_saveLocalSqlFile(saveAs: true)),
-      onCodeChanged: widget.onCodeChanged,
+      onCodeChanged: _onEditorCodeChanged,
     );
   }
 
@@ -435,6 +465,7 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
                       : null,
                   ambiente: _stateCtrl.ambiente,
                   currentFilePath: _stateCtrl.currentFilePath,
+                  isDirty: _isDirty,
                 ),
               ],
             ),

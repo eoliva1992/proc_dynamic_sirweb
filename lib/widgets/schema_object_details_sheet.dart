@@ -1968,19 +1968,31 @@ class _ColumnsViewState extends State<_ColumnsView>
                           const SizedBox(width: 16),
                           Expanded(
                             flex: 5,
-                            child: Tooltip(
-                              message: c.name,
-                              waitDuration: const Duration(milliseconds: 500),
-                              child: Text(
-                                c.name,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontFamily: 'Consolas',
-                                  color: tc,
-                                  fontWeight: FontWeight.w500,
+                            child: Row(
+                              children: [
+                                Flexible(
+                                  child: Tooltip(
+                                    message: c.name,
+                                    waitDuration:
+                                        const Duration(milliseconds: 500),
+                                    child: Text(
+                                      c.name,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontFamily: 'Consolas',
+                                        color: tc,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
                                 ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                                const SizedBox(width: 4),
+                                _CopyValueButton(
+                                  value: c.name,
+                                  tooltip: 'Copiar nombre de campo',
+                                ),
+                              ],
                             ),
                           ),
                           Expanded(
@@ -3196,14 +3208,32 @@ class _ReferenciasTabState extends State<_ReferenciasTab>
                     const SizedBox(width: 10),
                     Expanded(
                       flex: 5,
-                      child: Text(
-                        r.name,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontFamily: 'Consolas',
-                          color: tc,
-                          fontWeight: FontWeight.w500,
-                        ),
+                      child: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              r.name,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontFamily: 'Consolas',
+                                color: tc,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          _CopyValueButton(
+                            value: r.name,
+                            tooltip: 'Copiar nombre',
+                          ),
+                          const SizedBox(width: 2),
+                          _OpenRefButton(
+                            name: r.name,
+                            type: r.type,
+                            ambiente: widget.ambiente,
+                          ),
+                        ],
                       ),
                     ),
                     Expanded(
@@ -3396,7 +3426,7 @@ class _InfoTabState extends State<_InfoTab> with AutomaticKeepAliveClientMixin {
                     width: 200,
                     padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
                     color: labelBg,
-                    child: Text(
+                    child: SelectableText(
                       p.name,
                       style: TextStyle(
                         fontSize: 11.5,
@@ -3415,7 +3445,7 @@ class _InfoTabState extends State<_InfoTab> with AutomaticKeepAliveClientMixin {
                   Expanded(
                     child: Container(
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                      child: Text(
+                      child: SelectableText(
                         isEmpty ? '(null)' : p.value,
                         style: TextStyle(
                           fontSize: 11.5,

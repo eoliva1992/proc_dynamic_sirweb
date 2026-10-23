@@ -861,6 +861,29 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       '    if (aux) { document.execCommand("redo"); return; }'
       '    if (window.editor) { try { window.editor.trigger("keyboard", "redo"); } catch(e){} }'
       '  };'
+      '  window.__fmCutNow = function(){'
+      '    var text = "";'
+      '    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+      '    if (aux) {'
+      '      var st = aux.selectionStart, en = aux.selectionEnd;'
+      '      if (st == null || en == null || st === en) return;'
+      '      var val = aux.value || "";'
+      '      text = val.substring(st, en);'
+      '      aux.value = val.substring(0, st) + val.substring(en);'
+      '      aux.selectionStart = aux.selectionEnd = st;'
+      '      aux.dispatchEvent(new Event("input", { bubbles: true }));'
+      '    } else if (window.editor) {'
+      '      var s = window.editor.getSelection();'
+      '      var m = window.editor.getModel();'
+      '      if (!s || s.isEmpty() || !m) return;'
+      '      text = m.getValueInRange(s);'
+      '      window.editor.pushUndoStop();'
+      '      window.editor.executeEdits("flutter-cut", [{ range: s, text: "", forceMoveMarkers: true }]);'
+      '      window.editor.pushUndoStop();'
+      '    }'
+      '    if (!text) return;'
+      '    window.FlutterMonaco.emit("fmClipboardCutDone", { text: text });'
+      '  };'
       '  document.addEventListener("keydown",function(e){'
       '    var isMod = e.ctrlKey || e.metaKey;'
       '    if (!isMod) return;'
@@ -870,8 +893,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       '      window.__fmOpenFind();'
       '    } else if (key === "x" && !e.shiftKey) {'
       '      e.preventDefault();'
-      '      var bridge = window.FlutterMonaco || window.flutterMonaco;'
-      '      if (bridge && bridge.emit) { bridge.emit("fmClipboardCut", {}); }'
+      '      try { window.__fmCutNow(); } catch(_) {}'
       '    } else if (key === "z" && !e.shiftKey) {'
       '      e.preventDefault();'
       '      window.__fmUndo();'
@@ -1271,6 +1293,12 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       if (event is! MonacoUnknownEvent) return;
       if (event.name == 'fmClipboardCut') {
         unawaited(_cutSelectionToClipboard());
+      } else if (event.name == 'fmClipboardCutDone') {
+        final text = (event.data['text'] as String?) ?? '';
+        if (text.isNotEmpty) {
+          unawaited(Clipboard.setData(ClipboardData(text: text)));
+          AppToast.info('Cortado al portapapeles');
+        }
       } else if (event.name == 'fmSuggestVisibility') {
         final vis = (event.data['visible'] as bool?) ?? false;
         _isSuggestWidgetVisible = vis;
@@ -2087,20 +2115,14 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         r'    const ed = window.editor;'
         r'    if (!ed) return "";'
         r'    ed.focus();'
-        r'    let sels = ed.getSelections();'
-        r'    if (!sels || sels.length === 0) {'
-        r'      const s = ed.getSelection();'
-        r'      sels = s ? [s] : [];'
-        r'    }'
-        r'    const activeSels = sels.filter(function(s){ return s && !s.isEmpty(); });'
-        r'    if (activeSels.length === 0) return "";'
+        r'    const s = ed.getSelection();'
+        r'    if (!s || s.isEmpty()) return "";'
         r'    const model = ed.getModel();'
-        r'    const cutText = activeSels.map(function(s){ return model.getValueInRange(s); }).join("\n");'
+        r'    if (!model) return "";'
+        r'    const cutText = model.getValueInRange(s);'
         r'    if (!cutText) return "";'
         r'    ed.pushUndoStop();'
-        r'    ed.executeEdits("flutter-cut", activeSels.map(function(s){'
-        r'      return { range: s, text: "", forceMoveMarkers: true };'
-        r'    }));'
+        r'    ed.executeEdits("flutter-cut", [{ range: s, text: "", forceMoveMarkers: true }]);'
         r'    ed.pushUndoStop();'
         r'    return cutText;'
         r'  } catch(e) { return ""; }'
@@ -2362,13 +2384,15 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           ),
         ),
       ],
-    ).then((action) {
-      unawaited(
-        _withCtrl(
-          (ctrl) => ctrl.runJavaScript('window.__fmContextMenuAux = null;'),
-        ),
-      );
-      if (action == null || !mounted) return;
+    ).then((action) async {
+      if (action == null || !mounted) {
+        unawaited(
+          _withCtrl(
+            (ctrl) => ctrl.runJavaScript('window.__fmContextMenuAux = null;'),
+          ),
+        );
+        return;
+      }
       switch (action) {
         case _CtxMenuAction.gotoDef:
           unawaited(_goToDefinitionAtCursor());
@@ -2392,15 +2416,20 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           unawaited(_redo());
           break;
         case _CtxMenuAction.cut:
-          unawaited(_cutSelectionToClipboard());
+          await _cutSelectionToClipboard();
           break;
         case _CtxMenuAction.copy:
-          unawaited(_copySelectionToClipboard());
+          await _copySelectionToClipboard();
           break;
         case _CtxMenuAction.paste:
-          unawaited(_pasteFromClipboard());
+          await _pasteFromClipboard();
           break;
       }
+      unawaited(
+        _withCtrl(
+          (ctrl) => ctrl.runJavaScript('window.__fmContextMenuAux = null;'),
+        ),
+      );
     });
   }
 

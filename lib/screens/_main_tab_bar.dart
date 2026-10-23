@@ -298,7 +298,10 @@ class _MainTabBarState extends State<_MainTabBar> {
     final isHovered = _hoveredTabs.contains(index);
     final inEditor = tab.loading || tab.procedimiento != null;
     final isDirty =
-        tab.isDirty && (tab.procedimiento != null || tab.inSourceViewMode);
+        tab.isDirty &&
+        (tab.procedimiento != null ||
+            tab.inSourceViewMode ||
+            tab.inSqlExecutorMode);
 
     // Densidad adaptativa (Chrome-like): al encogerse, se ocultan elementos
     final showTypeLabel = tabW >= 175;
@@ -432,19 +435,44 @@ class _MainTabBarState extends State<_MainTabBar> {
                                 if (showLabel) ...[
                                   const SizedBox(width: 6),
                                   Expanded(
-                                    child: Text(
-                                      label,
-                                      overflow: TextOverflow.ellipsis,
-                                      softWrap: false,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: isActive
-                                            ? FontWeight.w600
-                                            : FontWeight.normal,
-                                        color: isActive
-                                            ? activeText
-                                            : inactiveText,
-                                      ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            label,
+                                            overflow: TextOverflow.ellipsis,
+                                            softWrap: false,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: isActive
+                                                  ? FontWeight.w600
+                                                  : FontWeight.normal,
+                                              color: isActive
+                                                  ? activeText
+                                                  : inactiveText,
+                                            ),
+                                          ),
+                                        ),
+                                        if (isDirty) ...[
+                                          const SizedBox(width: 4),
+                                          Container(
+                                            width: 6,
+                                            height: 6,
+                                            decoration: BoxDecoration(
+                                              color: Colors.orange.shade400,
+                                              shape: BoxShape.circle,
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: Colors.orange
+                                                      .withValues(alpha: 0.5),
+                                                  blurRadius: 3,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ],
                                     ),
                                   ),
                                 ],

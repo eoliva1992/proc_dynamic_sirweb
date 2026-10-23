@@ -5,6 +5,7 @@ import '../providers/procedimientos_provider.dart';
 import '../services/schema_navigation_helper.dart';
 import '../services/sirweb_service.dart';
 import 'app_toast.dart';
+import 'schema_object_details_sheet.dart';
 import 'source_float_window.dart';
 import 'source_tab_controller.dart';
 
@@ -109,6 +110,16 @@ void _openSchema(
   String ambiente,
   void Function(String name, String objectType)? onOpenSchema,
 ) {
+  if (objectType == 'TABLE') {
+    showObjectDetails(
+      context,
+      name: name,
+      type: objectType,
+      ambiente: ambiente,
+    );
+    return;
+  }
+
   if (onOpenSchema != null) {
     onOpenSchema(name, objectType);
   } else {

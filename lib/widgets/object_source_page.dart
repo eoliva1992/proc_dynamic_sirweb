@@ -34,6 +34,7 @@ import 'definition_navigation.dart';
 import 'monaco_snippets.dart';
 import 'object_source_results_panel.dart';
 import 'plsql_tables.dart' show extractSqlTables;
+import 'schema_object_details_sheet.dart';
 import 'slide_up_panel.dart';
 import 'source_tab_controller.dart';
 import 'status_card.dart';
@@ -1667,8 +1668,19 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
   }
 
   /// Maneja la navegación a la definición de un objeto Oracle desde los editores
-  /// embebidos. Usa [SourceTabController] si está disponible en el árbol.
+  /// embebidos. Si es una tabla, abre el modal de detalles/información.
+  /// Para otros objetos, usa [SourceTabController] si está disponible en el árbol.
   void _handleGotoDefinition(String name, String objectType) {
+    if (objectType == 'TABLE') {
+      showObjectDetails(
+        context,
+        name: name,
+        type: objectType,
+        ambiente: widget.ambiente,
+      );
+      return;
+    }
+
     final stc = SourceTabController.maybeOf(context);
     if (stc != null) {
       stc.openTab(

@@ -18,6 +18,7 @@ class SqlExecutorStatusBar extends StatelessWidget {
   final SqlExecutionLogEntry? lastEntry;
   final String ambiente;
   final String? currentFilePath;
+  final bool isDirty;
 
   const SqlExecutorStatusBar({
     super.key,
@@ -29,6 +30,7 @@ class SqlExecutorStatusBar extends StatelessWidget {
     required this.lastEntry,
     required this.ambiente,
     this.currentFilePath,
+    this.isDirty = false,
   });
 
   @override
@@ -106,8 +108,12 @@ class SqlExecutorStatusBar extends StatelessWidget {
           Expanded(
             child: Tooltip(
               message: currentFilePath != null && currentFilePath!.isNotEmpty
-                  ? 'Archivo: $currentFilePath\n(Clic para abrir ubicación en el explorador)'
-                  : 'Documento nuevo sin guardar en disco',
+                  ? (isDirty
+                      ? 'Archivo: $currentFilePath (con cambios pendientes de guardar)\n(Clic para abrir ubicación en el explorador)'
+                      : 'Archivo: $currentFilePath\n(Clic para abrir ubicación en el explorador)')
+                  : (isDirty
+                      ? 'Documento nuevo con cambios sin guardar en disco'
+                      : 'Documento nuevo sin guardar en disco'),
               child: InkWell(
                 onTap: currentFilePath != null && currentFilePath!.isNotEmpty
                     ? () => BackupService.revealInExplorer(currentFilePath!)
@@ -126,11 +132,12 @@ class SqlExecutorStatusBar extends StatelessWidget {
                             ? Icons.description_outlined
                             : Icons.edit_document,
                         size: 12,
-                        color:
-                            currentFilePath != null &&
-                                currentFilePath!.isNotEmpty
-                            ? cs.primary
-                            : cs.onSurfaceVariant.withValues(alpha: 0.7),
+                        color: isDirty
+                            ? Colors.orange.shade400
+                            : (currentFilePath != null &&
+                                    currentFilePath!.isNotEmpty
+                                ? cs.primary
+                                : cs.onSurfaceVariant.withValues(alpha: 0.7)),
                       ),
                       const SizedBox(width: 4),
                       Flexible(
@@ -160,6 +167,45 @@ class SqlExecutorStatusBar extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (isDirty) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 1,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(3),
+                            border: Border.all(
+                              color: Colors.orange.withValues(alpha: 0.4),
+                              width: 0.6,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 5,
+                                height: 5,
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.shade400,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Modificado',
+                                style: TextStyle(
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.orange.shade400,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),

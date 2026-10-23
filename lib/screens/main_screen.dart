@@ -609,6 +609,60 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       });
       return;
     }
+    if (tab.isDirty && tab.inSqlExecutorMode) {
+      showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          titlePadding: EdgeInsets.zero,
+          title: const ConstellationDialogTitle(
+            child: Text('Cambios sin guardar'),
+          ),
+          content: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text('${_tabDisplayLabel(tab)} tiene cambios sin guardar.'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop('cancel'),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red.shade700),
+              onPressed: () => Navigator.of(ctx).pop('discard'),
+              child: const Text('Descartar y cerrar'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0078D4),
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.of(ctx).pop('save'),
+              child: const Text('Guardar y cerrar'),
+            ),
+          ],
+        ),
+      ).then((action) async {
+        if (action == 'discard') {
+          _doCloseTab(index);
+        } else if (action == 'save') {
+          final code = tab.currentEditorCode ?? '';
+          final savedPath = await LocalFileService.saveFile(
+            content: code,
+            currentPath: tab.localFilePath,
+            defaultFileName: 'script.sql',
+            dialogTitle: 'Guardar script',
+            allowedExtensions: const ['sql', 'txt', 'pls'],
+          );
+          if (!mounted) return;
+          if (savedPath != null) {
+            tab.localFilePath = savedPath;
+            tab.isDirty = false;
+            _doCloseTab(index);
+          }
+        }
+      });
+      return;
+    }
     final inEditor = tab.procedimiento != null;
     if (tab.isDirty && inEditor) {
       showDialog<String>(
@@ -1508,6 +1562,11 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             tab.localFilePath = newPath;
           });
           _scheduleSaveSession();
+        },
+        onDirtyChanged: (dirty) {
+          if (tab.isDirty != dirty) {
+            setState(() => tab.isDirty = dirty);
+          }
         },
         onAmbienteChanged: (v) => _onTabAmbienteChanged(tab, v),
       );

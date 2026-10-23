@@ -440,217 +440,242 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
       height: 40,
       color: isDark ? cs.surfaceContainerLow : cs.surface,
       padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: Row(
-        spacing: 5,
-        children: [
-          _ToggleBtn(
-            icon: Icons.map_outlined,
-            tooltip: 'Minimap',
-            active: _minimap,
-            onPressed: () => _toggle(() => _minimap = !_minimap),
-          ),
-          _ToggleBtn(
-            icon: Icons.format_list_numbered,
-            tooltip: 'Número de líneas',
-            active: _lineNumbers,
-            onPressed: () => _toggle(() => _lineNumbers = !_lineNumbers),
-          ),
-          _ToggleBtn(
-            icon: _folding ? Icons.unfold_less : Icons.unfold_more,
-            tooltip: 'Colapsar bloques',
-            active: _folding,
-            onPressed: () => _toggle(() => _folding = !_folding),
-          ),
-          _ToggleBtn(
-            icon: _readOnly ? Icons.lock_outline : Icons.lock_open,
-            tooltip: 'Solo lectura — bloquear edición',
-            active: _readOnly,
-            onPressed: () => _toggle(() => _readOnly = !_readOnly),
-          ),
-          const SizedBox(width: 4),
-          Container(
-            height: 26,
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: cs.outlineVariant.withValues(alpha: 0.7),
-                width: 0.5,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final leftButtons = Row(
+            mainAxisSize: MainAxisSize.min,
+            spacing: 5,
+            children: [
+              _ToggleBtn(
+                icon: Icons.map_outlined,
+                tooltip: 'Minimap',
+                active: _minimap,
+                onPressed: () => _toggle(() => _minimap = !_minimap),
               ),
-              borderRadius: BorderRadius.circular(13),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Tooltip(
-                  message: 'Reducir fuente (Ctrl+−)',
-                  waitDuration: _kTooltipWait,
-                  preferBelow: false,
-                  decoration: _kTooltipDecoration,
-                  textStyle: _kTooltipTextStyle,
-                  child: InkWell(
-                    onTap: _fontSize > 10
-                        ? () => _toggle(
-                            () => _fontSize = (_fontSize - 2).clamp(10, 28),
-                          )
-                        : null,
-                    borderRadius: const BorderRadius.horizontal(
-                      left: Radius.circular(13),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 5,
-                      ),
-                      child: Icon(
-                        Icons.remove,
-                        size: 14,
-                        color: _fontSize > 10
-                            ? cs.onSurfaceVariant
-                            : cs.onSurfaceVariant.withValues(alpha: 0.3),
-                      ),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Text(
-                    '${_fontSize.toInt()}',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: cs.onSurfaceVariant,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                Tooltip(
-                  message: 'Aumentar fuente (Ctrl+=)',
-                  waitDuration: _kTooltipWait,
-                  preferBelow: false,
-                  decoration: _kTooltipDecoration,
-                  textStyle: _kTooltipTextStyle,
-                  child: InkWell(
-                    onTap: _fontSize < 28
-                        ? () => _toggle(
-                            () => _fontSize = (_fontSize + 2).clamp(10, 28),
-                          )
-                        : null,
-                    borderRadius: const BorderRadius.horizontal(
-                      right: Radius.circular(13),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 5,
-                      ),
-                      child: Icon(
-                        Icons.add,
-                        size: 14,
-                        color: _fontSize < 28
-                            ? cs.onSurfaceVariant
-                            : cs.onSurfaceVariant.withValues(alpha: 0.3),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 4),
-          SizedBox(
-            height: 18,
-            child: VerticalDivider(color: cs.outlineVariant, width: 12),
-          ),
-          _buildThemeToggleBtn(cs),
-          _buildOptionsGear(cs),
-          _buildVarsButton(cs),
-          _ToggleBtn(
-            icon: Icons.account_tree_outlined,
-            tooltip: 'Outline — estructura del procedimiento',
-            active: _showOutline,
-            onPressed: _toggleOutline,
-          ),
-          _ToggleBtn(
-            icon: Icons.auto_awesome,
-            tooltip: 'Chat con GitHub Copilot',
-            active: _showAiChat,
-            onPressed: _toggleAiChat,
-          ),
-          _ToolBtn(
-            icon: Icons.code_rounded,
-            tooltip: 'Snippets de usuario',
-            onPressed: _openSnippetsManager,
-          ),
-          _ToolBtn(
-            icon: Icons.data_object_rounded,
-            tooltip: 'Consultar dato — InfoDato (Alt+D)',
-            onPressed: () => unawaited(_openInfoDatoWindow()),
-          ),
-          _ToolBtn(
-            icon: Icons.bolt_rounded,
-            tooltip: 'Consultar evento — InfoEvento (Alt+E)',
-            onPressed: () => unawaited(_openInfoEventoWindow()),
-          ),
-          _ToolBtn(
-            icon: Icons.verified_user_outlined,
-            tooltip: 'Consultar autorizaciones de proceso (Alt+A)',
-            onPressed: () => unawaited(_openAutorizacionesWindow()),
-          ),
-          _ToolBtn(
-            icon: Icons.travel_explore_rounded,
-            tooltip: 'Usos del procedimiento — tabla y campo (Alt+U)',
-            onPressed: () => unawaited(_showUsosProcedimiento()),
-          ),
-          _ToolBtn(
-            icon: Icons.play_circle_outline_rounded,
-            tooltip: 'Ejecutar procedimiento dinámico (Alt+R)',
-            onPressed: () => unawaited(_ejecutarProcedimiento()),
-          ),
-          _ToolBtn(
-            icon: Icons.play_arrow_rounded,
-            tooltip: 'Ejecutar objeto PL/SQL (Ctrl+Shift+E)',
-            onPressed: () => unawaited(_ejecutarLlamadaPlsql()),
-          ),
-          _ToolBtn(
-            icon: Icons.folder_open_rounded,
-            tooltip: 'Abrir archivo (.sql / .txt / .yaml)',
-            onPressed: () => unawaited(_openLocalFile()),
-          ),
-          _buildSplitMenu(cs, isDark),
-          const Spacer(),
-          _buildCharCountBadge(cs),
-          _buildErrorBadge(cs),
-          const SizedBox(width: 4),
-          SizedBox(
-            height: 18,
-            child: VerticalDivider(color: cs.outlineVariant, width: 12),
-          ),
-          _buildCompileBtn(cs),
-          const SizedBox(width: 4),
-          SizedBox(
-            height: 18,
-            child: VerticalDivider(color: cs.outlineVariant, width: 12),
-          ),
-          const SizedBox(width: 4),
-          _buildSaveBtn(cs),
-          _ToolBtn(
-            icon: Icons.save_as_outlined,
-            tooltip: 'Guardar como archivo local… (Ctrl+Shift+S)',
-            onPressed: () => unawaited(_saveAsLocalFile()),
-          ),
-          _ToolBtn(
-            icon: Icons.compare_arrows,
-            tooltip: 'Ver diff vs. versión guardada (sin guardar)',
-            onPressed: _openDiff,
-          ),
-          _ToolBtn(
-            icon: Icons.format_align_left,
-            tooltip: 'Formatear documento (Shift+Alt+F)',
-            onPressed: () => unawaited(
-              _withCtrl(
-                (ctrl) => ctrl.executeAction(MonacoAction.formatDocument),
+              _ToggleBtn(
+                icon: Icons.format_list_numbered,
+                tooltip: 'Número de líneas',
+                active: _lineNumbers,
+                onPressed: () => _toggle(() => _lineNumbers = !_lineNumbers),
               ),
+              _ToggleBtn(
+                icon: _folding ? Icons.unfold_less : Icons.unfold_more,
+                tooltip: 'Colapsar bloques',
+                active: _folding,
+                onPressed: () => _toggle(() => _folding = !_folding),
+              ),
+              _ToggleBtn(
+                icon: _readOnly ? Icons.lock_outline : Icons.lock_open,
+                tooltip: 'Solo lectura — bloquear edición',
+                active: _readOnly,
+                onPressed: () => _toggle(() => _readOnly = !_readOnly),
+              ),
+              const SizedBox(width: 4),
+              Container(
+                height: 26,
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: cs.outlineVariant.withValues(alpha: 0.7),
+                    width: 0.5,
+                  ),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Tooltip(
+                      message: 'Reducir fuente (Ctrl+−)',
+                      waitDuration: _kTooltipWait,
+                      preferBelow: false,
+                      decoration: _kTooltipDecoration,
+                      textStyle: _kTooltipTextStyle,
+                      child: InkWell(
+                        onTap: _fontSize > 10
+                            ? () => _toggle(
+                                () => _fontSize = (_fontSize - 2).clamp(10, 28),
+                              )
+                            : null,
+                        borderRadius: const BorderRadius.horizontal(
+                          left: Radius.circular(13),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 5,
+                          ),
+                          child: Icon(
+                            Icons.remove,
+                            size: 14,
+                            color: _fontSize > 10
+                                ? cs.onSurfaceVariant
+                                : cs.onSurfaceVariant.withValues(alpha: 0.3),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Text(
+                        '${_fontSize.toInt()}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: cs.onSurfaceVariant,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    Tooltip(
+                      message: 'Aumentar fuente (Ctrl+=)',
+                      waitDuration: _kTooltipWait,
+                      preferBelow: false,
+                      decoration: _kTooltipDecoration,
+                      textStyle: _kTooltipTextStyle,
+                      child: InkWell(
+                        onTap: _fontSize < 28
+                            ? () => _toggle(
+                                () => _fontSize = (_fontSize + 2).clamp(10, 28),
+                              )
+                            : null,
+                        borderRadius: const BorderRadius.horizontal(
+                          right: Radius.circular(13),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 5,
+                          ),
+                          child: Icon(
+                            Icons.add,
+                            size: 14,
+                            color: _fontSize < 28
+                                ? cs.onSurfaceVariant
+                                : cs.onSurfaceVariant.withValues(alpha: 0.3),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 4),
+              SizedBox(
+                height: 18,
+                child: VerticalDivider(color: cs.outlineVariant, width: 12),
+              ),
+              _buildThemeToggleBtn(cs),
+              _buildOptionsGear(cs),
+              _buildVarsButton(cs),
+              _ToggleBtn(
+                icon: Icons.account_tree_outlined,
+                tooltip: 'Outline — estructura del procedimiento',
+                active: _showOutline,
+                onPressed: _toggleOutline,
+              ),
+              _ToggleBtn(
+                icon: Icons.auto_awesome,
+                tooltip: 'Chat con GitHub Copilot',
+                active: _showAiChat,
+                onPressed: _toggleAiChat,
+              ),
+              _ToolBtn(
+                icon: Icons.code_rounded,
+                tooltip: 'Snippets de usuario',
+                onPressed: _openSnippetsManager,
+              ),
+              _ToolBtn(
+                icon: Icons.data_object_rounded,
+                tooltip: 'Consultar dato — InfoDato (Alt+D)',
+                onPressed: () => unawaited(_openInfoDatoWindow()),
+              ),
+              _ToolBtn(
+                icon: Icons.bolt_rounded,
+                tooltip: 'Consultar evento — InfoEvento (Alt+E)',
+                onPressed: () => unawaited(_openInfoEventoWindow()),
+              ),
+              _ToolBtn(
+                icon: Icons.verified_user_outlined,
+                tooltip: 'Consultar autorizaciones de proceso (Alt+A)',
+                onPressed: () => unawaited(_openAutorizacionesWindow()),
+              ),
+              _ToolBtn(
+                icon: Icons.travel_explore_rounded,
+                tooltip: 'Usos del procedimiento — tabla y campo (Alt+U)',
+                onPressed: () => unawaited(_showUsosProcedimiento()),
+              ),
+              _ToolBtn(
+                icon: Icons.play_circle_outline_rounded,
+                tooltip: 'Ejecutar procedimiento dinámico (Alt+R)',
+                onPressed: () => unawaited(_ejecutarProcedimiento()),
+              ),
+              _ToolBtn(
+                icon: Icons.play_arrow_rounded,
+                tooltip: 'Ejecutar objeto PL/SQL (Ctrl+Shift+E)',
+                onPressed: () => unawaited(_ejecutarLlamadaPlsql()),
+              ),
+              _ToolBtn(
+                icon: Icons.folder_open_rounded,
+                tooltip: 'Abrir archivo (.sql / .txt / .yaml)',
+                onPressed: () => unawaited(_openLocalFile()),
+              ),
+              _buildSplitMenu(cs, isDark),
+            ],
+          );
+
+          final rightButtons = Row(
+            mainAxisSize: MainAxisSize.min,
+            spacing: 5,
+            children: [
+              _buildCharCountBadge(cs),
+              _buildErrorBadge(cs),
+              const SizedBox(width: 4),
+              SizedBox(
+                height: 18,
+                child: VerticalDivider(color: cs.outlineVariant, width: 12),
+              ),
+              _buildCompileBtn(cs),
+              const SizedBox(width: 4),
+              SizedBox(
+                height: 18,
+                child: VerticalDivider(color: cs.outlineVariant, width: 12),
+              ),
+              const SizedBox(width: 4),
+              _buildSaveBtn(cs),
+              _ToolBtn(
+                icon: Icons.save_as_outlined,
+                tooltip: 'Guardar como archivo local… (Ctrl+Shift+S)',
+                onPressed: () => unawaited(_saveAsLocalFile()),
+              ),
+              _ToolBtn(
+                icon: Icons.compare_arrows,
+                tooltip: 'Ver diff vs. versión guardada (sin guardar)',
+                onPressed: _openDiff,
+              ),
+              _ToolBtn(
+                icon: Icons.format_align_left,
+                tooltip: 'Formatear documento (Shift+Alt+F)',
+                onPressed: () => unawaited(
+                  _withCtrl(
+                    (ctrl) => ctrl.executeAction(MonacoAction.formatDocument),
+                  ),
+                ),
+              ),
+            ],
+          );
+
+          final toolbarContent = Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [leftButtons, const SizedBox(width: 12), rightButtons],
+          );
+
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth),
+              child: toolbarContent,
             ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }

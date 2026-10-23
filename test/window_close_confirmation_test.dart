@@ -89,6 +89,39 @@ void main() {
       expect(isDirtyEditor, isTrue);
     });
 
+    test('sql executor tab with isDirty=true is detected as dirty editor', () {
+      final tab = AppTab()
+        ..isSqlExecutor = true
+        ..currentEditorCode = 'SELECT * FROM DUAL;'
+        ..isDirty = true;
+
+      expect(tab.inSqlExecutorMode, isTrue);
+      final isDirtyEditor =
+          tab.isDirty &&
+          (tab.procedimiento != null ||
+              tab.inSourceViewMode ||
+              tab.inSqlExecutorMode);
+      expect(isDirtyEditor, isTrue);
+    });
+
+    test(
+      'sql executor tab with isDirty=false is NOT detected as dirty editor',
+      () {
+        final tab = AppTab()
+          ..isSqlExecutor = true
+          ..currentEditorCode = ''
+          ..isDirty = false;
+
+        expect(tab.inSqlExecutorMode, isTrue);
+        final isDirtyEditor =
+            tab.isDirty &&
+            (tab.procedimiento != null ||
+                tab.inSourceViewMode ||
+                tab.inSqlExecutorMode);
+        expect(isDirtyEditor, isFalse);
+      },
+    );
+
     test('multiple tabs filter correctly isolates only dirty editors', () {
       final tab1 = AppTab(); // search mode
       final tab2 = AppTab()
@@ -118,16 +151,23 @@ void main() {
           initialSearchTerm: null,
         )
         ..isDirty = true;
+      final tab5 = AppTab()
+        ..isSqlExecutor = true
+        ..currentEditorCode = 'SELECT 1 FROM DUAL;'
+        ..isDirty = true;
 
-      final allTabs = [tab1, tab2, tab3, tab4];
+      final allTabs = [tab1, tab2, tab3, tab4, tab5];
       final dirtyEditors = allTabs.where((tab) {
         if (!tab.isDirty) return false;
-        return tab.procedimiento != null || tab.inSourceViewMode;
+        return tab.procedimiento != null ||
+            tab.inSourceViewMode ||
+            tab.inSqlExecutorMode;
       }).toList();
 
-      expect(dirtyEditors.length, 2);
+      expect(dirtyEditors.length, 3);
       expect(dirtyEditors[0].procedimiento?.cdProcedimiento, 'PR_DIRTY');
       expect(dirtyEditors[1].sourceViewer?.name, 'PKG_DIRTY');
+      expect(dirtyEditors[2].inSqlExecutorMode, isTrue);
     });
   });
 }
