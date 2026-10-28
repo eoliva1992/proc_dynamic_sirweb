@@ -75,7 +75,7 @@ extension _EditorNavigationMethods on _CodeEditorPanelState {
     if (!mounted) return;
     try {
       final word = await _wordAtContextMenu();
-      if (word == null || word.isEmpty) return;
+      if (word == null || word.isEmpty || !mounted) return;
       await navigateToDefinition(context, word, ambiente: widget.ambiente);
     } catch (e, st) {
       debugPrint('[GotoDef] Error: $e\n$st');

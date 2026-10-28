@@ -130,8 +130,9 @@ class AppLog extends ChangeNotifier {
         detail: detail,
       ),
     );
-    if (_entries.length > maxEntries)
+    if (_entries.length > maxEntries) {
       _entries.removeRange(maxEntries, _entries.length);
+    }
     if (level == LogLevel.error) _unseenErrors++;
     _notify();
   }

@@ -272,6 +272,7 @@ class _SimpleTextEditorPageState extends State<SimpleTextEditorPage> {
       return;
     }
 
+    if (!mounted) return;
     await navigateToDefinition(context, word, ambiente: widget.ambiente);
   }
 

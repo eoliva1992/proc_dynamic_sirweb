@@ -26,6 +26,8 @@ dependencies:
   signalr_netcore: ^1.4.4
   two_dimensional_scrollables: ^0.5.4
   appflowy_editor: ^6.2.0
+  archive: ^4.0.2
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:

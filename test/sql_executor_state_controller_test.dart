@@ -650,6 +650,38 @@ void main() {
     );
 
     test(
+      'al llamar dispose() desregistra el callback onHttpTrace y no falla si se emite traza posterior',
+      () {
+        final fakeSvc = _FakeSqlExecutorService();
+        final ctrl = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'SELECT 1 FROM dual;',
+          service: fakeSvc,
+        );
+
+        expect(fakeSvc.onHttpTrace, isNotNull);
+        final callback = fakeSvc.onHttpTrace;
+
+        ctrl.dispose();
+
+        expect(fakeSvc.onHttpTrace, isNull);
+
+        // Si por alguna razón una referencia vieja al callback fuera invocada,
+        // no debe lanzar excepción de ChangeNotifier usado post-dispose.
+        final trace = SqlHttpTraceEntry(
+          id: 99,
+          timestamp: DateTime.now(),
+          method: 'POST',
+          url: 'http://localhost:5000/tools/sql/statement',
+          endpoint: '/tools/sql/statement',
+          requestBody: '{"sql":"SELECT 1 FROM dual"}',
+          status: SqlHttpTraceStatus.running,
+        );
+        expect(() => callback?.call(trace), returnsNormally);
+      },
+    );
+
+    test(
       'ejecutar un DML abre sesión y commit() la confirma manteniendo la sesión viva',
       () async {
         final fakeSvc = _FakeSqlExecutorService()

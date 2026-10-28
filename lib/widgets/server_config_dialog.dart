@@ -6,9 +6,9 @@ class ServerConfigDialog extends StatefulWidget {
   final VoidCallback? onServerConfigChanged;
 
   const ServerConfigDialog({
-    Key? key,
+    super.key,
     this.onServerConfigChanged,
-  }) : super(key: key);
+  });
 
   @override
   State<ServerConfigDialog> createState() => _ServerConfigDialogState();
@@ -185,7 +185,7 @@ class _ServerConfigDialogState extends State<ServerConfigDialog> {
                   child: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Colors.green.withOpacity(0.1),
+                      color: Colors.green.withValues(alpha: 0.1),
                       border: Border.all(color: Colors.green),
                       borderRadius: BorderRadius.circular(4),
                     ),

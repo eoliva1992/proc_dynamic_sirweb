@@ -25,7 +25,26 @@ String _sqlLiteral(dynamic value, String dataType) {
   if (value == null) return 'NULL';
   if (_isNumericType(dataType)) return value.toString();
   if (_isDateType(dataType)) return _dateLiteral(value, dataType);
-  final escaped = value.toString().replaceAll("'", "''");
+
+  final isClob = dataType.toUpperCase().contains('CLOB');
+  final str = value.toString();
+
+  // Fragmentación de cadenas largas o tipo CLOB para evitar ORA-01704
+  const chunkSize = 3000;
+  if (str.length > chunkSize) {
+    final parts = <String>[];
+    for (var i = 0; i < str.length; i += chunkSize) {
+      final end = (i + chunkSize < str.length) ? i + chunkSize : str.length;
+      final chunk = str.substring(i, end).replaceAll("'", "''");
+      parts.add("TO_CLOB('$chunk')");
+    }
+    return parts.join(' || ');
+  }
+
+  final escaped = str.replaceAll("'", "''");
+  if (isClob) {
+    return "TO_CLOB('$escaped')";
+  }
   return "'$escaped'";
 }
 

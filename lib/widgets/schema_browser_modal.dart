@@ -369,9 +369,13 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
       _expandedObjects.clear();
       _expandedSubprogs.clear();
       _expandedTypes.clear();
-      for (final t in _childSearchDebounces.values) t.cancel();
+      for (final t in _childSearchDebounces.values) {
+        t.cancel();
+      }
       _childSearchDebounces.clear();
-      for (final c in _childSearchCtrls.values) c.dispose();
+      for (final c in _childSearchCtrls.values) {
+        c.dispose();
+      }
       _childSearchCtrls.clear();
       _childSearch.clear();
     });

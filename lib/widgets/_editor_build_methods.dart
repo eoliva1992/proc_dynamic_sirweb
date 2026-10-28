@@ -571,12 +571,6 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
                 active: _showOutline,
                 onPressed: _toggleOutline,
               ),
-              _ToggleBtn(
-                icon: Icons.auto_awesome,
-                tooltip: 'Chat con GitHub Copilot',
-                active: _showAiChat,
-                onPressed: _toggleAiChat,
-              ),
               _ToolBtn(
                 icon: Icons.code_rounded,
                 tooltip: 'Snippets de usuario',

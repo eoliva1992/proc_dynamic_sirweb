@@ -984,10 +984,12 @@ String _unifiedDiff(String source, String target) {
       sourceIndex++;
       targetIndex++;
     } else {
-      if (sourceIndex < sourceLines.length)
+      if (sourceIndex < sourceLines.length) {
         result.add('-${sourceLines[sourceIndex++]}');
-      if (targetIndex < targetLines.length)
+      }
+      if (targetIndex < targetLines.length) {
         result.add('+${targetLines[targetIndex++]}');
+      }
     }
   }
   return '${result.join('\n')}\n';

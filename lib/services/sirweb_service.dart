@@ -486,11 +486,11 @@ class SirwebService {
     }
 
     final result = await _call('buscar_dato', {
-      if (cdDato != null) 'cdDato': cdDato,
-      if (deDato != null) 'deDato': deDato,
-      if (tpDato != null) 'tpDato': tpDato,
-      if (cdTabla != null) 'cdTabla': cdTabla,
-      if (inUso != null) 'inUso': inUso,
+      'cdDato': ?cdDato,
+      'deDato': ?deDato,
+      'tpDato': ?tpDato,
+      'cdTabla': ?cdTabla,
+      'inUso': ?inUso,
       if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
     });
     final data = result['data'];
@@ -539,10 +539,10 @@ class SirwebService {
   }) async {
     final result = await _call('valores_tabla', {
       'cdTabla': cdTabla,
-      if (deIndiceDato != null) 'deIndiceDato': deIndiceDato,
-      if (fechaDesde != null) 'fechaDesde': fechaDesde,
-      if (fechaHasta != null) 'fechaHasta': fechaHasta,
-      if (inSuspendido != null) 'inSuspendido': inSuspendido,
+      'deIndiceDato': ?deIndiceDato,
+      'fechaDesde': ?fechaDesde,
+      'fechaHasta': ?fechaHasta,
+      'inSuspendido': ?inSuspendido,
       if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
     });
     final data = result['data'];
@@ -632,7 +632,7 @@ class SirwebService {
     try {
       final result = await _call('valores_tabla_adicional', {
         'cdTabla': cdTabla,
-        if (deIndiceDato != null) 'deIndiceDato': deIndiceDato,
+        'deIndiceDato': ?deIndiceDato,
         if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
       });
       final data = result['data'];
@@ -654,7 +654,7 @@ class SirwebService {
         final uri = Uri.parse('$currentHost/tools/tabla/$cdTabla/adicional')
             .replace(
               queryParameters: {
-                if (deIndiceDato != null) 'deIndiceDato': deIndiceDato,
+                'deIndiceDato': ?deIndiceDato,
                 if (ambiente != null && ambiente != 'Desa')
                   'ambiente': ambiente,
               },

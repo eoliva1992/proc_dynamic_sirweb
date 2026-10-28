@@ -748,8 +748,9 @@ class _BulkBackupPageState extends State<BulkBackupPage>
       );
       await _applySavedList(list);
     } on FormatException catch (error) {
-      if (mounted)
+      if (mounted) {
         AppToast.warning('No se pudo cargar la lista: ${error.message}');
+      }
     } on IOException {
       if (mounted) AppToast.warning('No se pudo leer el archivo seleccionado');
     }
@@ -1128,8 +1129,9 @@ class _BulkBackupPageState extends State<BulkBackupPage>
             child: Text('No se pudo cargar el esquema: ${snapshot.error}'),
           );
         }
-        if (!snapshot.hasData)
+        if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
+        }
         final items = _visibleItems(snapshot.data!);
         final all = [..._schemaItems(snapshot.data!), ..._dynamicItems()];
         final categories = {

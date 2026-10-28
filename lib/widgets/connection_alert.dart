@@ -54,8 +54,7 @@ class _ConnectionAlertState extends State<ConnectionAlert> {
     if (state == ServerConnectionState.offline) {
       // Un único toast por episodio de caída: si ya hay uno visible no se
       // apila otro en cada reintento fallido del heartbeat.
-      if (_offlineToast == null) {
-        _offlineToast = AppToast.persistentError(
+      _offlineToast ??= AppToast.persistentError(
           'Se perdió la conexión con el servidor',
           detail:
               'Los cambios no se pueden guardar hasta que se restablezca. '
@@ -63,7 +62,6 @@ class _ConnectionAlertState extends State<ConnectionAlert> {
           actionLabel: 'Reintentar ahora',
           onAction: () => ConnectionStatusService.instance.checkNow(),
         );
-      }
       _estuvoOffline = true;
     } else if (state.isOnline) {
       _cerrarToast();

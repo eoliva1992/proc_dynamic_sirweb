@@ -760,7 +760,7 @@ class NotesBrowserDialogState extends State<NotesBrowserDialog> {
       (ctx, close) => _ImportSnippetDialog(snippets: snippets, close: close),
     );
 
-    if (selectedSnippet == null) return;
+    if (selectedSnippet == null || !mounted) return;
 
     final markdownContent =
         '```${selectedSnippet.language}\n${selectedSnippet.body}\n```\n\n${selectedSnippet.description}';
@@ -2597,7 +2597,7 @@ class NotesBrowserDialogState extends State<NotesBrowserDialog> {
     return ListView.separated(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       itemCount: items.length,
-      separatorBuilder: (_, __) =>
+      separatorBuilder: (_, _) =>
           Divider(height: 1, color: isDark ? Colors.white10 : Colors.black12),
       itemBuilder: (context, index) => _buildListTile(items[index], isDark),
     );

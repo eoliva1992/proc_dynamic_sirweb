@@ -129,5 +129,56 @@ void main() {
         contains('WHEN NOT MATCHED THEN INSERT (ID, NOMBRE, ACTIVO)'),
       );
     });
+
+    test(
+      'fragmenta CLOB y textos mayores a 3000 caracteres con TO_CLOB para evitar ORA-01704',
+      () {
+        final largeText = 'A' * 7500;
+        final result = SqlQueryResult(
+          columns: const [
+            SqlColumn(name: 'ID', dataType: 'NUMBER'),
+            SqlColumn(name: 'DE_TEXTO', dataType: 'CLOB'),
+          ],
+          rows: [
+            [1, largeText],
+          ],
+          returnedRows: 1,
+          truncated: false,
+          durationMs: 1,
+        );
+        final sql = generateInsert('PROCEDIMIENTODINAMICO', result, [0]);
+        expect(
+          sql,
+          contains(
+            "INSERT INTO PROCEDIMIENTODINAMICO (ID, DE_TEXTO) VALUES (1, ",
+          ),
+        );
+        // Debe dividirse en 3 partes: 3000, 3000 y 1500 caracteres
+        expect(
+          sql,
+          contains(
+            "TO_CLOB('${'A' * 3000}') || TO_CLOB('${'A' * 3000}') || TO_CLOB('${'A' * 1500}')",
+          ),
+        );
+      },
+    );
+
+    test('envuelve CLOB menor a 3000 caracteres en TO_CLOB', () {
+      const shortText = 'BEGIN NULL; END;';
+      final result = SqlQueryResult(
+        columns: const [SqlColumn(name: 'DE_TEXTO', dataType: 'CLOB')],
+        rows: const [
+          [shortText],
+        ],
+        returnedRows: 1,
+        truncated: false,
+        durationMs: 1,
+      );
+      final sql = generateInsert('PROCEDIMIENTODINAMICO', result, [0]);
+      expect(
+        sql,
+        "INSERT INTO PROCEDIMIENTODINAMICO (DE_TEXTO) VALUES (TO_CLOB('BEGIN NULL; END;'));",
+      );
+    });
   });
 }

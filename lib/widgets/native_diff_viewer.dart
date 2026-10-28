@@ -668,8 +668,9 @@ class _NativeDiffViewerState extends State<NativeDiffViewer> {
   );
 
   Widget _sbsCell(_SbsRow row, bool isLeft, bool dark, int cur) {
-    if (row.kind == _K.collapsed)
+    if (row.kind == _K.collapsed) {
       return _collapsedCell(row.colCount, row.colOrig, dark);
+    }
 
     final text = isLeft ? row.left : row.right;
     final num = isLeft ? row.leftNum : row.rightNum;
@@ -822,8 +823,9 @@ class _NativeDiffViewerState extends State<NativeDiffViewer> {
   );
 
   Widget _uCell(_URow row, bool dark, int cur) {
-    if (row.kind == _K.collapsed)
+    if (row.kind == _K.collapsed) {
       return _collapsedCell(row.colCount, row.colOrig, dark);
+    }
 
     final isCurrent = row.hunkIdx >= 0 && row.hunkIdx == cur;
     final isChanged = row.kind == _K.changed;
@@ -1050,13 +1052,14 @@ class _NativeDiffViewerState extends State<NativeDiffViewer> {
         );
       }
     }
-    if (spans.isEmpty)
+    if (spans.isEmpty) {
       return Text(
         text,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: base,
       );
+    }
     return RichText(
       text: TextSpan(children: spans),
       maxLines: 1,

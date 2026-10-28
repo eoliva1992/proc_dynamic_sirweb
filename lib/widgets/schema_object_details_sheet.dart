@@ -924,11 +924,12 @@ class _ObjectBackupDialogState extends State<_ObjectBackupDialog> {
         });
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _loading = false;
           _loadError = e;
         });
+      }
     }
   }
 
@@ -945,10 +946,12 @@ class _ObjectBackupDialogState extends State<_ObjectBackupDialog> {
   Future<void> _save() async {
     final parts = <String>[];
     if (_isTable) {
-      if (_includeSpec && _tableDdlCreateTable.isNotEmpty)
+      if (_includeSpec && _tableDdlCreateTable.isNotEmpty) {
         parts.add('$_tableDdlCreateTable\n/');
-      if (_includeTableComments && _tableDdlComments != null)
+      }
+      if (_includeTableComments && _tableDdlComments != null) {
         parts.add('${_tableDdlComments!}\n/');
+      }
     } else {
       if (_includeSpec && _specText.isNotEmpty) parts.add('$_specText\n/');
       if (_includeBody && _bodyText.isNotEmpty) parts.add('$_bodyText\n/');
@@ -1441,7 +1444,7 @@ class _SubprogramPickerDialogState extends State<_SubprogramPickerDialog> {
                     )
                   : ListView.separated(
                       itemCount: filtered.length,
-                      separatorBuilder: (_, __) => Divider(
+                      separatorBuilder: (_, _) => Divider(
                         height: 1,
                         color: isDark
                             ? const Color(0xFF2D2D2D)
@@ -1901,14 +1904,15 @@ class _ColumnsViewState extends State<_ColumnsView>
       future: _f,
       initialData: _cached,
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting && !snap.hasData)
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
           return const Center(
             child: CircularProgressIndicator(
               color: Color(0xFF0078D4),
               strokeWidth: 2,
             ),
           );
-        if (snap.hasError)
+        }
+        if (snap.hasError) {
           return Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1922,14 +1926,16 @@ class _ColumnsViewState extends State<_ColumnsView>
               ],
             ),
           );
+        }
         final cols = snap.data!;
-        if (cols.isEmpty)
+        if (cols.isEmpty) {
           return Center(
             child: Text(
               'Sin columnas',
               style: TextStyle(fontSize: 13, color: sc),
             ),
           );
+        }
         return Column(
           children: [
             const _TH([
@@ -2295,20 +2301,22 @@ class _AttrsViewState extends State<_AttrsView>
       future: _f,
       initialData: _cached,
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting && !snap.hasData)
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
           return const Center(
             child: CircularProgressIndicator(
               color: Color(0xFF0078D4),
               strokeWidth: 2,
             ),
           );
-        if (snap.hasError)
+        }
+        if (snap.hasError) {
           return Center(
             child: Text(
               'Error al cargar atributos',
               style: TextStyle(color: Colors.red.shade400, fontSize: 13),
             ),
           );
+        }
         final attrs = snap.data!;
         if (attrs.isEmpty) {
           return Center(
@@ -2652,13 +2660,14 @@ class _PackageViewState extends State<_PackageView>
       );
     }
     final subs = _data!;
-    if (subs.isEmpty)
+    if (subs.isEmpty) {
       return Center(
         child: Text(
           'Sin subprogramas',
           style: TextStyle(fontSize: 13, color: sc),
         ),
       );
+    }
     return Column(
       children: [
         const _TH([
@@ -2968,7 +2977,7 @@ class _PermisosTabState extends State<_PermisosTab>
       );
     }
     final rows = _data!;
-    if (rows.isEmpty)
+    if (rows.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -2986,6 +2995,7 @@ class _PermisosTabState extends State<_PermisosTab>
           ],
         ),
       );
+    }
     return Column(
       children: [
         const _TH([
@@ -3169,7 +3179,7 @@ class _ReferenciasTabState extends State<_ReferenciasTab>
       );
     }
     final rows = _data!;
-    if (rows.isEmpty)
+    if (rows.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -3187,6 +3197,7 @@ class _ReferenciasTabState extends State<_ReferenciasTab>
           ],
         ),
       );
+    }
     return Column(
       children: [
         const _TH([

@@ -582,7 +582,7 @@ class _ShareNoteDialogState extends State<ShareNoteDialog> {
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
         itemCount: _shares.length,
-        separatorBuilder: (_, __) =>
+        separatorBuilder: (_, _) =>
             Divider(height: 1, color: isDark ? Colors.white10 : Colors.black12),
         itemBuilder: (context, index) {
           final share = _shares[index];

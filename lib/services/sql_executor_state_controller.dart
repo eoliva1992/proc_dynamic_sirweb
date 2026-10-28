@@ -49,16 +49,23 @@ class SqlExecutorStateController extends ChangeNotifier {
     _setupTraceListener();
   }
 
+  void Function(SqlHttpTraceEntry trace)? _traceListener;
+  bool _isDisposed = false;
+
   void _setupTraceListener() {
-    _svc.onHttpTrace = (trace) {
+    _traceListener = (trace) {
+      if (_isDisposed) return;
       final idx = _httpTraces.indexWhere((t) => t.id == trace.id);
       if (idx >= 0) {
         _httpTraces[idx] = trace;
       } else {
         _httpTraces.add(trace);
       }
-      notifyListeners();
+      if (!_isDisposed) {
+        notifyListeners();
+      }
     };
+    _svc.onHttpTrace = _traceListener;
   }
 
   static const _maxRowsPreferenceKey = 'sql_executor_max_rows';
@@ -190,6 +197,7 @@ class SqlExecutorStateController extends ChangeNotifier {
   }
 
   void _onSessionManagerChanged() {
+    if (_isDisposed) return;
     // Sincroniza _sessionId con el gestor centralizado del ambiente y dueño.
     _sessionId = _sessionMgr.getSessionId(_ambiente, owner: _currentOwner);
     notifyListeners();
@@ -197,7 +205,12 @@ class SqlExecutorStateController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _isDisposed = true;
     _sessionMgr.removeListener(_onSessionManagerChanged);
+    if (_svc.onHttpTrace == _traceListener) {
+      _svc.onHttpTrace = null;
+    }
+    _traceListener = null;
     super.dispose();
   }
 

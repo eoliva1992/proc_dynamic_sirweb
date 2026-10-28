@@ -124,8 +124,9 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
   void _onSearchChanged() {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 120), () {
-      if (mounted)
+      if (mounted) {
         setState(() => _filter = _searchCtrl.text.trim().toLowerCase());
+      }
     });
   }
 
@@ -145,11 +146,12 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
       SchemaService.instance
           .getMetadata(ambiente: _ambiente)
           .then((m) {
-            if (mounted)
+            if (mounted) {
               setState(() {
                 _meta = m;
                 _metaLoaded = true;
               });
+            }
           })
           .catchError((_) {
             if (mounted) setState(() => _metaLoaded = true);
@@ -1145,11 +1147,12 @@ class _SchemaSidebarState extends State<SchemaSidebar> {
     setState(() => _metaLoaded = false);
     try {
       final fresh = await SchemaService.instance.refreshAmbiente(_ambiente);
-      if (mounted)
+      if (mounted) {
         setState(() {
           _meta = fresh;
           _metaLoaded = true;
         });
+      }
     } catch (_) {
       if (mounted) setState(() => _metaLoaded = true);
     }

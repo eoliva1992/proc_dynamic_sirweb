@@ -62,7 +62,6 @@ extension _EditorOptionsMethods on _CodeEditorPanelState {
       _problemsMaximized = prefs.getBool('editor_problems_maximized') ?? false;
       _showOutline = prefs.getBool('editor_show_outline') ?? false;
       _varsDocked = prefs.getBool('editor_vars_docked') ?? false;
-      _showAiChat = prefs.getBool('editor_show_ai_chat') ?? false;
       final savedSplitMode = prefs.getString('editor_split_mode');
       final savedSplitRatio = prefs.getDouble('editor_split_ratio');
       if (savedSplitMode != null) {
@@ -113,7 +112,6 @@ extension _EditorOptionsMethods on _CodeEditorPanelState {
     await prefs.setBool('editor_problems_maximized', _problemsMaximized);
     await prefs.setBool('editor_show_outline', _showOutline);
     await prefs.setBool('editor_vars_docked', _varsDocked);
-    await prefs.setBool('editor_show_ai_chat', _showAiChat);
     await prefs.setString('editor_split_mode', _splitMode.name);
     await prefs.setDouble('editor_split_ratio', _splitRatio);
   }

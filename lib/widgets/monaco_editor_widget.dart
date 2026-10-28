@@ -140,6 +140,77 @@ const String _kFindAndFocusGuardJs =
     '  },true);'
     '})()';
 
+/// Script JS que registra el lenguaje 'plsql' en Monaco con sintaxis y palabras clave de Oracle.
+/// Esto asegura que tanto 'plsql' como 'sql' tengan resaltado de sintaxis completo en el editor.
+const String _kRegisterPlSqlLanguageJs = '''
+(function(){
+  try {
+    if (window.__plsqlRegistered || !window.monaco) return;
+    monaco.languages.register({ id: 'plsql' });
+    monaco.languages.setMonarchTokensProvider('plsql', {
+      ignoreCase: true,
+      defaultToken: '',
+      tokenPostfix: '.sql',
+      keywords: [
+        'SELECT','FROM','WHERE','INSERT','UPDATE','DELETE','MERGE','CREATE','ALTER',
+        'DROP','TABLE','VIEW','INDEX','PROCEDURE','FUNCTION','PACKAGE','BODY','TRIGGER',
+        'BEGIN','END','IF','THEN','ELSE','ELSIF','LOOP','FOR','WHILE','EXIT',
+        'WHEN','CASE','RETURN','DECLARE','EXCEPTION','RAISE','IS','AS','IN',
+        'OUT','NULL','TRUE','FALSE','AND','OR','NOT','LIKE','BETWEEN',
+        'EXISTS','HAVING','GROUP','ORDER','BY','DISTINCT','ALL','UNION',
+        'INTERSECT','MINUS','JOIN','INNER','OUTER','LEFT','RIGHT','FULL',
+        'CROSS','ON','USING','MATCHED','COMMIT','ROLLBACK','SAVEPOINT','EXECUTE','INTO',
+        'VALUES','SET','TYPE','CURSOR','OPEN','FETCH','CLOSE','RECORD',
+        'VARCHAR2','NUMBER','DATE','TIMESTAMP','BOOLEAN','INTEGER','PLS_INTEGER','CHAR',
+        'CLOB','BLOB','NCLOB','ROWTYPE','ROWID','DBMS_OUTPUT','PUT_LINE','FORALL',
+        'BULK','COLLECT','LIMIT','PIPE','ROW','PIPELINED','DETERMINISTIC',
+        'PRAGMA','AUTONOMOUS_TRANSACTION','EXCEPTION_INIT','DUAL','SYSDATE','SYSTIMESTAMP',
+        'NVL','NVL2','TO_DATE','TO_CHAR','TO_NUMBER','TO_CLOB','TO_TIMESTAMP','DECODE','TRUNC'
+      ],
+      operators: [
+        '=', '>', '<', '!', '~', '?', ':', '==', '<=', '>=', '<>',
+        '+', '-', '*', '/', '%', '&', '|', '^', '||'
+      ],
+      brackets: [
+        { open: '(', close: ')', token: 'delimiter.parenthesis' }
+      ],
+      tokenizer: {
+        root: [
+          [/--.*\$/, 'comment'],
+          [/\\/\\*/, 'comment', '@comment'],
+          [/'(''|[^'])*'/, 'string'],
+          [/\\d+(\\.\\d+)?/, 'number'],
+          [/:[a-zA-Z_]\\w*/, 'variable'],
+          [/[a-zA-Z_]\\w*/, {
+            cases: {
+              '@keywords': 'keyword',
+              '@default': 'identifier'
+            }
+          }],
+          [/[;,.]/, 'delimiter'],
+          [/[()]/, '@brackets'],
+          [/[<>=!&|+\\-*\\/]/, 'operator']
+        ],
+        comment: [
+          [/[^/*]+/, 'comment'],
+          [/\\*\\//, 'comment', '@pop'],
+          [/[/*]/, 'comment']
+        ]
+      }
+    });
+    window.__plsqlRegistered = true;
+    if (window.editor && window.editor.getModel()) {
+      var currentLang = window.editor.getModel().getLanguageId ? window.editor.getModel().getLanguageId() : '';
+      if (currentLang === 'plsql' || !currentLang || currentLang === 'plaintext') {
+        monaco.editor.setModelLanguage(window.editor.getModel(), 'plsql');
+      }
+    }
+  } catch(e) {
+    console.error('Error registrando PL/SQL en Monaco:', e);
+  }
+})();
+''';
+
 // ─── Acciones del menú contextual ────────────────────────────────────────────
 enum _CtxMenuAction {
   executeCurrent,
@@ -266,9 +337,24 @@ class MonacoEditorController {
 
   /// Cambia el lenguaje de resaltado del editor.
   void setLanguage(String lang) {
-    final ml = lang == 'javascript'
-        ? fm.MonacoLanguage.javascript
-        : fm.MonacoLanguage.sql;
+    final fm.MonacoLanguage ml;
+    switch (lang.toLowerCase()) {
+      case 'javascript':
+      case 'js':
+        ml = fm.MonacoLanguage.javascript;
+        break;
+      case 'yaml':
+      case 'yml':
+        ml = const fm.MonacoLanguage('yaml');
+        break;
+      case 'sql':
+        ml = fm.MonacoLanguage.sql;
+        break;
+      case 'plsql':
+      default:
+        ml = const fm.MonacoLanguage('plsql');
+        break;
+    }
     _enqueue((ctrl) async => ctrl.document.setLanguage(ml));
   }
 
@@ -300,6 +386,17 @@ class MonacoEditorController {
         r'  } catch(e) { return null; }'
         r'})()',
       );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Devuelve el texto actualmente completo del documento en Monaco.
+  Future<String?> getText() async {
+    final ctrl = _ctrl;
+    if (ctrl == null) return null;
+    try {
+      return await ctrl.document.getText();
     } catch (_) {
       return null;
     }
@@ -571,24 +668,43 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
     widget.controller.setTheme(editorThemeStore.monacoTheme);
   }
 
-  fm.EditorOptions get _editorOptions => fm.EditorOptions(
-    language: widget.language == 'javascript'
-        ? fm.MonacoLanguage.javascript
-        : fm.MonacoLanguage.sql,
-    theme: editorThemeStore.monacoTheme,
-    fontSize: 14,
-    minimap: const fm.MonacoMinimapOptions(enabled: true),
-    wordWrap: fm.MonacoWordWrap.off,
-    lineNumbers: fm.MonacoLineNumbers.on,
-    renderWhitespace: fm.RenderWhitespace.none,
-    tabSize: 2,
-    quickSuggestions: true,
-    parameterHints: true,
-    suggestOnTriggerCharacters: true,
-    bracketPairColorization: true,
-    contextMenu: false,
-    extra: const {'fixedOverflowWidgets': true},
-  );
+  fm.EditorOptions get _editorOptions {
+    final fm.MonacoLanguage ml;
+    switch (widget.language.toLowerCase()) {
+      case 'javascript':
+      case 'js':
+        ml = fm.MonacoLanguage.javascript;
+        break;
+      case 'yaml':
+      case 'yml':
+        ml = const fm.MonacoLanguage('yaml');
+        break;
+      case 'sql':
+        ml = fm.MonacoLanguage.sql;
+        break;
+      case 'plsql':
+      default:
+        ml = const fm.MonacoLanguage('plsql');
+        break;
+    }
+
+    return fm.EditorOptions(
+      language: ml,
+      theme: editorThemeStore.monacoTheme,
+      fontSize: 14,
+      minimap: const fm.MonacoMinimapOptions(enabled: true),
+      wordWrap: fm.MonacoWordWrap.off,
+      lineNumbers: fm.MonacoLineNumbers.on,
+      renderWhitespace: fm.RenderWhitespace.none,
+      tabSize: 2,
+      quickSuggestions: true,
+      parameterHints: true,
+      suggestOnTriggerCharacters: true,
+      bracketPairColorization: true,
+      contextMenu: false,
+      extra: const {'fixedOverflowWidgets': true},
+    );
+  }
 
   bool _isWordChar(String c) => RegExp(r'\w').hasMatch(c);
 
@@ -1198,6 +1314,8 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
   void _onReady(fm.MonacoController ctrl) {
     _rawCtrl = ctrl;
     widget.controller.attach(ctrl);
+    // Registrar la definición de lenguaje y tokens Monarch para 'plsql' en Monaco
+    unawaited(ctrl.runJavaScript(_kRegisterPlSqlLanguageJs));
     _updateStatementSeparators(
       _currentText.isNotEmpty ? _currentText : widget.initialCode,
     );

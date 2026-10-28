@@ -40,7 +40,9 @@ import '../widgets/search_tab_view.dart';
 import '../widgets/simple_text_editor_page.dart';
 import '../widgets/source_tab_controller.dart';
 import '../widgets/server_config_dialog.dart';
+import '../widgets/git_repository_config_dialog.dart';
 import '../widgets/usuario_dialog.dart';
+import '../widgets/deploy_ticket/deploy_tickets_browser_dialog.dart';
 import 'bulk_backup_page.dart';
 import 'batch_transfer_page.dart';
 import 'env_diff_page.dart';
@@ -2517,6 +2519,14 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           fgSoftColor: barFgSoft,
           onPressed: _openPasteDiff,
         ),
+        _AppBarActionBtn(
+          tooltip:
+              'Mantenimiento de tickets de pase / despliegue (Git index.txt)',
+          icon: Icons.confirmation_number_outlined,
+          fgColor: barFg,
+          fgSoftColor: barFgSoft,
+          onPressed: () => showDeployTicketsBrowser(context),
+        ),
 
         _AppBarDivider(color: barFg),
 
@@ -2675,6 +2685,18 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                 AppToast.info('Dirección del servidor actualizada');
               },
             ),
+          ),
+        ),
+        _AppBarActionBtn(
+          tooltip: 'Configurar repositorio Git',
+          icon: Icons.source_outlined,
+          fgColor: barFg,
+          fgSoftColor: barFgSoft,
+          onPressed: () => GitRepositoryConfigDialog.show(
+            context,
+            onConfigChanged: () {
+              AppToast.info('Configuración de repositorio Git actualizada');
+            },
           ),
         ),
         _AppBarActionBtn(
