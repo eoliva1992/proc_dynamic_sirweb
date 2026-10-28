@@ -1973,8 +1973,9 @@ class _ColumnsViewState extends State<_ColumnsView>
                                 Flexible(
                                   child: Tooltip(
                                     message: c.name,
-                                    waitDuration:
-                                        const Duration(milliseconds: 500),
+                                    waitDuration: const Duration(
+                                      milliseconds: 500,
+                                    ),
                                     child: Text(
                                       c.name,
                                       style: TextStyle(

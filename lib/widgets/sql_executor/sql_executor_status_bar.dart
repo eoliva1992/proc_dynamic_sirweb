@@ -109,11 +109,11 @@ class SqlExecutorStatusBar extends StatelessWidget {
             child: Tooltip(
               message: currentFilePath != null && currentFilePath!.isNotEmpty
                   ? (isDirty
-                      ? 'Archivo: $currentFilePath (con cambios pendientes de guardar)\n(Clic para abrir ubicación en el explorador)'
-                      : 'Archivo: $currentFilePath\n(Clic para abrir ubicación en el explorador)')
+                        ? 'Archivo: $currentFilePath (con cambios pendientes de guardar)\n(Clic para abrir ubicación en el explorador)'
+                        : 'Archivo: $currentFilePath\n(Clic para abrir ubicación en el explorador)')
                   : (isDirty
-                      ? 'Documento nuevo con cambios sin guardar en disco'
-                      : 'Documento nuevo sin guardar en disco'),
+                        ? 'Documento nuevo con cambios sin guardar en disco'
+                        : 'Documento nuevo sin guardar en disco'),
               child: InkWell(
                 onTap: currentFilePath != null && currentFilePath!.isNotEmpty
                     ? () => BackupService.revealInExplorer(currentFilePath!)
@@ -135,9 +135,9 @@ class SqlExecutorStatusBar extends StatelessWidget {
                         color: isDirty
                             ? Colors.orange.shade400
                             : (currentFilePath != null &&
-                                    currentFilePath!.isNotEmpty
-                                ? cs.primary
-                                : cs.onSurfaceVariant.withValues(alpha: 0.7)),
+                                      currentFilePath!.isNotEmpty
+                                  ? cs.primary
+                                  : cs.onSurfaceVariant.withValues(alpha: 0.7)),
                       ),
                       const SizedBox(width: 4),
                       Flexible(
