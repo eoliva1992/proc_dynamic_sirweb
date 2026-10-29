@@ -195,7 +195,9 @@ abstract final class AppToast {
         showProgressBar: true,
         dragToClose: true,
         pauseOnHover: true,
-        closeButton: const ToastCloseButton(showType: CloseButtonShowType.always),
+        closeButton: const ToastCloseButton(
+          showType: CloseButtonShowType.always,
+        ),
       );
     });
   }
@@ -244,7 +246,9 @@ abstract final class AppToast {
         showProgressBar: false,
         dragToClose: true,
         pauseOnHover: true,
-        closeButton: const ToastCloseButton(showType: CloseButtonShowType.always),
+        closeButton: const ToastCloseButton(
+          showType: CloseButtonShowType.always,
+        ),
         callbacks: ToastificationCallbacks(
           onTap: (_) {
             toastification.dismiss(item!);
@@ -312,7 +316,9 @@ abstract final class AppToast {
         showProgressBar: true,
         dragToClose: true,
         pauseOnHover: true,
-        closeButton: const ToastCloseButton(showType: CloseButtonShowType.always),
+        closeButton: const ToastCloseButton(
+          showType: CloseButtonShowType.always,
+        ),
       );
     });
   }
@@ -346,7 +352,9 @@ abstract final class AppToast {
         showProgressBar: true,
         dragToClose: true,
         pauseOnHover: true,
-        closeButton: const ToastCloseButton(showType: CloseButtonShowType.always),
+        closeButton: const ToastCloseButton(
+          showType: CloseButtonShowType.always,
+        ),
       );
     });
   }
@@ -407,7 +415,9 @@ abstract final class AppToast {
         showProgressBar: false,
         dragToClose: false,
         pauseOnHover: true,
-        closeButton: const ToastCloseButton(showType: CloseButtonShowType.always),
+        closeButton: const ToastCloseButton(
+          showType: CloseButtonShowType.always,
+        ),
       );
     } catch (_) {
       return null;
