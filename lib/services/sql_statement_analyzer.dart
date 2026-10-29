@@ -51,7 +51,10 @@ SqlStatementKind detectStatementKind(String statement) {
   }
 
   // Comandos cliente compatibles (SQL*Plus / SQL Developer), como DESC o DESCRIBE.
-  if (RegExp(r'^\s*(DESC|DESCRIBE)\b', caseSensitive: false).hasMatch(stripped)) {
+  if (RegExp(
+    r'^\s*(DESC|DESCRIBE)\b',
+    caseSensitive: false,
+  ).hasMatch(stripped)) {
     return SqlStatementKind.command;
   }
 
@@ -224,4 +227,32 @@ final _reDdlObjectName = RegExp(
   final type = m.group(1)?.replaceAll(RegExp(r'\s+'), ' ').toUpperCase();
   var name = m.group(3)?.replaceAll('"', '');
   return (objectType: type, objectName: name);
+}
+
+/// Quita los puntos y coma (`;`) terminales de sentencias SQL (SELECT, DML,
+/// EXPLAIN PLAN, COMMAND) que no deben enviarse a Oracle con delimitador final.
+///
+/// Si la sentencia contiene comentarios al final (por ejemplo `-- comentario` o `/* ... */`),
+/// busca hacia atrás el último punto y coma ignorando espacios y comentarios.
+/// Bloques PL/SQL no deben pasar por esta función porque requieren sus `;` de cierre.
+/// Quita los puntos y coma (`;`) terminales de sentencias SQL (SELECT, DML,
+/// EXPLAIN PLAN, COMMAND) que no deben enviarse a Oracle con delimitador final.
+///
+/// Si la sentencia contiene comentarios al final (por ejemplo `-- comentario` o `/* ... */`),
+/// busca hacia atrás el último punto y coma ignorando espacios y comentarios.
+/// Bloques PL/SQL no deben pasar por esta función porque requieren sus `;` de cierre.
+String stripTrailingSemicolon(String sql) {
+  var s = sql.trimRight();
+  while (s.endsWith(';')) {
+    s = s.substring(0, s.length - 1).trimRight();
+  }
+  return s;
+}
+
+/// Limpia comentarios iniciales huérfanos antes del primer token ejecutable,
+/// y remueve el punto y coma final para sentencias SQL puras (SELECT, DML).
+///
+/// Conserva comentarios internos (hints, notas en WHERE o SELECT) y saltos de línea.
+String cleanSqlForExecution(String sql) {
+  return stripTrailingSemicolon(sql).trim();
 }

@@ -56,46 +56,49 @@ void main() {
       expect(result.errors, isEmpty);
     });
 
-    test('parsea errores de compilación con claves en mayúsculas o minúsculas', () async {
-      final mockClient = MockClient((request) async {
-        return http.Response(
-          jsonEncode({
-            'success': true,
-            'data': {
-              'kind': 'ddl',
-              'ddl': {
-                'ambiente': 'Desa',
-                'confirmed': true,
-                'autoCommitPossible': true,
-                'durationMs': 15,
-                'compileErrors': [
-                  {
-                    'LINE': 4,
-                    'POSITION': 12,
-                    'TEXT': 'PLS-00201: identifier must be declared',
-                    'ATTRIBUTE': 'ERROR',
-                  },
-                ],
+    test(
+      'parsea errores de compilación con claves en mayúsculas o minúsculas',
+      () async {
+        final mockClient = MockClient((request) async {
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {
+                'kind': 'ddl',
+                'ddl': {
+                  'ambiente': 'Desa',
+                  'confirmed': true,
+                  'autoCommitPossible': true,
+                  'durationMs': 15,
+                  'compileErrors': [
+                    {
+                      'LINE': 4,
+                      'POSITION': 12,
+                      'TEXT': 'PLS-00201: identifier must be declared',
+                      'ATTRIBUTE': 'ERROR',
+                    },
+                  ],
+                },
               },
-            },
-          }),
-          200,
-          headers: {'content-type': 'application/json; charset=utf-8'},
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        });
+
+        final result = await SqlExecutorService().executeDdl(
+          'CREATE PROCEDURE fail_proc AS BEGIN x := 1; END;',
+          ambiente: 'Desa',
+          owner: 'SYSTEM',
+          client: mockClient,
         );
-      });
 
-      final result = await SqlExecutorService().executeDdl(
-        'CREATE PROCEDURE fail_proc AS BEGIN x := 1; END;',
-        ambiente: 'Desa',
-        owner: 'SYSTEM',
-        client: mockClient,
-      );
-
-      expect(result.errors, hasLength(1));
-      expect(result.errors.first.line, 4);
-      expect(result.errors.first.position, 12);
-      expect(result.errors.first.text, contains('PLS-00201'));
-    });
+        expect(result.errors, hasLength(1));
+        expect(result.errors.first.line, 4);
+        expect(result.errors.first.position, 12);
+        expect(result.errors.first.text, contains('PLS-00201'));
+      },
+    );
 
     test('executeSelect y executeDml envían confirmar=false', () async {
       Map<String, dynamic>? selectBody;
@@ -112,7 +115,9 @@ void main() {
                 'kind': 'query',
                 'query': {
                   'columns': ['1'],
-                  'rows': [[1]],
+                  'rows': [
+                    [1],
+                  ],
                   'totalRows': 1,
                   'durationMs': 5,
                 },
@@ -127,10 +132,7 @@ void main() {
               'success': true,
               'data': {
                 'kind': 'dml',
-                'dml': {
-                  'rowsAffected': 1,
-                  'durationMs': 8,
-                },
+                'dml': {'rowsAffected': 1, 'durationMs': 8},
               },
             }),
             200,
@@ -139,19 +141,21 @@ void main() {
       });
 
       await SqlExecutorService().executeSelect(
-        'SELECT 1 FROM DUAL',
+        'SELECT 1 FROM DUAL;',
         ambiente: 'Desa',
         owner: 'SYSTEM',
         client: mockClient,
       );
 
       await SqlExecutorService().executeDml(
-        'UPDATE test SET a = 1',
+        'UPDATE test SET a = 1;',
         ambiente: 'Desa',
         owner: 'SYSTEM',
         client: mockClient,
       );
 
+      expect(selectBody?['sql'], 'SELECT 1 FROM DUAL');
+      expect(dmlBody?['sql'], 'UPDATE test SET a = 1');
       expect(selectBody?['confirmar'], isFalse);
       expect(dmlBody?['confirmar'], isFalse);
     });

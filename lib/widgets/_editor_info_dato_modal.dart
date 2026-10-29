@@ -2965,9 +2965,10 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
         }
 
         final allCols = _detectInfoCols(valores);
-        final effectiveCols = _hiddenCols.isEmpty
-            ? allCols
-            : allCols.where((c) => !_hiddenCols.contains(c)).toList();
+        _hiddenCols.removeWhere((c) => !allCols.contains(c));
+        final effectiveCols = allCols
+            .where((c) => !_hiddenCols.contains(c))
+            .toList();
         return Column(
           children: [
             _buildInfoToolbar(
@@ -3305,6 +3306,19 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
             Icons.copy_outlined,
             'Copiar',
             () => _copyInfoCsv(effectiveCols, valores),
+            tooltip: selectedCount > 0
+                ? 'Copiar $selectedCount filas seleccionadas con encabezados'
+                : 'Copiar todas las filas con encabezados',
+          ),
+          const SizedBox(width: 4),
+          _infoToolBtn(
+            isDark,
+            Icons.content_paste_go_outlined,
+            'Copiar datos',
+            () => _copyInfoCsv(effectiveCols, valores, includeHeaders: false),
+            tooltip: selectedCount > 0
+                ? 'Copiar $selectedCount filas seleccionadas sin encabezados'
+                : 'Copiar todas las filas sin encabezados',
           ),
           const SizedBox(width: 4),
           _infoToolBtn(
@@ -3348,9 +3362,9 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
   }
 
   void _showInfoColSelector(BuildContext context, List<String> allCols) {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
+    showFloatingDialog<void>(
+      context,
+      (ctx, close) => StatefulBuilder(
         builder: (ctx, setDs) => AlertDialog(
           titlePadding: EdgeInsets.zero,
           title: const ConstellationDialogTitle(
@@ -3406,8 +3420,18 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
               },
               child: const Text('Mostrar todas'),
             ),
+            TextButton(
+              onPressed: () {
+                if (allCols.length <= 1) return;
+                setState(() {
+                  _hiddenCols = allCols.skip(1).toSet();
+                });
+                setDs(() {});
+              },
+              child: const Text('Deseleccionar todas'),
+            ),
             FilledButton(
-              onPressed: () => Navigator.pop(ctx),
+              onPressed: () => close(),
               child: const Text('Listo'),
             ),
           ],
@@ -3418,7 +3442,11 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
 
   // ── CSV export ────────────────────────────────────────────────────────────
 
-  String _buildInfoCsv(List<String> cols, List<ValorTabla> valores) {
+  String _buildInfoCsv(
+    List<String> cols,
+    List<ValorTabla> valores, {
+    bool includeHeaders = true,
+  }) {
     final effectiveRows = _selectedRowIndices.isEmpty
         ? valores
         : [
@@ -3427,7 +3455,9 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
           ];
 
     final buf = StringBuffer();
-    buf.writeln(cols.map((c) => _escInfo(_infoColLabel(c))).join(','));
+    if (includeHeaders) {
+      buf.writeln(cols.map((c) => _escInfo(_infoColLabel(c))).join(','));
+    }
     for (final v in effectiveRows) {
       buf.writeln(
         cols
@@ -3449,14 +3479,19 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
     return value;
   }
 
-  Future<void> _copyInfoCsv(List<String> cols, List<ValorTabla> valores) async {
-    final csv = _buildInfoCsv(cols, valores);
+  Future<void> _copyInfoCsv(
+    List<String> cols,
+    List<ValorTabla> valores, {
+    bool includeHeaders = true,
+  }) async {
+    final csv = _buildInfoCsv(cols, valores, includeHeaders: includeHeaders);
     final count = _selectedRowIndices.isEmpty
         ? valores.length
         : _selectedRowIndices.length;
     await Clipboard.setData(ClipboardData(text: csv));
+    final sufijo = includeHeaders ? '' : ' (sin encabezados)';
     AppToast.success(
-      'Copiado al portapapeles — $count fila${count != 1 ? 's' : ''}',
+      'Copiado al portapapeles — $count fila${count != 1 ? 's' : ''}$sufijo',
     );
   }
 

@@ -1521,6 +1521,19 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
             Icons.copy_outlined,
             'Copiar',
             () => _copyToCsv(effectiveCols, valores),
+            tooltip: selectedCount > 0
+                ? 'Copiar $selectedCount filas seleccionadas con encabezados'
+                : 'Copiar todas las filas con encabezados',
+          ),
+          const SizedBox(width: 4),
+          _toolbarBtn(
+            isDark,
+            Icons.content_paste_go_outlined,
+            'Copiar datos',
+            () => _copyToCsv(effectiveCols, valores, includeHeaders: false),
+            tooltip: selectedCount > 0
+                ? 'Copiar $selectedCount filas seleccionadas sin encabezados'
+                : 'Copiar todas las filas sin encabezados',
           ),
           const SizedBox(width: 4),
           // Exportar CSV
@@ -1565,9 +1578,9 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
   }
 
   void _showColumnSelector(BuildContext context, List<String> allCols) {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
+    showFloatingDialog<void>(
+      context,
+      (ctx, close) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
           titlePadding: EdgeInsets.zero,
           title: const ConstellationDialogTitle(
@@ -1624,8 +1637,18 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
               },
               child: const Text('Mostrar todas'),
             ),
+            TextButton(
+              onPressed: () {
+                if (allCols.length <= 1) return;
+                setState(() {
+                  _hiddenCols = allCols.skip(1).toSet();
+                });
+                setDialogState(() {});
+              },
+              child: const Text('Deseleccionar todas'),
+            ),
             FilledButton(
-              onPressed: () => Navigator.pop(ctx),
+              onPressed: () => close(),
               child: const Text('Listo'),
             ),
           ],
@@ -1798,9 +1821,15 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
 
   // ── Exportar / copiar ───────────────────────────────────────────────────
 
-  String _buildCsv(List<String> cols, List<EventoValor> valores) {
+  String _buildCsv(
+    List<String> cols,
+    List<EventoValor> valores, {
+    bool includeHeaders = true,
+  }) {
     final buf = StringBuffer();
-    buf.writeln(cols.map((c) => _csvEscape(_colLabel(c))).join(','));
+    if (includeHeaders) {
+      buf.writeln(cols.map((c) => _csvEscape(_colLabel(c))).join(','));
+    }
     for (final v in valores) {
       buf.writeln(cols.map((c) => _csvEscape(_cellValue(v, c))).join(','));
     }
@@ -1814,11 +1843,16 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
     return value;
   }
 
-  Future<void> _copyToCsv(List<String> cols, List<EventoValor> valores) async {
-    final csv = _buildCsv(cols, valores);
+  Future<void> _copyToCsv(
+    List<String> cols,
+    List<EventoValor> valores, {
+    bool includeHeaders = true,
+  }) async {
+    final csv = _buildCsv(cols, valores, includeHeaders: includeHeaders);
     await Clipboard.setData(ClipboardData(text: csv));
+    final sufijo = includeHeaders ? '' : ' (sin encabezados)';
     AppToast.success(
-      'Copiado al portapapeles — ${valores.length} fila${valores.length != 1 ? 's' : ''}',
+      'Copiado al portapapeles — ${valores.length} fila${valores.length != 1 ? 's' : ''}$sufijo',
     );
   }
 

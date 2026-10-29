@@ -28,21 +28,56 @@ class GitCommandResult {
       'GitCommandResult(cmd: $command, exitCode: $exitCode, out: $stdout, err: $stderr)';
 }
 
+/// Registro estructurado de un comando Git ejecutado con fines de trazabilidad y consola
+class GitCommandLog {
+  final DateTime timestamp;
+  final String command;
+  final String? description;
+  final int exitCode;
+  final String stdout;
+  final String stderr;
+  final bool isSuccess;
+
+  const GitCommandLog({
+    required this.timestamp,
+    required this.command,
+    this.description,
+    required this.exitCode,
+    required this.stdout,
+    required this.stderr,
+    required this.isSuccess,
+  });
+
+  String get output => stdout.isNotEmpty ? stdout : stderr;
+}
+
+/// Callback para notificar comandos ejecutados por GitService
+typedef GitCommandLogCallback = void Function(GitCommandLog log);
+
 /// Servicio que encapsula operaciones Git mediante CLI local (`Process.run`).
 ///
 /// Todas las operaciones se ejecutan dentro del directorio raíz local del repositorio
 /// (`workingDirectory: rutaDirectorioLocal`).
 class GitService {
   final String workingDirectory;
+  final GitCommandLogCallback? onCommandLog;
 
-  const GitService({required this.workingDirectory});
+  const GitService({required this.workingDirectory, this.onCommandLog});
 
   /// Ejecuta un comando git con los argumentos especificados
   Future<GitCommandResult> runGit(
     List<String> args, {
     Map<String, String>? environment,
+    String? description,
   }) async {
-    final cmdStr = 'git ${args.join(' ')}';
+    // Sanitizar token para que no aparezca en texto claro en logs ni consolas
+    final sanitizedArgs = args.map((arg) {
+      if (arg.contains('Authorization: Basic')) {
+        return 'http.extraHeader=Authorization: Basic [REDACTED]';
+      }
+      return arg;
+    }).toList();
+    final cmdStr = 'git ${sanitizedArgs.join(' ')}';
     try {
       final env = <String, String>{'GIT_TERMINAL_PROMPT': '0', ...?environment};
 
@@ -54,12 +89,26 @@ class GitService {
         environment: env,
       );
 
+      final stdoutText = (result.stdout ?? '').toString().trim();
+      final stderrText = (result.stderr ?? '').toString().trim();
+
       final cmdResult = GitCommandResult(
         exitCode: result.exitCode,
-        stdout: (result.stdout ?? '').toString().trim(),
-        stderr: (result.stderr ?? '').toString().trim(),
+        stdout: stdoutText,
+        stderr: stderrText,
         command: cmdStr,
       );
+
+      final logEntry = GitCommandLog(
+        timestamp: DateTime.now(),
+        command: cmdStr,
+        description: description,
+        exitCode: result.exitCode,
+        stdout: stdoutText,
+        stderr: stderrText,
+        isSuccess: cmdResult.isSuccess,
+      );
+      onCommandLog?.call(logEntry);
 
       if (!cmdResult.isSuccess) {
         AppLog.instance.warning(
@@ -74,6 +123,17 @@ class GitService {
       }
       return cmdResult;
     } catch (e) {
+      final logEntry = GitCommandLog(
+        timestamp: DateTime.now(),
+        command: cmdStr,
+        description: description,
+        exitCode: -1,
+        stdout: '',
+        stderr: e.toString(),
+        isSuccess: false,
+      );
+      onCommandLog?.call(logEntry);
+
       AppLog.instance.error(
         'Excepción al ejecutar $cmdStr: $e',
         source: 'GitService',
@@ -135,8 +195,14 @@ class GitService {
   }
 
   /// Cambia a una rama existente
-  Future<GitCommandResult> checkout(String branchName) async {
-    return runGit(['checkout', branchName]);
+  Future<GitCommandResult> checkout(
+    String branchName, {
+    String? description,
+  }) async {
+    return runGit([
+      'checkout',
+      branchName,
+    ], description: description ?? 'Cambiando a la rama $branchName');
   }
 
   /// Crea una nueva rama y se posiciona en ella (`git checkout -b <branchName>`)
@@ -145,31 +211,55 @@ class GitService {
   Future<GitCommandResult> createAndCheckoutBranch(
     String branchName, {
     String? startPoint,
+    String? description,
   }) async {
     final args = ['checkout', '-b', branchName];
     if (startPoint != null && startPoint.trim().isNotEmpty) {
       args.add(startPoint.trim());
     }
-    return runGit(args);
+    final desc =
+        description ??
+        (startPoint != null && startPoint.trim().isNotEmpty
+            ? 'Creando y posicionando en rama $branchName desde $startPoint'
+            : 'Creando y posicionando en rama $branchName');
+    return runGit(args, description: desc);
   }
 
   /// Agrega archivos al staging (`git add <path>`)
-  Future<GitCommandResult> add(String path) async {
-    return runGit(['add', path]);
+  Future<GitCommandResult> add(String path, {String? description}) async {
+    return runGit([
+      'add',
+      path,
+    ], description: description ?? 'Añadiendo archivos al staging ($path)');
   }
 
   /// Agrega una lista de archivos individuales al staging
-  Future<GitCommandResult> addFiles(List<String> relativePaths) async {
-    return runGit(['add', '--', ...relativePaths]);
+  Future<GitCommandResult> addFiles(
+    List<String> relativePaths, {
+    String? description,
+  }) async {
+    return runGit(
+      ['add', '--', ...relativePaths],
+      description:
+          description ??
+          'Añadiendo ${relativePaths.length} archivo(s) al commit (git add)',
+    );
   }
 
   /// Realiza un commit con el mensaje indicado
-  Future<GitCommandResult> commit(String message) async {
-    return runGit(['commit', '-m', message]);
+  Future<GitCommandResult> commit(String message, {String? description}) async {
+    return runGit([
+      'commit',
+      '-m',
+      message,
+    ], description: description ?? 'Creando commit con los cambios preparados');
   }
 
   /// Configura o actualiza la URL del remoto `origin` si se proporciona `remoteUrl`
-  Future<GitCommandResult> syncRemoteOrigin(String remoteUrl) async {
+  Future<GitCommandResult> syncRemoteOrigin(
+    String remoteUrl, {
+    String? description,
+  }) async {
     final cleanUrl = remoteUrl.trim();
     if (cleanUrl.isEmpty) {
       return GitCommandResult(
@@ -184,9 +274,18 @@ class GitService {
     final hasOrigin = remotes.stdout.split(RegExp(r'\r?\n')).contains('origin');
 
     if (hasOrigin) {
-      return runGit(['remote', 'set-url', 'origin', cleanUrl]);
+      return runGit(
+        ['remote', 'set-url', 'origin', cleanUrl],
+        description:
+            description ?? 'Actualizando URL del repositorio remoto origin',
+      );
     } else {
-      return runGit(['remote', 'add', 'origin', cleanUrl]);
+      return runGit([
+        'remote',
+        'add',
+        'origin',
+        cleanUrl,
+      ], description: description ?? 'Configurando repositorio remoto origin');
     }
   }
 
@@ -198,6 +297,7 @@ class GitService {
     String? remoteUrl,
     GitAuthType authType = GitAuthType.token,
     String? token,
+    String? description,
   }) async {
     if (remoteUrl != null && remoteUrl.trim().isNotEmpty) {
       await syncRemoteOrigin(remoteUrl.trim());
@@ -221,7 +321,13 @@ class GitService {
       args.add(branch.trim());
     }
 
-    return runGit(args, environment: env);
+    final desc =
+        description ??
+        (branch != null
+            ? 'Realizando actualización a la rama $branch ($remote)'
+            : 'Realizando actualización desde el remoto $remote (git pull)');
+
+    return runGit(args, environment: env, description: desc);
   }
 
   /// Hace push de la rama actual o especificada al remoto (`git push -u origin <branchName>`)
@@ -236,6 +342,7 @@ class GitService {
     String? remoteUrl,
     GitAuthType authType = GitAuthType.token,
     String? token,
+    String? description,
   }) async {
     // Si se especificó una URL remota, sincronizarla previamente con el remoto
     if (remoteUrl != null && remoteUrl.trim().isNotEmpty) {
@@ -257,7 +364,10 @@ class GitService {
     }
 
     args.addAll(['push', '-u', remote, branchName]);
-    return runGit(args, environment: env);
+    final desc =
+        description ??
+        'Subiendo rama hotfix $branchName al servidor remoto origin (git push)';
+    return runGit(args, environment: env, description: desc);
   }
 
   /// Obtiene el estado resumido del repositorio (`git status --short`)

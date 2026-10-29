@@ -164,11 +164,13 @@ class ReverseSqlConfig {
       if (t.filters.isNotEmpty) {
         sb.writeln('      filters: #Representación del Where y And');
         t.filters.forEach((k, v) {
+          final trimmedKey = k.trim();
+          if (trimmedKey.isEmpty) return;
           final trimmedVal = v.trim();
           if (trimmedVal.startsWith('"') && trimmedVal.endsWith('"')) {
-            sb.writeln('        $k: $trimmedVal');
+            sb.writeln('        $trimmedKey: $trimmedVal');
           } else {
-            sb.writeln('        $k: "$trimmedVal"');
+            sb.writeln('        $trimmedKey: "$trimmedVal"');
           }
         });
       }

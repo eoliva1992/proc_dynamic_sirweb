@@ -617,6 +617,7 @@ class _SqlEditorWorkspaceState extends State<_SqlEditorWorkspace> {
                 language: 'plsql',
                 darkTheme: isDark,
                 ambiente: stateCtrl.ambiente,
+                autofocus: true,
                 onChanged: (code) {
                   stateCtrl.setText(code);
                   widget.onCodeChanged?.call(code);

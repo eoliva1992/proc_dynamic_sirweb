@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -5,13 +6,17 @@ import 'package:flutter/material.dart';
 import '../../models/deploy_ticket.dart';
 import '../../providers/procedimientos_provider.dart';
 import '../../services/app_log.dart';
+import '../../services/backup_service.dart';
 import '../../services/deploy_ticket_exporter_service.dart';
 import '../../services/deploy_ticket_service.dart';
 import '../../services/git_repository_config_service.dart';
 import '../../services/git_service.dart';
+import '../../services/sirweb_service.dart';
 import '../app_toast.dart';
 import '../constellation_background.dart';
 import '../floating_window.dart' show showFloatingDialog;
+import 'git_terminal_console.dart';
+import 'script_code_editor_dialog.dart';
 
 /// Diálogo interactivo para:
 /// 1. Generar los scripts SQL directamente en `rutaDirectorioLocal` (sin `.xlsx` y sin `paseambientescript`).
@@ -51,6 +56,9 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
   bool _executing = false;
   String _stepStatus = '';
   String? _errorMessage;
+
+  final List<GitCommandLog> _commandLogs = [];
+  List<ExportedDeployFile> _exportedFiles = [];
 
   @override
   void initState() {
@@ -132,6 +140,7 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
       _executing = true;
       _errorMessage = null;
       _stepStatus = 'Extrayendo y generando scripts SQL de hotfix...';
+      _commandLogs.clear();
     });
 
     try {
@@ -149,22 +158,49 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
         },
       );
 
+      if (exported.isEmpty) {
+        throw Exception(
+          'No se encontraron scripts SQL para exportar en este ticket. Operación cancelada.',
+        );
+      }
+
+      if (mounted) {
+        setState(() {
+          _exportedFiles = exported;
+        });
+      }
+
       // 2. Comprobar que estemos en la rama adecuada o cambiar a ella
-      final git = GitService(workingDirectory: _localPath);
+      final git = GitService(
+        workingDirectory: _localPath,
+        onCommandLog: (log) {
+          if (mounted) {
+            setState(() {
+              _commandLogs.add(log);
+            });
+          }
+        },
+      );
       final activeBranch = await git.getCurrentBranch();
 
       if (activeBranch != _currentBranch) {
         setState(() => _stepStatus = 'Cambiando a rama $_currentBranch...');
         final branchExists = await git.branchExists(_currentBranch);
         if (branchExists) {
-          final checkoutRes = await git.checkout(_currentBranch);
+          final checkoutRes = await git.checkout(
+            _currentBranch,
+            description: 'Posicionando en rama de trabajo $_currentBranch',
+          );
           if (!checkoutRes.isSuccess) {
             throw Exception(
               'Error al cambiar a rama $_currentBranch: ${checkoutRes.stderr}',
             );
           }
         } else {
-          final checkoutRes = await git.createAndCheckoutBranch(_currentBranch);
+          final checkoutRes = await git.createAndCheckoutBranch(
+            _currentBranch,
+            description: 'Creando y posicionando en rama $_currentBranch',
+          );
           if (!checkoutRes.isSuccess) {
             throw Exception(
               'Error al crear rama $_currentBranch: ${checkoutRes.stderr}',
@@ -190,17 +226,40 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
       }
 
       if (relativeFiles.isNotEmpty) {
-        final addRes = await git.addFiles(relativeFiles);
+        final addRes = await git.addFiles(
+          relativeFiles,
+          description:
+              'Añadiendo ${relativeFiles.length} script(s) SQL al área de preparación (staging)',
+        );
         if (!addRes.isSuccess) {
-          await git.add('.');
+          final addAllRes = await git.add(
+            '.',
+            description: 'Añadiendo todos los cambios detectados (git add .)',
+          );
+          if (!addAllRes.isSuccess) {
+            throw Exception(
+              'Error al añadir archivos a Git (git add): ${addAllRes.stderr}',
+            );
+          }
         }
       } else {
-        await git.add('.');
+        final addAllRes = await git.add(
+          '.',
+          description: 'Añadiendo todos los cambios detectados (git add .)',
+        );
+        if (!addAllRes.isSuccess) {
+          throw Exception(
+            'Error al añadir archivos a Git (git add): ${addAllRes.stderr}',
+          );
+        }
       }
 
       // 4. Commit
       setState(() => _stepStatus = 'Realizando commit en $_currentBranch...');
-      final commitRes = await git.commit(commitMsg);
+      final commitRes = await git.commit(
+        commitMsg,
+        description: 'Confirmando cambios con mensaje: "$commitMsg"',
+      );
       if (!commitRes.isSuccess &&
           !commitRes.stdout.contains('nothing to commit')) {
         throw Exception('Error en commit: ${commitRes.output}');
@@ -216,6 +275,8 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
         remoteUrl: _remoteUrl,
         authType: _authType,
         token: _token,
+        description:
+            'Subiendo rama $_currentBranch al servidor remoto (git push origin $_currentBranch)',
       );
       if (!pushRes.isSuccess) {
         throw Exception('Error en push remoto: ${pushRes.output}');
@@ -568,6 +629,151 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
 
                             const SizedBox(height: 16),
 
+                            // Listado de archivos / scripts a subir con acceso a abrir en editor SQL
+                            Builder(
+                              builder: (context) {
+                                final artifacts = _collectArtifacts();
+                                return Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: cardBg,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: borderColor),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Icon(
+                                            Icons.description_outlined,
+                                            size: 16,
+                                            color: Colors.teal.shade400,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            'Archivos / Scripts a subir (${artifacts.length}):',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 12,
+                                              color: isDark
+                                                  ? Colors.white
+                                                  : Colors.black87,
+                                            ),
+                                          ),
+                                          const Spacer(),
+                                          Text(
+                                            'Haz clic para inspeccionar/editar',
+                                            style: TextStyle(
+                                              fontSize: 10.5,
+                                              color: isDark
+                                                  ? Colors.white54
+                                                  : Colors.black45,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      if (artifacts.isEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 8,
+                                          ),
+                                          child: Text(
+                                            'No se han registrado artefactos en este ticket.',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontStyle: FontStyle.italic,
+                                              color: isDark
+                                                  ? Colors.white54
+                                                  : Colors.black54,
+                                            ),
+                                          ),
+                                        )
+                                      else
+                                        Container(
+                                          constraints: const BoxConstraints(
+                                            maxHeight: 180,
+                                          ),
+                                          child: ListView.separated(
+                                            shrinkWrap: true,
+                                            itemCount: artifacts.length,
+                                            separatorBuilder: (_, _) => Divider(
+                                              height: 1,
+                                              color: borderColor.withValues(
+                                                alpha: 0.5,
+                                              ),
+                                            ),
+                                            itemBuilder: (context, idx) {
+                                              final art = artifacts[idx];
+                                              return InkWell(
+                                                onTap: () =>
+                                                    _openArtifactInEditor(art),
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                                child: Padding(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 8,
+                                                        vertical: 6,
+                                                      ),
+                                                  child: Row(
+                                                    children: [
+                                                      _badge(
+                                                        art.categoria,
+                                                        art.color,
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Expanded(
+                                                        child: Text(
+                                                          art.nombre,
+                                                          style: const TextStyle(
+                                                            fontSize: 11.5,
+                                                            fontWeight:
+                                                                FontWeight.w600,
+                                                            fontFamily:
+                                                                'Consolas, monospace',
+                                                          ),
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 6),
+                                                      IconButton(
+                                                        icon: const Icon(
+                                                          Icons
+                                                              .open_in_new_rounded,
+                                                          size: 15,
+                                                        ),
+                                                        tooltip:
+                                                            'Abrir en editor de SQL',
+                                                        visualDensity:
+                                                            VisualDensity
+                                                                .compact,
+                                                        color: Colors
+                                                            .teal
+                                                            .shade300,
+                                                        onPressed: () =>
+                                                            _openArtifactInEditor(
+                                                              art,
+                                                            ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+
+                            const SizedBox(height: 16),
+
                             // Mensaje de Commit editable
                             Text(
                               'Mensaje de Commit',
@@ -662,6 +868,19 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
                                 ),
                               ),
                             ],
+
+                            // Mini-terminal de comandos Git ejecutados
+                            if (_commandLogs.isNotEmpty || _executing) ...[
+                              const SizedBox(height: 16),
+                              GitTerminalConsole(
+                                logs: _commandLogs,
+                                title: 'Terminal Git — Registro de Push',
+                                onClear: _executing
+                                    ? null
+                                    : () =>
+                                          setState(() => _commandLogs.clear()),
+                              ),
+                            ],
                           ],
                         ),
                 ),
@@ -744,4 +963,225 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
       ),
     );
   }
+
+  void _openScriptEditor({
+    String? filePath,
+    String? scriptName,
+    String? initialCode,
+    String language = 'plsql',
+  }) {
+    final effectiveLang =
+        (scriptName?.toLowerCase().endsWith('.yaml') == true ||
+            scriptName?.toLowerCase().endsWith('.yml') == true ||
+            filePath?.toLowerCase().endsWith('.yaml') == true ||
+            filePath?.toLowerCase().endsWith('.yml') == true)
+        ? 'yaml'
+        : language;
+
+    ScriptCodeEditorDialog.show(
+      context,
+      title:
+          'Visor / Editor ${effectiveLang == 'yaml' ? 'YAML' : 'SQL'}: ${scriptName ?? (filePath != null ? filePath.split(Platform.pathSeparator).last : 'Script')}',
+      initialFilePath: filePath,
+      initialCode: initialCode,
+      scriptName: scriptName,
+      language: effectiveLang,
+      themeColor: effectiveLang == 'yaml'
+          ? Colors.deepOrange.shade600
+          : Colors.teal.shade600,
+      icon: effectiveLang == 'yaml'
+          ? Icons.data_object_rounded
+          : Icons.code_rounded,
+      onSave: (newCode, savedPath, name) {
+        if (savedPath != null && File(savedPath).existsSync()) {
+          try {
+            File(savedPath).writeAsStringSync(newCode, encoding: utf8);
+            AppToast.success('Script actualizado en disco');
+          } catch (e) {
+            AppToast.error('Error guardando archivo: $e');
+          }
+        }
+      },
+    );
+  }
+
+  Future<void> _openArtifactInEditor(_ArtifactItem item) async {
+    // Si ya existe un archivo en disco generado para este artefacto
+    if (_localPath.isNotEmpty && Directory(_localPath).existsSync()) {
+      // 1. Buscar si coincide en _exportedFiles
+      final matchExported = _exportedFiles.where(
+        (e) =>
+            e.nombreArchivo.toLowerCase().contains(item.nombre.toLowerCase()) ||
+            e.nombreArchivo.toLowerCase() == item.nombre.toLowerCase(),
+      );
+      if (matchExported.isNotEmpty) {
+        final f = File(matchExported.first.rutaCompleta);
+        if (f.existsSync()) {
+          _openScriptEditor(
+            filePath: f.path,
+            scriptName: matchExported.first.nombreArchivo,
+          );
+          return;
+        }
+      }
+
+      // 2. Buscar si existe en la carpeta local directamente
+      try {
+        final dir = Directory(_localPath);
+        final list = dir.listSync();
+        for (final entity in list) {
+          if (entity is File) {
+            final fileName = entity.path.split(Platform.pathSeparator).last;
+            if (fileName.toLowerCase().contains(item.nombre.toLowerCase())) {
+              _openScriptEditor(filePath: entity.path, scriptName: fileName);
+              return;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Si tiene contenido directo (SQL, BLK, RSQL)
+    if (item.contenidoDirecto != null && item.contenidoDirecto!.isNotEmpty) {
+      _openScriptEditor(
+        scriptName: item.nombre,
+        initialCode: item.contenidoDirecto,
+      );
+      return;
+    }
+
+    // Si es una regla de negocio RN, consultar el servicio
+    if (item.categoria == 'RN') {
+      final dbOrigen = (widget.ticket.database?.trim().isNotEmpty == true)
+          ? widget.ticket.database!.trim()
+          : 'Desa';
+      final usuario = widget.ticket.usuarioActualiza?.trim().isNotEmpty == true
+          ? widget.ticket.usuarioActualiza!.trim()
+          : (widget.ticket.usuarioCrea.trim().isNotEmpty
+                ? widget.ticket.usuarioCrea.trim()
+                : 'usuario');
+
+      AppToast.info('Cargando regla de negocio ${item.nombre}...');
+      try {
+        final proc = await SirwebService().obtenerProcedimiento(
+          item.nombre,
+          ambiente: dbOrigen,
+        );
+        final code = BackupService.buildDynamicScript(
+          proc,
+          dbOrigen,
+          usuario.toUpperCase(),
+        );
+        if (!mounted) return;
+        _openScriptEditor(scriptName: '${item.nombre}.sql', initialCode: code);
+        return;
+      } catch (e) {
+        if (!mounted) return;
+        AppToast.warning('No se pudo obtener online, abriendo plantilla...');
+        _openScriptEditor(
+          scriptName: '${item.nombre}.sql',
+          initialCode:
+              '-- Procedimiento Dinámico: ${item.nombre}\n-- Ambiente: $dbOrigen\n-- No se pudo obtener el contenido desde el servidor ($e)',
+        );
+        return;
+      }
+    }
+
+    // Default: abrir editor con cabecera informativa
+    final hasExtension = RegExp(
+      r'\.[a-zA-Z0-9_]+$',
+    ).hasMatch(item.nombre.trim());
+    final defaultExt = item.categoria == 'RSQL' ? '.yaml' : '.sql';
+    final resolvedName = hasExtension
+        ? item.nombre.trim()
+        : '${item.nombre.trim()}$defaultExt';
+
+    _openScriptEditor(
+      scriptName: resolvedName,
+      initialCode:
+          '-- Artefacto: ${item.nombre} (${item.categoria})\n-- Se generará en ${_localPath.isNotEmpty ? _localPath : "directorio local"} durante el Push.',
+    );
+  }
+
+  List<_ArtifactItem> _collectArtifacts() {
+    final list = <_ArtifactItem>[];
+
+    for (final rn in widget.ticket.reglasNegocio) {
+      if (rn.trim().isNotEmpty) {
+        list.add(_ArtifactItem(rn.trim(), 'RN', Colors.blue));
+      }
+    }
+    for (final pck in widget.ticket.paquetes) {
+      if (pck.trim().isNotEmpty) {
+        list.add(_ArtifactItem(pck.trim(), 'PCK', Colors.purple));
+      }
+    }
+    for (final fun in widget.ticket.funciones) {
+      if (fun.trim().isNotEmpty) {
+        list.add(_ArtifactItem(fun.trim(), 'FUN', Colors.teal));
+      }
+    }
+    for (final sql in widget.ticket.sql) {
+      if (sql.nombre.trim().isNotEmpty) {
+        list.add(
+          _ArtifactItem(
+            sql.nombre.trim(),
+            'SQL',
+            Colors.amber,
+            contenidoDirecto: sql.contenido,
+          ),
+        );
+      }
+    }
+    for (final rsql in widget.ticket.reverseSql) {
+      if (rsql.nombre.trim().isNotEmpty) {
+        list.add(
+          _ArtifactItem(
+            rsql.nombre.trim(),
+            'RSQL',
+            Colors.deepOrange,
+            contenidoDirecto: rsql.contenido,
+          ),
+        );
+      }
+    }
+    for (final obj in widget.ticket.objetos) {
+      if (obj.trim().isNotEmpty) {
+        list.add(_ArtifactItem(obj.trim(), 'OBJ', Colors.indigo));
+      }
+    }
+    for (final trg in widget.ticket.triggers) {
+      if (trg.trim().isNotEmpty) {
+        list.add(_ArtifactItem(trg.trim(), 'TRG', Colors.cyan));
+      }
+    }
+    for (final blk in widget.ticket.bloqueLogico) {
+      if (blk.nombre.trim().isNotEmpty) {
+        list.add(
+          _ArtifactItem(
+            blk.nombre.trim(),
+            'BLK',
+            Colors.pink,
+            contenidoDirecto: blk.contenido,
+          ),
+        );
+      }
+    }
+
+    return list;
+  }
+}
+
+class _ArtifactItem {
+  final String nombre;
+  final String categoria;
+  final MaterialColor color;
+  final String? contenidoDirecto;
+
+  const _ArtifactItem(
+    this.nombre,
+    this.categoria,
+    this.color, {
+    this.contenidoDirecto,
+  });
 }

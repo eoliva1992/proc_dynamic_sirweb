@@ -13,6 +13,7 @@ class DeployTicketCardMenu extends StatefulWidget {
   final VoidCallback onCreateHotfix;
   final VoidCallback onPushHotfix;
   final VoidCallback onExport;
+  final VoidCallback onCreateFolder;
   final VoidCallback onCopyIndex;
   final bool canPush;
 
@@ -22,6 +23,7 @@ class DeployTicketCardMenu extends StatefulWidget {
     required this.onCreateHotfix,
     required this.onPushHotfix,
     required this.onExport,
+    required this.onCreateFolder,
     required this.onCopyIndex,
     this.canPush = true,
   });
@@ -138,6 +140,15 @@ class _DeployTicketCardMenuState extends State<DeployTicketCardMenu> {
                             onTap: () {
                               _controller.hide();
                               widget.onExport();
+                            },
+                          ),
+                          _MenuItem(
+                            icon: Icons.create_new_folder_outlined,
+                            iconColor: Colors.tealAccent.shade400,
+                            label: 'Crear directorio y archivos',
+                            onTap: () {
+                              _controller.hide();
+                              widget.onCreateFolder();
                             },
                           ),
                           _MenuItem(

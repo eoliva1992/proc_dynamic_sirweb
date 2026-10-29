@@ -13,6 +13,7 @@ import 'package:http/http.dart' as http;
 import '../models/sql_execution.dart';
 import '../models/sql_http_trace.dart';
 import 'sirweb_service.dart';
+import 'sql_statement_analyzer.dart' show stripTrailingSemicolon;
 
 /// Señal de que el servicio todavía no está implementado en el backend.
 class SqlServiceNotImplementedException implements Exception {
@@ -33,10 +34,7 @@ String buildPagedSelectSql(
   required int offset,
   required int limit,
 }) {
-  var sql = originalSql.trim();
-  while (sql.endsWith(';')) {
-    sql = sql.substring(0, sql.length - 1).trim();
-  }
+  final sql = stripTrailingSemicolon(originalSql).trim();
   return 'SELECT * FROM (\n$sql\n) OFFSET $offset ROWS FETCH NEXT $limit ROWS ONLY';
 }
 
@@ -188,8 +186,9 @@ class SqlExecutorService {
     bool Function()? cancelado,
     void Function(SqlHttpTraceEntry trace)? onTrace,
   }) async {
+    final cleanSql = stripTrailingSemicolon(sql);
     final data = await _postStatement(
-      sql,
+      cleanSql,
       ambiente: ambiente,
       owner: owner,
       sessionId: sessionId,
@@ -218,8 +217,9 @@ class SqlExecutorService {
     bool Function()? cancelado,
     void Function(SqlHttpTraceEntry trace)? onTrace,
   }) async {
+    final cleanSql = stripTrailingSemicolon(sql);
     final data = await _postStatement(
-      sql,
+      cleanSql,
       ambiente: ambiente,
       owner: owner,
       sessionId: sessionId,
@@ -324,9 +324,10 @@ class SqlExecutorService {
     bool Function()? cancelado,
     void Function(SqlHttpTraceEntry trace)? onTrace,
   }) async {
+    final cleanSql = stripTrailingSemicolon(commandSql);
     final sw = Stopwatch()..start();
     final data = await _postStatement(
-      commandSql,
+      cleanSql,
       ambiente: ambiente,
       owner: owner,
       sessionId: sessionId,
@@ -345,7 +346,7 @@ class SqlExecutorService {
       );
     }
     return SqlCommandResult(
-      command: commandSql.trim().split(RegExp(r'\s+')).first.toUpperCase(),
+      command: cleanSql.trim().split(RegExp(r'\s+')).first.toUpperCase(),
       output: data['message']?.toString() ?? '',
       durationMs: sw.elapsedMilliseconds,
     );
@@ -477,6 +478,7 @@ class SqlExecutorService {
     bool Function()? cancelado,
     void Function(SqlHttpTraceEntry trace)? onTrace,
   }) async {
+    final cleanSql = stripTrailingSemicolon(sql);
     final host = await SirwebService.getHost();
     final uri = Uri.parse('$host/tools/sql/explain');
     final traceCb = onTrace ?? onHttpTrace;
@@ -486,7 +488,7 @@ class SqlExecutorService {
       'Accept': 'application/json',
     };
     final requestBodyJson = jsonEncode({
-      'sql': sql,
+      'sql': cleanSql,
       'owner': owner ?? '',
       'ambiente': ambiente,
       'binds': binds,

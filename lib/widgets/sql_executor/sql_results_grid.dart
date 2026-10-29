@@ -112,25 +112,46 @@ class _SqlResultsGridState extends State<SqlResultsGrid> {
   void didUpdateWidget(SqlResultsGrid old) {
     super.didUpdateWidget(old);
     if (!identical(old.result, widget.result)) {
-      _hiddenColumns.clear();
-      _selectedRows.clear();
-      _selectedCells.clear();
-      _selectedCellRows.clear();
-      _cellSelectionRevision.value++;
-      _anchorCell = null;
-      _cursorCell = null;
-      _anchorRow = null;
-      _searchDebounce?.cancel();
-      _searchCtrl.clear();
-      _searchQuery = '';
-      _searchOpen = false;
-      _columnFilters.clear();
-      _sortColIndex = null;
-      _sortAsc = true;
-      _customColumnWidths.clear();
-      _cachedWidths = null;
-      _cachedDisplayIndices = null;
+      // Verificamos si solo se anexaron filas al mismo resultado (mismas columnas y mayor cantidad de filas)
+      final isAppendOnly = old.result != null &&
+          widget.result != null &&
+          old.result!.columns.length == widget.result!.columns.length &&
+          widget.result!.rows.length >= old.result!.rows.length &&
+          _areSameColumns(old.result!.columns, widget.result!.columns);
+
+      if (isAppendOnly) {
+        // En una anexión de filas, preservamos filtros, búsqueda, ordenamiento y selecciones
+        _cachedDisplayIndices = null;
+        _cachedWidths = null;
+      } else {
+        _hiddenColumns.clear();
+        _selectedRows.clear();
+        _selectedCells.clear();
+        _selectedCellRows.clear();
+        _cellSelectionRevision.value++;
+        _anchorCell = null;
+        _cursorCell = null;
+        _anchorRow = null;
+        _searchDebounce?.cancel();
+        _searchCtrl.clear();
+        _searchQuery = '';
+        _searchOpen = false;
+        _columnFilters.clear();
+        _sortColIndex = null;
+        _sortAsc = true;
+        _customColumnWidths.clear();
+        _cachedWidths = null;
+        _cachedDisplayIndices = null;
+      }
     }
+  }
+
+  static bool _areSameColumns(List<SqlColumn> a, List<SqlColumn> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].name != b[i].name) return false;
+    }
+    return true;
   }
 
   @override

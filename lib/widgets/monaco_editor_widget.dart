@@ -371,6 +371,19 @@ class MonacoEditorController {
     );
   }
 
+  /// Coloca el foco y el cursor dentro del editor Monaco en el WebView.
+  void focus() {
+    _enqueue((ctrl) async {
+      await ctrl.runJavaScript(
+        'try {'
+        '  if (window.editor) {'
+        '    window.editor.focus();'
+        '  }'
+        '} catch(_) {}',
+      );
+    });
+  }
+
   /// Devuelve el texto actualmente seleccionado en el editor, o `null` si no
   /// hay selección (o el editor aún no está listo).
   Future<String?> getSelectedText() async {
@@ -617,6 +630,7 @@ class MonacoEditorWidget extends StatefulWidget {
   final String language; // 'plsql' | 'javascript'
   final bool darkTheme;
   final String ambiente; // 'Desa' | 'Demo' | 'QA' | 'Prod'
+  final bool autofocus;
   final ValueChanged<String>? onChanged;
   final void Function(int line, int col)? onCursorChanged;
   final void Function(Object error, StackTrace stackTrace)? onError;
@@ -632,6 +646,7 @@ class MonacoEditorWidget extends StatefulWidget {
     this.language = 'plsql',
     this.darkTheme = true,
     this.ambiente = 'Desa',
+    this.autofocus = false,
     this.onChanged,
     this.onCursorChanged,
     this.onError,
@@ -1791,6 +1806,20 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
           )
           .then((action) => _registeredActions.add(action)),
     );
+
+    // Autofocus opcional al terminar de inicializar el editor
+    if (widget.autofocus) {
+      widget.controller.focus();
+      // Pequeño reintento defensivo para asegurar que WebView2 en Windows
+      // termine de transferir el foco al input nativo de Monaco.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Future.delayed(const Duration(milliseconds: 60), () {
+          if (!mounted) return;
+          widget.controller.focus();
+        });
+      });
+    }
   }
 
   @override

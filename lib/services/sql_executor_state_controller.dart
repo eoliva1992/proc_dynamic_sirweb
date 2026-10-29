@@ -14,14 +14,27 @@ import '../services/sql_statement_analyzer.dart';
 import '../widgets/app_toast.dart';
 import '../widgets/editor_split_container.dart';
 
-/// Detecta si una excepción del servidor indica que la sesión SQL expiró, no existe
-/// o quedó inválida.
+/// Detecta si una excepción del servidor indica que la sesión SQL expiró, no existe,
+/// quedó inválida o se desconectó a nivel de red Oracle (ej. ORA-12570, ORA-03113, ORA-03114).
 bool _isSessionExpiredError(Object error) {
   final msg = error.toString().toLowerCase();
   return msg.contains('no existe') ||
       msg.contains('expir') ||
       msg.contains('invalida') ||
-      msg.contains('not found');
+      msg.contains('not found') ||
+      msg.contains('ora-12570') ||
+      msg.contains('ora-03113') ||
+      msg.contains('ora-03114') ||
+      msg.contains('ora-01012') ||
+      msg.contains('ora-00028') ||
+      msg.contains('ora-02396') ||
+      msg.contains('lectura de paquete') ||
+      msg.contains('sesión de red') ||
+      msg.contains('sesion de red') ||
+      msg.contains('end-of-file on communication channel') ||
+      msg.contains('not logged on') ||
+      msg.contains('closed connection') ||
+      msg.contains('connection reset');
 }
 
 /// Controlador de estado y lógica de negocio para la ejecución interactiva
@@ -485,10 +498,16 @@ class SqlExecutorStateController extends ChangeNotifier {
 
       _sessionMgr.touch(_ambiente, owner: _currentOwner);
 
+      // Si el backend reporta truncated=true o el lote de filas recibido
+      // vino lleno (>= limit), asumimos que potencialmente hay más registros.
+      final hasMoreRows =
+          (nextResult.truncated || nextResult.rows.length >= limit) &&
+          nextResult.rows.isNotEmpty;
+
       // Anexar las nuevas filas manteniendo intactas las columnas y el ID de resultado
       final updatedResult = currentResult.appendRows(
         nextResult.rows,
-        truncated: nextResult.truncated,
+        truncated: hasMoreRows,
         additionalDurationMs: nextResult.durationMs,
       );
 
@@ -835,8 +854,9 @@ class SqlExecutorStateController extends ChangeNotifier {
           _switchTab(1);
           break;
         } catch (e) {
-          // Si el fallo se debe a que la sesión expiró o no existe y se envió un sessionId,
-          // limpiamos la sesión expirada y reintentamos de inmediato con sessionId = null.
+          // Si el fallo se debe a que la sesión expiró o se desconectó y se envió un sessionId,
+          // limpiamos la sesión expirada, notificamos al usuario y reintentamos de inmediato
+          // con una nueva sesión (sessionId = null).
           if (currentSessionId != null &&
               _isSessionExpiredError(e) &&
               attempt < maxAttempts &&
@@ -844,6 +864,9 @@ class SqlExecutorStateController extends ChangeNotifier {
             _sessionId = null;
             _sessionMgr.clearSession(_ambiente, owner: owner);
             currentSessionId = null;
+            AppToast.info(
+              'La sesión anterior se cerró o desconectó. Se abrió una sesión nueva.',
+            );
             continue; // Reintento con nueva sesión (sessionId = null)
           }
 

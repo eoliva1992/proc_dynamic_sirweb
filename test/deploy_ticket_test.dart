@@ -166,5 +166,52 @@ DBD:PROD
         );
       },
     );
+
+    test(
+      'suggestedFolderName extrae número de ticket de URL de Azure DevOps o tipo de solicitud',
+      () {
+        // 1. URL con workitems/edit/331974
+        const ticketAzure = DeployTicket(
+          url:
+              'https://dev.azure.com/humanoseguros/SirWeb/_workitems/edit/331974',
+          tipoSolicitud: 'Matriz',
+          numeroSolicitud: '1305',
+        );
+        expect(
+          DeployTicket.extractAzureTicketIdFromUrl(ticketAzure.url),
+          '331974',
+        );
+        expect(ticketAzure.suggestedFolderName, '331974_1305');
+
+        // 2. URL con query param id=88421
+        const ticketParam = DeployTicket(
+          url: 'https://dev.azure.com/org/proj/_workitems?id=88421',
+          tipoSolicitud: 'Requerimiento',
+          numeroSolicitud: '702',
+        );
+        expect(ticketParam.suggestedFolderName, '88421_702');
+
+        // 3. Sin URL: toma tipoSolicitud
+        const ticketSinUrl = DeployTicket(
+          tipoSolicitud: 'Matriz',
+          numeroSolicitud: '1305',
+        );
+        expect(ticketSinUrl.suggestedFolderName, 'Matriz_1305');
+
+        // 4. Con caracteres especiales en tipoSolicitud y numeroSolicitud
+        const ticketEspecial = DeployTicket(
+          tipoSolicitud: 'Matriz / Pase*',
+          numeroSolicitud: 'SOL:99?',
+        );
+        expect(ticketEspecial.suggestedFolderName, 'Matriz  Pase_SOL99');
+
+        // 5. Sin numeroSolicitud
+        const ticketSinNum = DeployTicket(
+          url: '//dev.azure.com/org/proj/12345',
+          tipoSolicitud: 'Fix',
+        );
+        expect(ticketSinNum.suggestedFolderName, '12345');
+      },
+    );
   });
 }

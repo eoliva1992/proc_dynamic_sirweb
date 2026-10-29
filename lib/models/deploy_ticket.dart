@@ -525,4 +525,71 @@ class DeployTicket {
 
     return sb.toString();
   }
+
+  /// Extrae el identificador numérico de Azure DevOps si la [url] lo contiene.
+  /// Ejemplos soportados:
+  /// - `https://dev.azure.com/org/proj/_workitems/edit/123456` -> `123456`
+  /// - `https://org.visualstudio.com/proj/_workitems/edit/98765/` -> `98765`
+  /// - `https://dev.azure.com/org/proj/_workitems?id=54321` -> `54321`
+  /// - Enlaces directos que terminen con dígitos numéricos.
+  static String? extractAzureTicketIdFromUrl(String? rawUrl) {
+    if (rawUrl == null || rawUrl.trim().isEmpty) return null;
+    final clean = rawUrl.trim();
+
+    // 1. Parámetro query id=... o workitem=...
+    final idParamMatch = RegExp(
+      r'[?&](?:id|workitem|work_item)=(\d+)',
+      caseSensitive: false,
+    ).firstMatch(clean);
+    if (idParamMatch != null) {
+      return idParamMatch.group(1);
+    }
+
+    // 2. Ruta típica de Azure DevOps: _workitems/edit/12345 o /workItems/12345
+    final editPathMatch = RegExp(
+      r'workitems(?:/edit)?/(\d+)',
+      caseSensitive: false,
+    ).firstMatch(clean);
+    if (editPathMatch != null) {
+      return editPathMatch.group(1);
+    }
+
+    // 3. Últimos dígitos antes de fin de cadena o antes de query/hash/slash
+    final trailingDigitsMatch = RegExp(
+      r'/(\d+)(?:[/?#&]|\s*$)',
+    ).firstMatch(clean);
+    if (trailingDigitsMatch != null) {
+      return trailingDigitsMatch.group(1);
+    }
+
+    // 4. Última secuencia de dígitos en cualquier parte final
+    final anyTrailingMatch = RegExp(r'(\d+)\s*$').firstMatch(clean);
+    if (anyTrailingMatch != null) {
+      return anyTrailingMatch.group(1);
+    }
+
+    return null;
+  }
+
+  /// Nomenclatura recomendada de la carpeta para exportar o crear directorio:
+  /// `{numero de ticket azure(ultimos digitos de la url) o tipo de solicitud}_{numero de solicitud}`
+  ///
+  /// Se sanitizan caracteres inválidos para nombres de carpetas en sistemas de archivos.
+  String get suggestedFolderName {
+    final azureId = extractAzureTicketIdFromUrl(url);
+    final prefix = (azureId != null && azureId.isNotEmpty)
+        ? azureId
+        : (tipoSolicitud.trim().isNotEmpty ? tipoSolicitud.trim() : 'ticket');
+
+    final cleanPrefix = prefix.replaceAll(RegExp(r'[\\/:*?"<>|]+'), '').trim();
+    final cleanSol = numeroSolicitud
+        .replaceAll(RegExp(r'[\\/:*?"<>|]+'), '')
+        .trim();
+
+    final safePrefix = cleanPrefix.isNotEmpty ? cleanPrefix : 'ticket';
+    if (cleanSol.isNotEmpty) {
+      return '${safePrefix}_$cleanSol';
+    }
+    return safePrefix;
+  }
 }

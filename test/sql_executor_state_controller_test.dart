@@ -292,6 +292,7 @@ class _BatchCancellableFakeSqlExecutorService extends _FakeSqlExecutorService {
 void main() {
   group('SqlExecutorStateController', () {
     setUp(() {
+      SharedPreferences.setMockInitialValues({});
       SqlSessionManager.instance.reset();
       // El backend exige 'owner' (cdUsuario) no vacío en /tools/sql/statement.
       procedimientosProvider.setCdUsuario('TESTUSER');
@@ -1151,6 +1152,48 @@ void main() {
     );
 
     test(
+      'reintenta automáticamente y abre nueva sesión ante error ORA-12570 de red/desconexión',
+      () async {
+        final fakeSvc = _FakeSqlExecutorService();
+
+        SqlSessionManager.instance.setSessionId(
+          'Desa',
+          'sess-cortada-555',
+          owner: 'TESTUSER',
+        );
+
+        var firstCall = true;
+        fakeSvc.onExecuteSelect = (sessionId) {
+          if (firstCall) {
+            firstCall = false;
+            expect(sessionId, 'sess-cortada-555');
+            throw Exception(
+              'Error de Oracle al ejecutar la sentencia: ORA-12570: Sesión de Red: error de lectura de paquete inesperado',
+            );
+          }
+          expect(sessionId, isNull);
+        };
+
+        final ctrl = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'SELECT * FROM DUAL;',
+          service: fakeSvc,
+        );
+        addTearDown(ctrl.dispose);
+
+        expect(ctrl.sessionId, 'sess-cortada-555');
+
+        await ctrl.runCurrentOrSelection();
+
+        expect(fakeSvc.selectCalls, 2);
+        expect(ctrl.log.last.status, SqlLogStatus.success);
+        expect(ctrl.log.last.message, 'OK');
+        expect(ctrl.results.length, 1);
+        expect(ctrl.sessionId, isNull);
+      },
+    );
+
+    test(
       'en DML con sesión expirada, reintenta con sessionId null y asigna el nuevo sessionId devuelto',
       () async {
         final fakeSvc = _FakeSqlExecutorService();
@@ -1250,13 +1293,14 @@ void main() {
         service: fakeSvc,
       );
       addTearDown(ctrl.dispose);
+      await ctrl.setMaxRows(2);
 
       await ctrl.runCurrentOrSelection();
       expect(ctrl.results, hasLength(1));
       expect(ctrl.lastResult?.truncated, isTrue);
       expect(ctrl.lastResult?.rows, hasLength(2));
 
-      // 2. Para la siguiente página devolvemos 1 fila adicional sin truncar
+      // 2. Para la siguiente página devolvemos 2 filas (lote lleno) aunque backend devuelva truncated=false
       fakeSvc.selectResultToReturn = const SqlQueryResult(
         columns: [
           SqlColumn(name: 'ID', dataType: 'NUMBER'),
@@ -1264,23 +1308,39 @@ void main() {
         ],
         rows: [
           [3, 'C'],
+          [4, 'D'],
         ],
-        returnedRows: 1,
-        truncated: false,
+        returnedRows: 2,
+        truncated: false, // Backend manda false por límite en FETCH NEXT
         durationMs: 15,
       );
 
-      // Ejecutar loadMoreRows
-      final success = await ctrl.loadMoreRows();
+      // Primer loadMoreRows (llegó a 4 filas y detecta que aún hay más porque lote vino lleno)
+      var success = await ctrl.loadMoreRows();
       expect(success, isTrue);
+      expect(ctrl.lastResult?.rows, hasLength(4));
+      expect(ctrl.lastResult?.truncated, isTrue);
 
-      // Debe haber anexado la fila (total 3 filas)
-      expect(ctrl.lastResult?.rows, hasLength(3));
-      expect(ctrl.lastResult?.rows[0], [1, 'A']);
-      expect(ctrl.lastResult?.rows[1], [2, 'B']);
-      expect(ctrl.lastResult?.rows[2], [3, 'C']);
+      // 3. Tercera página devuelve 1 fila (lote incompleto, < limit 2)
+      fakeSvc.selectResultToReturn = const SqlQueryResult(
+        columns: [
+          SqlColumn(name: 'ID', dataType: 'NUMBER'),
+          SqlColumn(name: 'NAME', dataType: 'VARCHAR2'),
+        ],
+        rows: [
+          [5, 'E'],
+        ],
+        returnedRows: 1,
+        truncated: false,
+        durationMs: 10,
+      );
+
+      // Segundo loadMoreRows (llega al final, ahora truncated es false)
+      success = await ctrl.loadMoreRows();
+      expect(success, isTrue);
+      expect(ctrl.lastResult?.rows, hasLength(5));
       expect(ctrl.lastResult?.truncated, isFalse);
-      expect(fakeSvc.lastSql, contains('OFFSET 2 ROWS FETCH NEXT'));
+      expect(fakeSvc.lastSql, contains('OFFSET 4 ROWS FETCH NEXT'));
     });
   });
 }

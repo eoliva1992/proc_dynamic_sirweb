@@ -750,6 +750,192 @@ class DeployTicketExporterService {
     return exportedFiles;
   }
 
+  /// Crea la estructura de directorio local y genera los archivos base del ticket:
+  /// - `index.txt` con la configuración completa generada por [DeployTicket.toIndexTxt]
+  /// - Archivos SQL con el contenido guardado en los scripts del ticket (`sql`, `reverseSql`, `bloqueLogico`)
+  /// - Archivos placeholder para los artefactos de texto (`reglasNegocio`, `paquetes`, `funciones`, `triggers`, `objetos`)
+  ///
+  /// La carpeta resultante se crea en `${rootDirectoryPath}${Platform.pathSeparator}${folderName}`.
+  /// Si la carpeta ya existe, no se borra completamente para preservar posibles archivos existentes,
+  /// pero se sobrescriben o crean los archivos correspondientes al ticket.
+  Future<List<ExportedDeployFile>> crearDirectorioYArchivos({
+    required DeployTicket ticket,
+    required String rootDirectoryPath,
+    required String folderName,
+  }) async {
+    final cleanFolder = folderName.trim().replaceAll(
+      RegExp(r'[\\/:*?"<>|]+'),
+      '',
+    );
+    final effectiveFolder = cleanFolder.isNotEmpty
+        ? cleanFolder
+        : ticket.suggestedFolderName;
+
+    final targetDir = Directory(
+      '${rootDirectoryPath.trim()}${Platform.pathSeparator}$effectiveFolder',
+    );
+    if (!await targetDir.exists()) {
+      await targetDir.create(recursive: true);
+    }
+
+    final exportedFiles = <ExportedDeployFile>[];
+
+    Future<void> escribirArchivo({
+      required String nombreArchivo,
+      required String contenido,
+      required String categoria,
+    }) async {
+      final safeName = nombreArchivo.trim().replaceAll(
+        RegExp(r'[\\/:*?"<>|]+'),
+        '',
+      );
+      if (safeName.isEmpty) return;
+      final filePath = '${targetDir.path}${Platform.pathSeparator}$safeName';
+      final file = File(filePath);
+      await file.writeAsString(contenido, encoding: utf8);
+      final byteSize = await file.length();
+      exportedFiles.add(
+        ExportedDeployFile(
+          nombreArchivo: safeName,
+          rutaCompleta: filePath,
+          categoria: categoria,
+          byteSize: byteSize.toInt(),
+        ),
+      );
+    }
+
+    // 1. Archivo index.txt
+    await escribirArchivo(
+      nombreArchivo: 'index.txt',
+      contenido: ticket.toIndexTxt(),
+      categoria: 'INDEX',
+    );
+
+    // Helper para resolver el nombre de archivo respetando su extensión original
+    String resolverNombre(String raw, {String defaultExtension = '.sql'}) {
+      final trimmed = raw.trim();
+      final lower = trimmed.toLowerCase();
+      // Si ya tiene una extensión reconocida o formato con punto (.xxx)
+      if (RegExp(r'\.[a-zA-Z0-9_]+$').hasMatch(lower)) {
+        return trimmed;
+      }
+      final ext = defaultExtension.startsWith('.')
+          ? defaultExtension
+          : '.$defaultExtension';
+      return '$trimmed$ext';
+    }
+
+    // 2. Scripts SQL personalizados
+    for (final s in ticket.sql) {
+      if (s.nombre.trim().isEmpty) continue;
+      final fileName = resolverNombre(s.nombre, defaultExtension: '.sql');
+      await escribirArchivo(
+        nombreArchivo: fileName,
+        contenido: s.contenido,
+        categoria: 'SQL',
+      );
+    }
+
+    // 3. Scripts de ingeniería inversa (RSQL)
+    for (final r in ticket.reverseSql) {
+      if (r.nombre.trim().isEmpty) continue;
+      final fileName = resolverNombre(r.nombre, defaultExtension: '.yaml');
+      await escribirArchivo(
+        nombreArchivo: fileName,
+        contenido: r.contenido,
+        categoria: 'RSQL',
+      );
+    }
+
+    // 4. Bloques Lógicos
+    for (final b in ticket.bloqueLogico) {
+      if (b.nombre.trim().isEmpty) continue;
+      final fileName = resolverNombre(b.nombre, defaultExtension: '.sql');
+      final content = b.contenido.trim().isNotEmpty
+          ? _wrapBlockLogic(b.contenido)
+          : '';
+      await escribirArchivo(
+        nombreArchivo: fileName,
+        contenido: content,
+        categoria: 'BLOQUE_LOGICO',
+      );
+    }
+
+    // 5. Artefactos de lista (Reglas, Paquetes, Funciones, Triggers, Objetos)
+    for (final rn in ticket.reglasNegocio) {
+      if (rn.trim().isEmpty) continue;
+      final fileName = resolverNombre(rn, defaultExtension: '.sql');
+      // Solo crear si no fue generado previamente
+      if (!exportedFiles.any(
+        (f) => f.nombreArchivo.toLowerCase() == fileName.toLowerCase(),
+      )) {
+        await escribirArchivo(
+          nombreArchivo: fileName,
+          contenido: '-- Regla de Negocio: ${rn.trim()}\n',
+          categoria: 'RN',
+        );
+      }
+    }
+
+    for (final pck in ticket.paquetes) {
+      if (pck.trim().isEmpty) continue;
+      final fileName = resolverNombre(pck, defaultExtension: '.sql');
+      if (!exportedFiles.any(
+        (f) => f.nombreArchivo.toLowerCase() == fileName.toLowerCase(),
+      )) {
+        await escribirArchivo(
+          nombreArchivo: fileName,
+          contenido: '-- Paquete: ${pck.trim()}\n',
+          categoria: 'PAQUETE',
+        );
+      }
+    }
+
+    for (final fun in ticket.funciones) {
+      if (fun.trim().isEmpty) continue;
+      final fileName = resolverNombre(fun, defaultExtension: '.sql');
+      if (!exportedFiles.any(
+        (f) => f.nombreArchivo.toLowerCase() == fileName.toLowerCase(),
+      )) {
+        await escribirArchivo(
+          nombreArchivo: fileName,
+          contenido: '-- Función / Procedimiento: ${fun.trim()}\n',
+          categoria: 'FUNCION',
+        );
+      }
+    }
+
+    for (final trg in ticket.triggers) {
+      if (trg.trim().isEmpty) continue;
+      final fileName = resolverNombre(trg, defaultExtension: '.sql');
+      if (!exportedFiles.any(
+        (f) => f.nombreArchivo.toLowerCase() == fileName.toLowerCase(),
+      )) {
+        await escribirArchivo(
+          nombreArchivo: fileName,
+          contenido: '-- Trigger: ${trg.trim()}\n',
+          categoria: 'TRIGGER',
+        );
+      }
+    }
+
+    for (final obj in ticket.objetos) {
+      if (obj.trim().isEmpty) continue;
+      final fileName = resolverNombre(obj, defaultExtension: '.sql');
+      if (!exportedFiles.any(
+        (f) => f.nombreArchivo.toLowerCase() == fileName.toLowerCase(),
+      )) {
+        await escribirArchivo(
+          nombreArchivo: fileName,
+          contenido: '-- Objeto: ${obj.trim()}\n',
+          categoria: 'OBJETO',
+        );
+      }
+    }
+
+    return exportedFiles;
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Métodos auxiliares de extracción y generación
   // ─────────────────────────────────────────────────────────────────────────

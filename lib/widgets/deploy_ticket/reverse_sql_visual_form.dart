@@ -170,6 +170,11 @@ class _TableCardState extends State<_TableCard> {
   late final TextEditingController _ignorePkCtrl;
   bool _expanded = true;
 
+  // Lista mutable de filtros para desacoplar el estado de edición interactivo
+  // del Map de la entidad y evitar que borrar la clave destruya la fila.
+  late List<_FilterItem> _filterItems;
+  int _nextFilterId = 1;
+
   @override
   void initState() {
     super.initState();
@@ -177,6 +182,10 @@ class _TableCardState extends State<_TableCard> {
     _colsCtrl = TextEditingController(text: widget.table.columns ?? '');
     _sqlCtrl = TextEditingController(text: widget.table.sql ?? '');
     _ignorePkCtrl = TextEditingController(text: widget.table.ignorePk ?? '');
+
+    _filterItems = widget.table.filters.entries.map((e) {
+      return _FilterItem(id: _nextFilterId++, key: e.key, value: e.value);
+    }).toList();
   }
 
   @override
@@ -194,6 +203,40 @@ class _TableCardState extends State<_TableCard> {
     if ((widget.table.ignorePk ?? '') != _ignorePkCtrl.text) {
       _ignorePkCtrl.text = widget.table.ignorePk ?? '';
     }
+
+    // Si los filtros cambiaron externamente (por ej. carga de archivo YAML o reseteo),
+    // resincronizar si la cantidad o contenido de claves es distinta.
+    final currentFiltersMap = _buildFiltersMap(filterEmptyKeys: false);
+    if (!_mapsEqual(currentFiltersMap, widget.table.filters)) {
+      _filterItems = widget.table.filters.entries.map((e) {
+        return _FilterItem(id: _nextFilterId++, key: e.key, value: e.value);
+      }).toList();
+    }
+  }
+
+  bool _mapsEqual(Map<String, String> a, Map<String, String> b) {
+    if (a.length != b.length) return false;
+    for (final entry in a.entries) {
+      if (b[entry.key] != entry.value) return false;
+    }
+    return true;
+  }
+
+  Map<String, String> _buildFiltersMap({bool filterEmptyKeys = true}) {
+    final map = <String, String>{};
+    for (final item in _filterItems) {
+      final k = item.key.trim();
+      if (!filterEmptyKeys || k.isNotEmpty) {
+        map[k] = item.value;
+      }
+    }
+    return map;
+  }
+
+  void _notifyFiltersChanged() {
+    widget.onChanged(
+      widget.table.copyWith(filters: _buildFiltersMap(filterEmptyKeys: false)),
+    );
   }
 
   @override
@@ -219,33 +262,32 @@ class _TableCardState extends State<_TableCard> {
   }
 
   void _addFilterRow() {
-    final filters = Map<String, String>.from(widget.table.filters);
-    final key = 'campo_${filters.length + 1}';
-    filters[key] = "= 'VALOR'";
-    widget.onChanged(widget.table.copyWith(filters: filters));
-  }
-
-  void _removeFilter(String key) {
-    final filters = Map<String, String>.from(widget.table.filters)..remove(key);
-    widget.onChanged(widget.table.copyWith(filters: filters));
-  }
-
-  void _updateFilterKey(String oldKey, String newKey, String value) {
-    if (oldKey == newKey) {
-      final filters = Map<String, String>.from(widget.table.filters);
-      filters[oldKey] = value;
-      widget.onChanged(widget.table.copyWith(filters: filters));
-      return;
-    }
-    final filters = <String, String>{};
-    widget.table.filters.forEach((k, v) {
-      if (k == oldKey) {
-        if (newKey.trim().isNotEmpty) filters[newKey.trim()] = value;
-      } else {
-        filters[k] = v;
-      }
+    setState(() {
+      _filterItems.add(
+        _FilterItem(
+          id: _nextFilterId++,
+          key: 'campo_${_filterItems.length + 1}',
+          value: "= 'VALOR'",
+        ),
+      );
     });
-    widget.onChanged(widget.table.copyWith(filters: filters));
+    _notifyFiltersChanged();
+  }
+
+  void _removeFilter(int id) {
+    setState(() {
+      _filterItems.removeWhere((item) => item.id == id);
+    });
+    _notifyFiltersChanged();
+  }
+
+  void _updateFilter(int id, String newKey, String newValue) {
+    final idx = _filterItems.indexWhere((item) => item.id == id);
+    if (idx != -1) {
+      _filterItems[idx].key = newKey;
+      _filterItems[idx].value = newValue;
+      _notifyFiltersChanged();
+    }
   }
 
   @override
@@ -812,7 +854,7 @@ class _TableCardState extends State<_TableCard> {
                   ),
                   const SizedBox(height: 6),
 
-                  if (widget.table.filters.isEmpty)
+                  if (_filterItems.isEmpty)
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(
@@ -835,15 +877,16 @@ class _TableCardState extends State<_TableCard> {
                       ),
                     )
                   else
-                    ...widget.table.filters.entries.map((entry) {
+                    ..._filterItems.map((item) {
                       return Padding(
+                        key: ValueKey('filter_${item.id}'),
                         padding: const EdgeInsets.only(bottom: 6),
                         child: _FilterRow(
-                          filterKey: entry.key,
-                          filterValue: entry.value,
+                          filterKey: item.key,
+                          filterValue: item.value,
                           isDark: widget.isDark,
-                          onUpdate: (k, v) => _updateFilterKey(entry.key, k, v),
-                          onDelete: () => _removeFilter(entry.key),
+                          onUpdate: (k, v) => _updateFilter(item.id, k, v),
+                          onDelete: () => _removeFilter(item.id),
                         ),
                       );
                     }),
@@ -855,6 +898,15 @@ class _TableCardState extends State<_TableCard> {
       ),
     );
   }
+}
+
+/// Elemento interno mutable para desacoplar las filas de filtros durante edición.
+class _FilterItem {
+  final int id;
+  String key;
+  String value;
+
+  _FilterItem({required this.id, required this.key, required this.value});
 }
 
 class _FilterRow extends StatefulWidget {

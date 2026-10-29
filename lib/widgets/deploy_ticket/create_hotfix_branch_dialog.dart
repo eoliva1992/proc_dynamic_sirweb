@@ -12,6 +12,7 @@ import '../../services/git_service.dart';
 import '../app_toast.dart';
 import '../constellation_background.dart';
 import '../floating_window.dart' show showFloatingDialog;
+import 'git_terminal_console.dart';
 
 /// Diálogo interactivo para crear una rama Hotfix y enlazarla con el ticket y el repositorio.
 class CreateHotfixBranchDialog extends StatefulWidget {
@@ -48,8 +49,12 @@ class _CreateHotfixBranchDialogState extends State<CreateHotfixBranchDialog> {
 
   bool _loading = true;
   bool _submitting = false;
+  bool _completed = false;
+  DeployTicket? _completedTicket;
   String? _statusMessage;
   String? _errorMessage;
+
+  final List<GitCommandLog> _commandLogs = [];
 
   @override
   void initState() {
@@ -129,10 +134,20 @@ class _CreateHotfixBranchDialogState extends State<CreateHotfixBranchDialog> {
       _submitting = true;
       _errorMessage = null;
       _statusMessage = 'Verificando repositorio Git local...';
+      _commandLogs.clear();
     });
 
     try {
-      final git = GitService(workingDirectory: localPath);
+      final git = GitService(
+        workingDirectory: localPath,
+        onCommandLog: (log) {
+          if (mounted) {
+            setState(() {
+              _commandLogs.add(log);
+            });
+          }
+        },
+      );
       final isRepo = await git.isGitRepository();
       if (!isRepo) {
         throw Exception(
@@ -144,56 +159,71 @@ class _CreateHotfixBranchDialogState extends State<CreateHotfixBranchDialog> {
 
       // Sincronizar URL remota si fue suministrada
       if (repoUrl.isNotEmpty) {
-        await git.syncRemoteOrigin(repoUrl);
+        setState(() => _statusMessage = 'Sincronizando remoto origin...');
+        final syncRes = await git.syncRemoteOrigin(
+          repoUrl,
+          description: 'Sincronizando URL remota origin ($repoUrl)',
+        );
+        if (!syncRes.isSuccess) {
+          throw Exception(
+            'Error al sincronizar remoto origin ($repoUrl): ${syncRes.stderr}',
+          );
+        }
       }
 
-      // Preparar rama hotfix:
-      // Si la rama hotfix ya existe localmente, cambiamos a ella directamente.
-      // Si no existe, nos cambiamos a la rama base (master/main), actualizamos con pull y la creamos desde allí.
+      // Paso 1 crítico: Posicionarse en la rama base (master/main)
+      final baseBranch = await git.resolveDefaultBaseBranch();
+      setState(
+        () => _statusMessage = 'Posicionando en rama base $baseBranch...',
+      );
+      final checkoutBase = await git.checkout(
+        baseBranch,
+        description: 'Cambiando a rama base $baseBranch para sincronización',
+      );
+      if (!checkoutBase.isSuccess) {
+        throw Exception(
+          'Error al cambiar a la rama base $baseBranch: ${checkoutBase.stderr}',
+        );
+      }
+
+      // Paso 2 crítico: git pull de master/main con autorización configurada
+      // REGLA ESTRICTA: Hasta que master no esté actualizado, no avanzar a crear o comprobar rama hotfix.
+      setState(
+        () => _statusMessage =
+            'Actualizando $baseBranch desde el repositorio remoto (git pull)...',
+      );
+      final pullRes = await git.pull(
+        branch: baseBranch,
+        remoteUrl: repoUrl.isNotEmpty ? repoUrl : currentConfig.rutaRepositorio,
+        authType: currentConfig.authType,
+        token: currentConfig.personalAccessToken,
+        description:
+            'Realizando actualización a la rama $baseBranch desde repositorio remoto (git pull)',
+      );
+      if (!pullRes.isSuccess) {
+        throw Exception(
+          'No se pudo actualizar la rama base local ($baseBranch) desde el repositorio remoto.\n'
+          'Detalle Git: ${pullRes.output.isNotEmpty ? pullRes.output : pullRes.stderr}\n\n'
+          'La operación se canceló para no bifurcar desde una base desactualizada.',
+        );
+      }
+
+      // Paso 3: Solo habiendo actualizado la base con éxito, comprobar / crear rama hotfix
       final exists = await git.branchExists(branchName);
       if (exists) {
         setState(
           () => _statusMessage = 'Cambiando a rama existente $branchName...',
         );
-        final checkoutRes = await git.checkout(branchName);
+        final checkoutRes = await git.checkout(
+          branchName,
+          description: 'Cambiando a rama hotfix existente $branchName',
+        );
         if (!checkoutRes.isSuccess) {
           throw Exception(
             'Error al cambiar a la rama existente $branchName: ${checkoutRes.stderr}',
           );
         }
       } else {
-        final baseBranch = await git.resolveDefaultBaseBranch();
-        setState(
-          () =>
-              _statusMessage = 'Posicionando en $baseBranch y actualizando...',
-        );
-        final checkoutBase = await git.checkout(baseBranch);
-        if (!checkoutBase.isSuccess) {
-          throw Exception(
-            'Error al cambiar a la rama base $baseBranch: ${checkoutBase.stderr}',
-          );
-        }
-
-        // git pull de master/main con autorización configurada
-        setState(
-          () => _statusMessage =
-              'Actualizando $baseBranch desde el repositorio remoto...',
-        );
-        final pullRes = await git.pull(
-          branch: baseBranch,
-          remoteUrl: repoUrl.isNotEmpty
-              ? repoUrl
-              : currentConfig.rutaRepositorio,
-          authType: currentConfig.authType,
-          token: currentConfig.personalAccessToken,
-        );
-        if (!pullRes.isSuccess) {
-          AppLog.instance.warning(
-            'Aviso en git pull de $baseBranch: ${pullRes.output}',
-            source: 'HotfixDialog',
-          );
-        }
-
         // Crear y posicionarse en la nueva rama hotfix desde el master/main actualizado
         setState(
           () => _statusMessage =
@@ -202,6 +232,8 @@ class _CreateHotfixBranchDialogState extends State<CreateHotfixBranchDialog> {
         final createRes = await git.createAndCheckoutBranch(
           branchName,
           startPoint: baseBranch,
+          description:
+              'Creando y posicionando en nueva rama hotfix $branchName desde $baseBranch',
         );
         if (!createRes.isSuccess) {
           throw Exception(
@@ -210,7 +242,7 @@ class _CreateHotfixBranchDialogState extends State<CreateHotfixBranchDialog> {
         }
       }
 
-      // Guardar también en la configuración global
+      // Paso 4: Guardar en configuración global
       await GitRepositoryConfigService().saveConfig(
         rutaRepositorio: repoUrl.isNotEmpty
             ? repoUrl
@@ -220,14 +252,13 @@ class _CreateHotfixBranchDialogState extends State<CreateHotfixBranchDialog> {
         personalAccessToken: currentConfig.personalAccessToken,
       );
 
-      // Determinar usuario activo para la actualización del ticket
+      // Paso 5: Determinar usuario activo y persistir ticket en backend
       final activeUser =
           (procedimientosProvider.cdUsuario.trim().isNotEmpty
                   ? procedimientosProvider.cdUsuario.trim()
                   : DeployTicketService.currentUser)
               .toUpperCase();
 
-      // Actualizar el ticket en el backend enlazando las rutas y usuario
       setState(
         () => _statusMessage = 'Enlazando hotfix al ticket en el servidor...',
       );
@@ -243,7 +274,13 @@ class _CreateHotfixBranchDialogState extends State<CreateHotfixBranchDialog> {
 
       if (!mounted) return;
       AppToast.success('Rama hotfix $branchName enlazada y activada con éxito');
-      _closeDialog(persistedTicket);
+      setState(() {
+        _submitting = false;
+        _completed = true;
+        _completedTicket = persistedTicket;
+        _statusMessage =
+            '¡Rama hotfix $branchName creada y enlazada correctamente!';
+      });
     } catch (e) {
       AppLog.instance.error(
         'Error al crear hotfix: $e',
@@ -375,7 +412,9 @@ class _CreateHotfixBranchDialogState extends State<CreateHotfixBranchDialog> {
                       color: Colors.white70,
                       hoverColor: Colors.white24,
                       tooltip: 'Cerrar',
-                      onPressed: _submitting ? null : () => _closeDialog(null),
+                      onPressed: _submitting
+                          ? null
+                          : () => _closeDialog(_completedTicket),
                     ),
                   ],
                 ),
@@ -396,37 +435,91 @@ class _CreateHotfixBranchDialogState extends State<CreateHotfixBranchDialog> {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               // Tarjeta informativa del flujo
-                              Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: cardBg,
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(color: borderColor),
-                                ),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Icon(
-                                      Icons.info_outline_rounded,
-                                      size: 18,
-                                      color: Colors.amber.shade700,
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        'Se actualizará la rama base local (master/main) desde el remoto mediante pull y se creará la rama aislada para este ticket sin afectar master.',
-                                        style: TextStyle(
-                                          fontSize: 11.5,
-                                          height: 1.35,
-                                          color: isDark
-                                              ? Colors.white70
-                                              : Colors.black87,
-                                        ),
+                              if (_completed)
+                                Container(
+                                  margin: const EdgeInsets.only(bottom: 16),
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: Colors.green.shade600.withValues(
+                                        alpha: 0.4,
                                       ),
                                     ),
-                                  ],
+                                  ),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Icon(
+                                        Icons.check_circle_rounded,
+                                        size: 20,
+                                        color: Colors.green,
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              '¡Rama Hotfix Creada y Enlazada Exitosamente!',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 12.5,
+                                                color: Colors.green,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'La base master/main fue sincronizada y la rama hotfix está activa en tu repositorio local. Puedes revisar el log de comandos abajo y presionar "Listo" para continuar.',
+                                              style: TextStyle(
+                                                fontSize: 11.5,
+                                                color: isDark
+                                                    ? Colors.white70
+                                                    : Colors.black87,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              else
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: cardBg,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: borderColor),
+                                  ),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Icon(
+                                        Icons.info_outline_rounded,
+                                        size: 18,
+                                        color: Colors.amber.shade700,
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          'Se actualizará la rama base local (master/main) desde el remoto mediante pull y se creará la rama aislada para este ticket sin afectar master.',
+                                          style: TextStyle(
+                                            fontSize: 11.5,
+                                            height: 1.35,
+                                            color: isDark
+                                                ? Colors.white70
+                                                : Colors.black87,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              ),
                               const SizedBox(height: 16),
                               // Campo: Rama Hotfix
                               Text(
@@ -605,18 +698,35 @@ class _CreateHotfixBranchDialogState extends State<CreateHotfixBranchDialog> {
                                 const SizedBox(height: 14),
                                 Row(
                                   children: [
-                                    const SizedBox(
-                                      width: 14,
-                                      height: 14,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
+                                    if (_submitting) ...[
+                                      const SizedBox(
+                                        width: 14,
+                                        height: 14,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(width: 8),
+                                      const SizedBox(width: 8),
+                                    ] else if (_completed) ...[
+                                      const Icon(
+                                        Icons.check_circle_rounded,
+                                        size: 16,
+                                        color: Colors.green,
+                                      ),
+                                      const SizedBox(width: 8),
+                                    ],
                                     Expanded(
                                       child: Text(
                                         _statusMessage!,
-                                        style: const TextStyle(fontSize: 12),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: _completed
+                                              ? FontWeight.w600
+                                              : FontWeight.normal,
+                                          color: _completed
+                                              ? Colors.green
+                                              : null,
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -659,6 +769,19 @@ class _CreateHotfixBranchDialogState extends State<CreateHotfixBranchDialog> {
                                   ),
                                 ),
                               ],
+
+                              // Mini-terminal de comandos Git enviados
+                              if (_commandLogs.isNotEmpty || _submitting) ...[
+                                const SizedBox(height: 16),
+                                GitTerminalConsole(
+                                  logs: _commandLogs,
+                                  onClear: _submitting
+                                      ? null
+                                      : () => setState(
+                                          () => _commandLogs.clear(),
+                                        ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -680,37 +803,54 @@ class _CreateHotfixBranchDialogState extends State<CreateHotfixBranchDialog> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                    if (!_completed) ...[
+                      OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
+                        onPressed: _submitting
+                            ? null
+                            : () => _closeDialog(null),
+                        child: const Text('Cancelar'),
                       ),
-                      onPressed: _submitting ? null : () => _closeDialog(null),
-                      child: const Text('Cancelar'),
-                    ),
-                    const SizedBox(width: 12),
-                    FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.amber.shade700,
-                        foregroundColor: Colors.black,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                      const SizedBox(width: 12),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.amber.shade700,
+                          foregroundColor: Colors.black,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
+                        onPressed: _submitting ? null : _submit,
+                        icon: _submitting
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.black,
+                                ),
+                              )
+                            : const Icon(Icons.bolt_rounded, size: 18),
+                        label: const Text('Crear / Activar Rama'),
                       ),
-                      onPressed: _submitting ? null : _submit,
-                      icon: _submitting
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.black,
-                              ),
-                            )
-                          : const Icon(Icons.bolt_rounded, size: 18),
-                      label: const Text('Crear / Activar Rama'),
-                    ),
+                    ] else ...[
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.teal.shade700,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        onPressed: () => _closeDialog(_completedTicket),
+                        icon: const Icon(Icons.check_circle_rounded, size: 18),
+                        label: const Text('Listo'),
+                      ),
+                    ],
                   ],
                 ),
               ),

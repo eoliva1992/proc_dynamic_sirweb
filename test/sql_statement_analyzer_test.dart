@@ -274,8 +274,14 @@ END pck_test;
   group('Comandos cliente (DESC / DESCRIBE)', () {
     test('detectStatementKind clasifica DESC y DESCRIBE como command', () {
       expect(detectStatementKind('DESC emp;'), SqlStatementKind.command);
-      expect(detectStatementKind('describe SCOTT.EMP'), SqlStatementKind.command);
-      expect(detectStatementKind('DESC "SCHEMA"."TABLA";'), SqlStatementKind.command);
+      expect(
+        detectStatementKind('describe SCOTT.EMP'),
+        SqlStatementKind.command,
+      );
+      expect(
+        detectStatementKind('DESC "SCHEMA"."TABLA";'),
+        SqlStatementKind.command,
+      );
     });
 
     test('SqlCommandResult deserializa JSON y mapea a SqlQueryResult', () {
@@ -316,6 +322,48 @@ END pck_test;
       expect(queryResult.rows[0][1], 'NUMBER');
       expect(queryResult.rows[0][5], 'N');
       expect(queryResult.rows[1][5], 'Y');
+    });
+  });
+
+  group('stripTrailingSemicolon y cleanSqlForExecution', () {
+    test('remueve ; final de sentencias simples', () {
+      expect(
+        stripTrailingSemicolon('SELECT * FROM evento;'),
+        'SELECT * FROM evento',
+      );
+      expect(
+        stripTrailingSemicolon('SELECT * FROM evento;;;'),
+        'SELECT * FROM evento',
+      );
+      expect(
+        stripTrailingSemicolon('UPDATE t SET a = 1;  '),
+        'UPDATE t SET a = 1',
+      );
+    });
+
+    test(
+      'no altera bloques PL/SQL sin llamada innecesaria pero limpia si se le pasa',
+      () {
+        expect(
+          stripTrailingSemicolon('SELECT 1 FROM dual'),
+          'SELECT 1 FROM dual',
+        );
+      },
+    );
+
+    test('maneja comentarios multilínea o comentarios previos con SELECT', () {
+      const sqlWithComments = '''
+-- 830005 - Actividad o Indole del Riesgo
+   --386 BARES, LIQUOR STORE
+Select * 
+ from evento;
+''';
+      final stmts = splitStatements(sqlWithComments);
+      expect(stmts, hasLength(1));
+      expect(stmts.first.kind, SqlStatementKind.select);
+      final cleaned = stripTrailingSemicolon(stmts.first.text);
+      expect(cleaned.endsWith(';'), isFalse);
+      expect(cleaned, contains('Select * \n from evento'));
     });
   });
 }

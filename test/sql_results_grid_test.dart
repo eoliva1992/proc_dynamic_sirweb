@@ -608,4 +608,67 @@ void main() {
       expect(find.text('Cargando siguientes filas...'), findsOneWidget);
     },
   );
+
+  testWidgets(
+    'SqlResultsGrid preserva filtros cuando se anexan filas al mismo resultado',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      final initialResult = const SqlQueryResult(
+        columns: [
+          SqlColumn(name: 'ID', dataType: 'NUMBER'),
+          SqlColumn(name: 'NAME', dataType: 'VARCHAR2'),
+        ],
+        rows: [
+          [101, 'Alice'],
+          [102, 'Bob'],
+        ],
+        returnedRows: 2,
+        truncated: true,
+        durationMs: 12,
+      );
+
+      final appendedResult = initialResult.appendRows(
+        [
+          [103, 'Charlie'],
+        ],
+        truncated: false,
+        additionalDurationMs: 10,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SqlResultsGrid(
+              result: initialResult,
+              maxRows: 2,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Alice'), findsOneWidget);
+      expect(find.text('Bob'), findsOneWidget);
+      expect(find.text('Charlie'), findsNothing);
+
+      // Actualizamos con filas anexadas
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SqlResultsGrid(
+              result: appendedResult,
+              maxRows: 2,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Alice'), findsOneWidget);
+      expect(find.text('Bob'), findsOneWidget);
+      expect(find.text('Charlie'), findsOneWidget);
+    },
+  );
 }

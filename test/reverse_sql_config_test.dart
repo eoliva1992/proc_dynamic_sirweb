@@ -63,5 +63,24 @@ dbconfig:
       expect(yaml.contains('tables:'), isTrue);
       expect(yaml.contains('https://www.redhat.com'), isTrue);
     });
+
+    test('toYaml omite claves de filtro vacías generadas durante edición', () {
+      const config = ReverseSqlConfig(
+        tables: [
+          ReverseSqlTableConfig(
+            dml: ReverseSqlDml.merge,
+            name: 'procedimientodinamico',
+            filters: {
+              'cd_procedimiento': "= 'TEST'",
+              '': "= 'VALOR_EN_EDICION'",
+              '   ': "= 'OTRO'",
+            },
+          ),
+        ],
+      );
+      final yaml = config.toYaml();
+      expect(yaml.contains('cd_procedimiento: "= \'TEST\'"'), isTrue);
+      expect(yaml.contains('VALOR_EN_EDICION'), isFalse);
+    });
   });
 }

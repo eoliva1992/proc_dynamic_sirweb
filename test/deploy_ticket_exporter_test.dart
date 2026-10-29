@@ -530,5 +530,222 @@ void main() {
         );
       },
     );
+
+    test(
+      'crearDirectorioYArchivos genera carpeta, index.txt y archivos SQL de scripts',
+      () async {
+        final tempBase = await Directory.systemTemp.createTemp(
+          'deploy_create_files_test_',
+        );
+        addTearDown(() => tempBase.delete(recursive: true));
+
+        const ticket = DeployTicket(
+          id: 'ticket-test-local',
+          version: 2,
+          autoriza: 'TESTUSER',
+          url:
+              'https://dev.azure.com/humanoseguros/SirWeb/_workitems/edit/44219',
+          tipoSolicitud: 'Matriz',
+          numeroSolicitud: '1234',
+          sql: [
+            DeployTicketScript(
+              id: 'sql-1',
+              nombre: 'alter_table_clientes.sql',
+              contenido: 'ALTER TABLE CLIENTES ADD (ACTIVO NUMBER(1));',
+            ),
+          ],
+          reverseSql: [
+            DeployTicketScript(
+              id: 'rsql-1',
+              nombre: 'reversa_clientes.sql',
+              contenido: 'ALTER TABLE CLIENTES DROP COLUMN ACTIVO;',
+            ),
+          ],
+          bloqueLogico: [
+            DeployTicketScript(
+              id: 'blk-1',
+              nombre: 'bloque_inicial',
+              contenido: 'DBMS_OUTPUT.PUT_LINE(1);',
+            ),
+          ],
+          reglasNegocio: ['PR_TEST_REG'],
+        );
+
+        final exporter = DeployTicketExporterService.instance;
+        final files = await exporter.crearDirectorioYArchivos(
+          ticket: ticket,
+          rootDirectoryPath: tempBase.path,
+          folderName: ticket.suggestedFolderName,
+        );
+
+        expect(ticket.suggestedFolderName, '44219_1234');
+
+        final targetFolder = Directory(
+          '${tempBase.path}${Platform.pathSeparator}44219_1234',
+        );
+        expect(await targetFolder.exists(), isTrue);
+
+        final indexFile = File(
+          '${targetFolder.path}${Platform.pathSeparator}index.txt',
+        );
+        expect(await indexFile.exists(), isTrue);
+        final indexText = await indexFile.readAsString();
+        expect(indexText.contains('V:2'), isTrue);
+        expect(indexText.contains('AUT:TESTUSER'), isTrue);
+        expect(indexText.contains('NUSOL:1234'), isTrue);
+
+        final sqlFile = File(
+          '${targetFolder.path}${Platform.pathSeparator}alter_table_clientes.sql',
+        );
+        expect(await sqlFile.exists(), isTrue);
+        expect(
+          await sqlFile.readAsString(),
+          'ALTER TABLE CLIENTES ADD (ACTIVO NUMBER(1));',
+        );
+
+        final rsqlFile = File(
+          '${targetFolder.path}${Platform.pathSeparator}reversa_clientes.sql',
+        );
+        expect(await rsqlFile.exists(), isTrue);
+        expect(
+          await rsqlFile.readAsString(),
+          'ALTER TABLE CLIENTES DROP COLUMN ACTIVO;',
+        );
+
+        final blkFile = File(
+          '${targetFolder.path}${Platform.pathSeparator}bloque_inicial.sql',
+        );
+        expect(await blkFile.exists(), isTrue);
+
+        final rnFile = File(
+          '${targetFolder.path}${Platform.pathSeparator}PR_TEST_REG.sql',
+        );
+        expect(await rnFile.exists(), isTrue);
+
+        expect(files.length, greaterThanOrEqualTo(5));
+      },
+    );
+
+    test(
+      'crearDirectorioYArchivos preserva extensiones originales (.yaml, .yml) y no duplica .sql',
+      () async {
+        final tempBase = await Directory.systemTemp.createTemp(
+          'deploy_preserve_ext_test_',
+        );
+        addTearDown(() => tempBase.delete(recursive: true));
+
+        const ticket = DeployTicket(
+          id: 'ticket-test-yaml-ext',
+          version: 1,
+          autoriza: 'TESTUSER',
+          tipoSolicitud: 'Matriz',
+          numeroSolicitud: '9999',
+          sql: [
+            DeployTicketScript(
+              id: 'sql-1',
+              nombre: 'script_con_extension.sql',
+              contenido: 'SELECT 1 FROM DUAL;',
+            ),
+            DeployTicketScript(
+              id: 'sql-2',
+              nombre: 'script_sin_extension',
+              contenido: 'SELECT 2 FROM DUAL;',
+            ),
+          ],
+          reverseSql: [
+            DeployTicketScript(
+              id: 'rsql-yaml',
+              nombre: 'config.yaml',
+              contenido: 'version: 1\ntables: []',
+            ),
+            DeployTicketScript(
+              id: 'rsql-yml',
+              nombre: 'filtros.yml',
+              contenido: 'version: 1\ntables: []',
+            ),
+            DeployTicketScript(
+              id: 'rsql-raw',
+              nombre: 'reversa_datos',
+              contenido: 'version: 1\ntables: []',
+            ),
+          ],
+          reglasNegocio: ['RN_PRECIO.sql', 'RN_DESCUENTO'],
+        );
+
+        final exporter = DeployTicketExporterService.instance;
+        final files = await exporter.crearDirectorioYArchivos(
+          ticket: ticket,
+          rootDirectoryPath: tempBase.path,
+          folderName: 'ticket_ext_test',
+        );
+
+        final targetFolder = Directory(
+          '${tempBase.path}${Platform.pathSeparator}ticket_ext_test',
+        );
+        expect(await targetFolder.exists(), isTrue);
+
+        // Archivos esperados
+        final yamlFile = File(
+          '${targetFolder.path}${Platform.pathSeparator}config.yaml',
+        );
+        expect(
+          await yamlFile.exists(),
+          isTrue,
+          reason: 'config.yaml debe mantenerse con su extensión original',
+        );
+
+        // Asegurar que no se creó config.yaml.sql
+        final badYamlSql = File(
+          '${targetFolder.path}${Platform.pathSeparator}config.yaml.sql',
+        );
+        expect(
+          await badYamlSql.exists(),
+          isFalse,
+          reason: 'NO debe crear config.yaml.sql',
+        );
+
+        final ymlFile = File(
+          '${targetFolder.path}${Platform.pathSeparator}filtros.yml',
+        );
+        expect(await ymlFile.exists(), isTrue);
+
+        final badYmlSql = File(
+          '${targetFolder.path}${Platform.pathSeparator}filtros.yml.sql',
+        );
+        expect(await badYmlSql.exists(), isFalse);
+
+        final rawRsqlFile = File(
+          '${targetFolder.path}${Platform.pathSeparator}reversa_datos.yaml',
+        );
+        expect(
+          await rawRsqlFile.exists(),
+          isTrue,
+          reason: 'RSQL sin extensión debe adoptar .yaml por defecto',
+        );
+
+        final sqlWithExt = File(
+          '${targetFolder.path}${Platform.pathSeparator}script_con_extension.sql',
+        );
+        expect(await sqlWithExt.exists(), isTrue);
+
+        final sqlWithoutExt = File(
+          '${targetFolder.path}${Platform.pathSeparator}script_sin_extension.sql',
+        );
+        expect(await sqlWithoutExt.exists(), isTrue);
+
+        final rnWithExt = File(
+          '${targetFolder.path}${Platform.pathSeparator}RN_PRECIO.sql',
+        );
+        expect(await rnWithExt.exists(), isTrue);
+
+        final rnWithoutExt = File(
+          '${targetFolder.path}${Platform.pathSeparator}RN_DESCUENTO.sql',
+        );
+        expect(await rnWithoutExt.exists(), isTrue);
+
+        expect(files.any((f) => f.nombreArchivo == 'config.yaml'), isTrue);
+        expect(files.any((f) => f.nombreArchivo == 'config.yaml.sql'), isFalse);
+      },
+    );
   });
 }

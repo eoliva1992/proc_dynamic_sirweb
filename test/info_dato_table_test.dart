@@ -174,4 +174,58 @@ void main() {
       expect(find.text('JUANP'), findsOneWidget);
     },
   );
+
+  testWidgets(
+    'InfoDatoVirtualTable respects dynamic column visibility',
+    (tester) async {
+      final vertCtrl = ScrollController();
+      final horizCtrl = ScrollController();
+      final selectedIndices = <int>{};
+
+      final valores = [
+        ValorTabla(
+          raw: {
+            'cdTabla': 101,
+            'deIndiceDato': 'IND_1',
+            'deDato': 'Desc 1',
+            'vaDato1': 'V1',
+          },
+        ),
+      ];
+
+      final allCols = ['deIndiceDato', 'deDato', 'vaDato1'];
+      // Only keep the first column visible
+      final visibleCols = [allCols.first];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 800,
+              height: 400,
+              child: InfoDatoVirtualTable(
+                isDark: false,
+                borderColor: Colors.grey,
+                cols: visibleCols,
+                valores: valores,
+                cdTabla: 101,
+                vertCtrl: vertCtrl,
+                horizCtrl: horizCtrl,
+                selectedRowIndices: selectedIndices,
+                onToggleSelectAll: (_) {},
+                onToggleRow: (_, _) {},
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      expect(find.text('Índice'), findsOneWidget);
+      expect(find.text('IND_1'), findsOneWidget);
+      expect(find.text('Descripción'), findsNothing);
+      expect(find.text('Desc 1'), findsNothing);
+    },
+  );
 }

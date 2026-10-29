@@ -14,6 +14,7 @@ import '../app_toast.dart';
 import '../constellation_background.dart';
 import '../floating_window.dart';
 import 'artifact_list_editor.dart';
+import 'create_ticket_folder_dialog.dart';
 import 'deploy_ticket_export_progress_dialog.dart';
 import 'reverse_sql_config_dialog.dart';
 import 'script_code_editor_dialog.dart';
@@ -305,10 +306,28 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
       );
       return;
     }
+
+    var ticket = _buildTicketFromInputs();
+
+    // Si es un ticket nuevo que aún no tiene directorio local definido,
+    // mostrar el modal para crear la carpeta y los archivos locales antes de finalizar el registro.
+    if (!_isEditing &&
+        (ticket.rutaDirectorioLocal == null ||
+            ticket.rutaDirectorioLocal!.trim().isEmpty)) {
+      final createdFolderPath = await CreateTicketFolderDialog.show(
+        context,
+        ticket: ticket,
+      );
+
+      if (createdFolderPath != null && createdFolderPath.trim().isNotEmpty) {
+        ticket = ticket.copyWith(rutaDirectorioLocal: createdFolderPath.trim());
+      }
+    }
+
+    if (!mounted) return;
     setState(() => _saving = true);
 
     try {
-      final ticket = _buildTicketFromInputs();
       final saved = await DeployTicketService.instance.save(ticket);
       await _saveLastPreferences();
       AppToast.success(

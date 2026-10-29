@@ -2674,17 +2674,15 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           },
         ),
         _AppBarActionBtn(
-          tooltip: 'Configurar dirección del servidor',
+          tooltip: 'Configurar servidor y ambientes Oracle',
           icon: Icons.dns_outlined,
           fgColor: barFg,
           fgSoftColor: barFgSoft,
-          onPressed: () => showDialog(
-            context: context,
-            builder: (context) => ServerConfigDialog(
-              onServerConfigChanged: () {
-                AppToast.info('Dirección del servidor actualizada');
-              },
-            ),
+          onPressed: () => ServerConfigDialog.show(
+            context,
+            onServerConfigChanged: () {
+              AppToast.info('Dirección del servidor actualizada');
+            },
           ),
         ),
         _AppBarActionBtn(

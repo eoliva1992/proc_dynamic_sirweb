@@ -11,6 +11,7 @@ import '../app_toast.dart';
 import '../constellation_background.dart';
 import '../floating_window.dart';
 import 'create_hotfix_branch_dialog.dart';
+import 'create_ticket_folder_dialog.dart';
 import 'deploy_ticket_card_menu.dart';
 import 'deploy_ticket_editor_dialog.dart';
 import 'deploy_ticket_export_progress_dialog.dart';
@@ -316,6 +317,42 @@ class _DeployTicketsBrowserDialogState
 
   Future<void> _exportDeployProduction(DeployTicket ticket) async {
     await DeployTicketExportProgressDialog.show(context, ticket: ticket);
+  }
+
+  Future<void> _createTicketFolder(DeployTicket ticket) async {
+    final createdPath = await CreateTicketFolderDialog.show(
+      context,
+      ticket: ticket,
+    );
+
+    if (createdPath != null && createdPath.trim().isNotEmpty && mounted) {
+      // Si el ticket no tenía rutaDirectorioLocal asignada, actualizarla en el backend
+      if (ticket.isPersisted &&
+          (ticket.rutaDirectorioLocal == null ||
+              ticket.rutaDirectorioLocal!.trim() != createdPath.trim())) {
+        try {
+          final updated = ticket.copyWith(
+            rutaDirectorioLocal: createdPath.trim(),
+          );
+          final saved = await DeployTicketService.instance.save(updated);
+          if (mounted) {
+            setState(() {
+              final idx = _items.indexWhere((it) => it.id == saved.id);
+              if (idx != -1) {
+                _items[idx] = saved;
+              }
+              if (_selectedTicket?.id == saved.id) {
+                _selectedTicket = saved;
+              }
+            });
+          }
+        } catch (e) {
+          debugPrint(
+            'No se pudo actualizar rutaDirectorioLocal en el ticket: $e',
+          );
+        }
+      }
+    }
   }
 
   Future<void> _createHotfixBranch(DeployTicket ticket) async {
@@ -1792,6 +1829,7 @@ class _DeployTicketsBrowserDialogState
                         onCreateHotfix: () => _createHotfixBranch(ticket),
                         onPushHotfix: () => _pushHotfix(ticket),
                         onExport: () => _exportDeployProduction(ticket),
+                        onCreateFolder: () => _createTicketFolder(ticket),
                         onCopyIndex: () => _copyTicketIndexTxt(ticket),
                       ),
                       if (ticket.url != null && ticket.url!.trim().isNotEmpty)
@@ -2152,6 +2190,14 @@ class _DeployTicketsBrowserDialogState
                 style: TextStyle(fontSize: 12),
               ),
               onPressed: () => _exportDeployProduction(t),
+            ),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.create_new_folder_outlined, size: 15),
+              label: const Text(
+                'Crear Directorio',
+                style: TextStyle(fontSize: 12),
+              ),
+              onPressed: () => _createTicketFolder(t),
             ),
             OutlinedButton.icon(
               icon: const Icon(Icons.content_copy_rounded, size: 15),
