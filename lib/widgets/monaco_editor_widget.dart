@@ -180,7 +180,7 @@ const String _kRegisterPlSqlLanguageJs = '''
           [/\\/\\*/, 'comment', '@comment'],
           [/'(''|[^'])*'/, 'string'],
           [/\\d+(\\.\\d+)?/, 'number'],
-          [/:[a-zA-Z_]\\w*/, 'variable'],
+          [/:[a-zA-Z_]\\w*(?:\\.[a-zA-Z_]\\w*)*/, 'variable'],
           [/[a-zA-Z_]\\w*/, {
             cases: {
               '@keywords': 'keyword',
@@ -198,6 +198,27 @@ const String _kRegisterPlSqlLanguageJs = '''
         ]
       }
     });
+
+    // Plegado inteligente de bloques PL/SQL (BEGIN...END, LOOP...END LOOP, IF...END IF, CASE...END CASE)
+    if (monaco.languages.setLanguageConfiguration) {
+      monaco.languages.setLanguageConfiguration('plsql', {
+        comments: {
+          lineComment: '--',
+          blockComment: ['/*', '*/']
+        },
+        brackets: [
+          ['(', ')'],
+          ['[', ']']
+        ],
+        folding: {
+          markers: {
+            start: new RegExp('^\\\\s*(?:CREATE\\\\s+(?:OR\\\\s+REPLACE\\\\s+)?(?:PACKAGE|PROCEDURE|FUNCTION|TRIGGER|TYPE)|BEGIN|EXCEPTION|LOOP|FOR|WHILE|CASE|IF\\\\b(?!.*\\\\bTHEN\\\\s+.*\\\\bEND\\\\s+IF\\\\b))\\\\b', 'i'),
+            end: new RegExp('^\\\\s*END(?:\\\\s+(?:IF|LOOP|CASE|[A-Za-z0-9_#]+))?\\\\s*;', 'i')
+          }
+        }
+      });
+    }
+
     window.__plsqlRegistered = true;
     if (window.editor && window.editor.getModel()) {
       var currentLang = window.editor.getModel().getLanguageId ? window.editor.getModel().getLanguageId() : '';
@@ -320,11 +341,21 @@ class MonacoEditorController {
   // sentencias (ver `.sql-stmt-separator` en el CSS inyectado del editor).
   fm.MonacoDecorationSet? _stmtSeparators;
 
+  /// Límite de sentencias para decoraciones visuales en el WebView.
+  /// Si un script tiene demasiadas sentencias o líneas, inyectar miles de nodos
+  /// DOM en el WebView de Monaco satura el renderer y congela la aplicación.
+  static const int maxStatementSeparators = 300;
+
   /// Dibuja una línea sutil justo encima del inicio de cada sentencia en
   /// [startLines] (1-based), para facilitar la lectura de scripts largos.
   void updateStatementSeparators(List<int> startLines) {
     _enqueue((ctrl) async {
       _stmtSeparators ??= await ctrl.createDecorationSet();
+      if (startLines.length > maxStatementSeparators) {
+        // En scripts masivos limpiamos o no creamos miles de decoraciones DOM.
+        await _stmtSeparators!.clear();
+        return;
+      }
       await _stmtSeparators!.set([
         for (final line in startLines)
           fm.DecorationOptions.line(
@@ -666,6 +697,7 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
   StreamSubscription<fm.MonacoEvent>? _contextMenuEventSub;
   final _completions = MonacoOracleCompletionsManager();
   final List<fm.MonacoActionRegistration> _registeredActions = [];
+  Timer? _separatorDebounceTimer;
   fm.MonacoController? _rawCtrl;
   String _currentText = '';
   String _lastContextMenuWord = '';
@@ -956,9 +988,18 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
       r'      }'
       r'      return null;'
       r'    }'
-      r'    const s = window.editor.getSelection();'
-      r'    if (!s || s.isEmpty()) return null;'
-      r'    return window.editor.getModel().getValueInRange(s) || null;'
+      r'    const ed = window.editor;'
+      r'    if (!ed) return null;'
+      r'    const m = ed.getModel();'
+      r'    if (!m) return null;'
+      r'    let sels = ed.getSelections();'
+      r'    if (!sels || sels.length === 0) {'
+      r'      const s = ed.getSelection();'
+      r'      sels = s ? [s] : [];'
+      r'    }'
+      r'    const nonEmpty = sels.filter(function(s){ return s && !s.isEmpty(); });'
+      r'    if (nonEmpty.length === 0) return null;'
+      r'    return nonEmpty.map(function(s){ return m.getValueInRange(s); }).join("\n");'
       r'  } catch(e) { return null; }'
       r'})()',
     );
@@ -987,15 +1028,25 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
       r'      }'
       r'      return null;'
       r'    }'
-      r'    const s = window.editor.getSelection();'
-      r'    if (!s || s.isEmpty()) return null;'
-      r'    const m = window.editor.getModel();'
-      r'    const t = m.getValueInRange(s) || null;'
-      r'    if (!t) return null;'
-      r'    window.editor.focus();'
-      r'    window.editor.executeEdits("flutter-cut", [{ range: s, text: "", forceMoveMarkers: true }]);'
-      r'    window.editor.pushUndoStop();'
-      r'    return t;'
+      r'    const ed = window.editor;'
+      r'    if (!ed) return null;'
+      r'    const m = ed.getModel();'
+      r'    if (!m) return null;'
+      r'    let sels = ed.getSelections();'
+      r'    if (!sels || sels.length === 0) {'
+      r'      const s = ed.getSelection();'
+      r'      sels = s ? [s] : [];'
+      r'    }'
+      r'    const nonEmpty = sels.filter(function(s){ return s && !s.isEmpty(); });'
+      r'    if (nonEmpty.length === 0) return null;'
+      r'    const text = nonEmpty.map(function(s){ return m.getValueInRange(s); }).join("\n");'
+      r'    ed.focus();'
+      r'    ed.pushUndoStop();'
+      r'    ed.executeEdits("flutter-cut", nonEmpty.map(function(s){'
+      r'      return { range: s, text: "", forceMoveMarkers: true };'
+      r'    }));'
+      r'    ed.pushUndoStop();'
+      r'    return text;'
       r'  } catch(e) { return null; }'
       r'})()',
     );
@@ -1037,9 +1088,11 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
       '      sels = s ? [s] : [];'
       '    }'
       '    if (sels.length === 0) return "err";'
+      '    const lines = t.split(/\\r?\\n/);'
+      '    const matchLines = sels.length > 1 && lines.length === sels.length;'
       '    ed.pushUndoStop();'
-      '    ed.executeEdits("flutter-paste", sels.map(function(s){'
-      '      return { range: s, text: t, forceMoveMarkers: true };'
+      '    ed.executeEdits("flutter-paste", sels.map(function(s, idx){'
+      '      return { range: s, text: matchLines ? lines[idx] : t, forceMoveMarkers: true };'
       '    }));'
       '    ed.pushUndoStop();'
       '    return "ok";'
@@ -1842,6 +1895,7 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
 
   @override
   void dispose() {
+    _separatorDebounceTimer?.cancel();
     _contextMenuEventSub?.cancel();
     _selectionSub?.cancel();
     editorThemeStore.removeListener(_onEditorThemeChanged);
@@ -1871,11 +1925,20 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
           _currentText = code;
           widget.onChanged?.call(code);
           _checkDotTrigger(code);
-          _updateStatementSeparators(code);
+          _scheduleStatementSeparatorsUpdate(code);
         },
         onError: widget.onError,
       ),
     );
+  }
+
+  /// Programa el recálculo con debounce para evitar colapsar la UI al pegar o escribir ráfagas de texto.
+  void _scheduleStatementSeparatorsUpdate(String code) {
+    _separatorDebounceTimer?.cancel();
+    _separatorDebounceTimer = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      _updateStatementSeparators(code);
+    });
   }
 
   /// Recalcula las líneas donde debe dibujarse el separador visual entre

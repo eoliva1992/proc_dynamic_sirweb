@@ -9,7 +9,45 @@ import 'package:proc_dynamic_sirweb/models/sql_execution.dart';
 import 'package:proc_dynamic_sirweb/models/sql_http_trace.dart';
 import 'package:proc_dynamic_sirweb/services/deploy_ticket_exporter_service.dart';
 import 'package:proc_dynamic_sirweb/services/excel_exporter_service.dart';
+import 'package:proc_dynamic_sirweb/services/schema_service.dart';
 import 'package:proc_dynamic_sirweb/services/sql_executor_service.dart';
+
+class _FakeSchemaService implements SchemaService {
+  final Map<String, ({String spec, String? body})> sources;
+  final Map<String, List<({String name, String value})>> infos;
+
+  _FakeSchemaService({
+    this.sources = const {},
+    this.infos = const {},
+  });
+
+  @override
+  Future<({String spec, String? body})> getObjectSource(
+    String objectName,
+    String objectType, {
+    String? ambiente,
+  }) async {
+    final key = '$ambiente|$objectType|$objectName'.toUpperCase();
+    if (sources.containsKey(key)) {
+      return sources[key]!;
+    }
+    // Si no está registrado para ese ambiente, simular que no se encontró
+    throw Exception('No se encontro codigo fuente para $objectName');
+  }
+
+  @override
+  Future<List<({String name, String value})>> getObjectInfo(
+    String objectName,
+    String objectType, {
+    String? ambiente,
+  }) async {
+    final key = '$ambiente|$objectType|$objectName'.toUpperCase();
+    return infos[key] ?? [];
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 class _FakeSqlExecutorService implements SqlExecutorService {
   @override
@@ -25,6 +63,7 @@ class _FakeSqlExecutorService implements SqlExecutorService {
     String? sessionId,
     int maxRows = 1000,
     int timeoutSegundos = 30,
+    Map<String, dynamic>? binds,
     http.Client? client,
     bool Function()? cancelado,
     void Function(SqlHttpTraceEntry)? onTrace,
@@ -158,6 +197,7 @@ void main() {
         database: 'DESA',
         databaseDestino: 'PROD',
         reglasNegocio: ['PR_REGLA_1'],
+        procedimientos: ['PR_ACTUALIZA'],
         paquetes: ['PKG_TEST'],
         funciones: ['FN_CALC'],
         triggers: ['TRG_AUDIT'],
@@ -208,7 +248,8 @@ void main() {
       // Debe incluir Paquete PAQUETE.sql
       expect(fileNames.contains('PKG_TEST.sql'), isTrue);
 
-      // Debe incluir Funciones, Triggers y Objetos con DUENO.NOMBRE.sql
+      // Debe incluir Procedimientos, Funciones, Triggers y Objetos con DUENO.NOMBRE.sql
+      expect(fileNames.any((n) => n.endsWith('.PR_ACTUALIZA.sql')), isTrue);
       expect(fileNames.any((n) => n.endsWith('.FN_CALC.sql')), isTrue);
       expect(fileNames.any((n) => n.endsWith('.TRG_AUDIT.sql')), isTrue);
       expect(fileNames.any((n) => n.endsWith('.TP_ITEM.sql')), isTrue);
@@ -745,6 +786,121 @@ void main() {
 
         expect(files.any((f) => f.nombreArchivo == 'config.yaml'), isTrue);
         expect(files.any((f) => f.nombreArchivo == 'config.yaml.sql'), isFalse);
+      },
+    );
+
+    test(
+      'exportarTicket anexa GRANT y PUBLIC SYNONYM si el procedimiento NO existe en destino',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'deploy_proc_grant_test_',
+        );
+        addTearDown(() => tempDir.deleteSync(recursive: true));
+
+        final fakeSchema = _FakeSchemaService(
+          sources: {
+            'DESA|PROCEDURE|PR_NUEVO': (
+              spec: 'CREATE OR REPLACE PROCEDURE PR_NUEVO AS BEGIN NULL; END;',
+              body: null,
+            ),
+          },
+          infos: {
+            // En destino PROD no tiene info
+            'DESA|PROCEDURE|PR_NUEVO': [
+              (name: 'OWNER', value: 'SIR'),
+              (name: 'STATUS', value: 'VALID'),
+            ],
+          },
+        );
+
+        final ticket = DeployTicket(
+          version: 1,
+          autoriza: 'USER',
+          tipoSolicitud: 'Sysid',
+          numeroSolicitud: '1001',
+          usuarioCrea: 'DEV',
+          database: 'DESA',
+          databaseDestino: 'PROD',
+          procedimientos: ['PR_NUEVO'],
+        );
+
+        final exporter = DeployTicketExporterService(
+          schemaService: fakeSchema,
+        );
+        final files = await exporter.exportarTicket(
+          ticket: ticket,
+          targetDirectoryPath: tempDir.path,
+        );
+
+        final procFile = files.firstWhere((f) => f.categoria == 'PROC');
+        final content = await File(procFile.rutaCompleta).readAsString();
+
+        expect(content.contains('CREATE OR REPLACE PROCEDURE PR_NUEVO'), isTrue);
+        expect(content.contains('GRANT EXECUTE ON SIR.PR_NUEVO TO PUBLIC;'), isTrue);
+        expect(
+          content.contains('CREATE OR REPLACE PUBLIC SYNONYM PR_NUEVO FOR SIR.PR_NUEVO;'),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'exportarTicket NO anexa GRANT ni PUBLIC SYNONYM si el procedimiento ya existe en destino',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'deploy_proc_exists_test_',
+        );
+        addTearDown(() => tempDir.deleteSync(recursive: true));
+
+        final fakeSchema = _FakeSchemaService(
+          sources: {
+            'DESA|PROCEDURE|PR_EXISTENTE': (
+              spec: 'CREATE OR REPLACE PROCEDURE PR_EXISTENTE AS BEGIN NULL; END;',
+              body: null,
+            ),
+            // Existe en PROD
+            'PROD|PROCEDURE|PR_EXISTENTE': (
+              spec: 'CREATE OR REPLACE PROCEDURE PR_EXISTENTE AS BEGIN NULL; END;',
+              body: null,
+            ),
+          },
+          infos: {
+            'DESA|PROCEDURE|PR_EXISTENTE': [
+              (name: 'OWNER', value: 'SIR'),
+              (name: 'STATUS', value: 'VALID'),
+            ],
+            'PROD|PROCEDURE|PR_EXISTENTE': [
+              (name: 'OWNER', value: 'SIR'),
+              (name: 'STATUS', value: 'VALID'),
+            ],
+          },
+        );
+
+        final ticket = DeployTicket(
+          version: 1,
+          autoriza: 'USER',
+          tipoSolicitud: 'Sysid',
+          numeroSolicitud: '1002',
+          usuarioCrea: 'DEV',
+          database: 'DESA',
+          databaseDestino: 'PROD',
+          procedimientos: ['PR_EXISTENTE'],
+        );
+
+        final exporter = DeployTicketExporterService(
+          schemaService: fakeSchema,
+        );
+        final files = await exporter.exportarTicket(
+          ticket: ticket,
+          targetDirectoryPath: tempDir.path,
+        );
+
+        final procFile = files.firstWhere((f) => f.categoria == 'PROC');
+        final content = await File(procFile.rutaCompleta).readAsString();
+
+        expect(content.contains('CREATE OR REPLACE PROCEDURE PR_EXISTENTE'), isTrue);
+        expect(content.contains('GRANT EXECUTE'), isFalse);
+        expect(content.contains('PUBLIC SYNONYM'), isFalse);
       },
     );
   });

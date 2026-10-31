@@ -107,7 +107,32 @@ List<SqlStatement> splitStatements(String script) {
   var inCreateObject = false;
   var objectHasSeenBlock = false;
 
-  int lineAt(int offset) => '\n'.allMatches(script.substring(0, offset)).length;
+  // Precalculamos las posiciones de fin de línea en una única pasada O(N).
+  // Esto evita la complejidad cuadrática O(N^2) que provocaba `substring(0, offset)`
+  // repetido en scripts con miles de líneas.
+  final lineBreakOffsets = <int>[];
+  for (var k = 0; k < script.length; k++) {
+    if (script.codeUnitAt(k) == 0x0A) {
+      lineBreakOffsets.add(k);
+    }
+  }
+
+  int lineAt(int offset) {
+    if (lineBreakOffsets.isEmpty || offset <= lineBreakOffsets[0]) return 0;
+    var low = 0;
+    var high = lineBreakOffsets.length - 1;
+    var result = 0;
+    while (low <= high) {
+      final mid = (low + high) >> 1;
+      if (lineBreakOffsets[mid] < offset) {
+        result = mid + 1;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return result;
+  }
 
   void flush(int end) {
     final text = script.substring(start, end).trim();
@@ -138,8 +163,8 @@ List<SqlStatement> splitStatements(String script) {
     if (!inCreateObject && depth == 0) {
       final currentSlice = stripped.substring(start, i).trim();
       if (currentSlice.isEmpty) {
-        final remainingFromI = stripped.substring(i);
-        if (_reCreatePlsql.hasMatch(remainingFromI)) {
+        final openMatch = _reCreatePlsql.matchAsPrefix(stripped, i);
+        if (openMatch != null) {
           inCreateObject = true;
           objectHasSeenBlock = false;
         }
@@ -148,9 +173,12 @@ List<SqlStatement> splitStatements(String script) {
 
     // Terminador SQL*Plus: línea que sólo contiene "/".
     if ((i == 0 || stripped[i - 1] == '\n') && stripped[i] == '/') {
-      final rest = stripped.substring(i + 1);
-      final eol = rest.indexOf('\n');
-      final restOfLine = (eol == -1 ? rest : rest.substring(0, eol)).trim();
+      final eol = stripped.indexOf('\n', i + 1);
+      final restOfLine =
+          (eol == -1
+                  ? stripped.substring(i + 1)
+                  : stripped.substring(i + 1, eol))
+              .trim();
       if (restOfLine.isEmpty) {
         // Cierra cualquier sentencia pendiente (haya o no terminado ya en
         // ';'); si no queda nada pendiente, flush() es un no-op seguro.
@@ -161,25 +189,24 @@ List<SqlStatement> splitStatements(String script) {
       }
     }
 
-    final remaining = stripped.substring(i);
-    final openMatch = _reBlockOpen.matchAsPrefix(remaining);
-    if (openMatch != null && openMatch.start == 0) {
+    final openMatch = _reBlockOpen.matchAsPrefix(stripped, i);
+    if (openMatch != null) {
       depth++;
       if (inCreateObject) {
         objectHasSeenBlock = true;
       }
-      i += openMatch.end;
+      i = openMatch.end;
       continue;
     }
-    final closeMatch = _reBlockClose.matchAsPrefix(remaining);
-    if (closeMatch != null && closeMatch.start == 0) {
+    final closeMatch = _reBlockClose.matchAsPrefix(stripped, i);
+    if (closeMatch != null) {
       if (depth > 0) {
         depth--;
       } else if (inCreateObject) {
         // Caso de especificación de PACKAGE o TYPE que no tiene BEGIN pero cierra con `END [nombre];`
         objectHasSeenBlock = true;
       }
-      i += closeMatch.end;
+      i = closeMatch.end;
       continue;
     }
 
@@ -204,10 +231,22 @@ List<SqlStatement> splitStatements(String script) {
 /// Sentencia bajo el cursor (o que contiene el rango `[selStart, selEnd]`).
 SqlStatement? statementAtCursor(String script, int offset) {
   final statements = splitStatements(script);
-  for (final s in statements) {
-    if (offset >= s.startOffset && offset <= s.endOffset) return s;
+  if (statements.isEmpty) return null;
+
+  var low = 0;
+  var high = statements.length - 1;
+  while (low <= high) {
+    final mid = (low + high) >> 1;
+    final s = statements[mid];
+    if (offset < s.startOffset) {
+      high = mid - 1;
+    } else if (offset > s.endOffset) {
+      low = mid + 1;
+    } else {
+      return s;
+    }
   }
-  return statements.isNotEmpty ? statements.last : null;
+  return statements.last;
 }
 
 final _reDdlObjectName = RegExp(
@@ -255,4 +294,69 @@ String stripTrailingSemicolon(String sql) {
 /// Conserva comentarios internos (hints, notas en WHERE o SELECT) y saltos de línea.
 String cleanSqlForExecution(String sql) {
   return stripTrailingSemicolon(sql).trim();
+}
+
+/// Extrae las variables de entrada (bind variables) de una sentencia SQL o bloque PL/SQL,
+/// tales como `:id`, `:variable`, `:gen.variable`, `:p_dato`.
+///
+/// Ignora comentarios de línea (`--`), comentarios de bloque (`/* */`) y literales de cadena (`'...'`),
+/// así como operadores de asignación PL/SQL (`:=`) y dobles dos puntos (`::`).
+/// Devuelve los nombres de las variables sin el prefijo `:` en orden de aparición sin duplicados.
+List<String> extractBindVariables(String sql) {
+  final stripped = stripPlSqlNoise(sql);
+  final binds = <String>[];
+  final seen = <String>{};
+
+  var i = 0;
+  final n = stripped.length;
+  while (i < n) {
+    final c = stripped[i];
+
+    // Detectar ':'
+    if (c == ':') {
+      // Ignorar asignación ':=' o '::'
+      if (i + 1 < n && (stripped[i + 1] == '=' || stripped[i + 1] == ':')) {
+        i += 2;
+        continue;
+      }
+
+      // Debe comenzar con carácter alfanumérico o guión bajo
+      if (i + 1 < n && _isBindWordChar(stripped[i + 1])) {
+        var j = i + 1;
+        while (j < n) {
+          if (_isBindWordChar(stripped[j])) {
+            j++;
+          } else if (stripped[j] == '.' && j + 1 < n && _isBindWordChar(stripped[j + 1])) {
+            j++; // Notación de punto: :gen.variable
+          } else {
+            break;
+          }
+        }
+
+        final varName = stripped.substring(i + 1, j);
+        final varKey = varName.toUpperCase();
+        // Ignorar pseudo-variables de triggers si aplican (:NEW y :OLD sin campo son raras, pero si es :NEW.COL o :OLD.COL
+        // en triggers se excluyen si el usuario lo desea, aunque en queries de prueba pueden ser variables legítimas)
+        if (!seen.contains(varKey)) {
+          seen.add(varKey);
+          binds.add(varName);
+        }
+        i = j;
+        continue;
+      }
+    }
+    i++;
+  }
+
+  return binds;
+}
+
+bool _isBindWordChar(String ch) {
+  final code = ch.codeUnitAt(0);
+  return (code >= 0x41 && code <= 0x5A) || // A-Z
+      (code >= 0x61 && code <= 0x7A) || // a-z
+      (code >= 0x30 && code <= 0x39) || // 0-9
+      code == 0x5F || // _
+      code == 0x24 || // $
+      code == 0x23; // #
 }

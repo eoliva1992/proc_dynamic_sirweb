@@ -12,6 +12,7 @@ void main() {
         'tipoSolicitud': 'Freshserver',
         'numeroSolicitud': 'INC-56430',
         'reglasNegocio': ['RN_CALCULO', 'RN_EMISION'],
+        'procedimientos': ['PR_ACTUALIZA'],
         'paquetes': ['PKG_COTIZA'],
         'funciones': ['FN_VALIDA'],
         'sql': [
@@ -54,6 +55,7 @@ void main() {
       expect(ticket.rutaDirectorioLocal, 'C:\\Proyectos\\Scripts');
       expect(ticket.rutaRepositorio, 'C:\\Proyectos\\Repo');
       expect(ticket.reglasNegocio, ['RN_CALCULO', 'RN_EMISION']);
+      expect(ticket.procedimientos, ['PR_ACTUALIZA']);
       expect(ticket.paquetes, ['PKG_COTIZA']);
       expect(ticket.sqlNames, ['script22102026']);
       expect(ticket.sql.first.contenido, 'ALTER TABLE TEST ADD COL NUMBER;');
@@ -70,6 +72,7 @@ void main() {
       expect(createJson['rutaDirectorioLocal'], 'C:\\Proyectos\\Scripts');
       expect(createJson['rutaRepositorio'], 'C:\\Proyectos\\Repo');
       expect(createJson['reglasNegocio'], 'RN_CALCULO,RN_EMISION');
+      expect(createJson['procedimientos'], 'PR_ACTUALIZA');
       expect(createJson['usuarioCrea'], 'EOLIVA');
       expect(createJson['sql'], [
         {
@@ -98,6 +101,7 @@ void main() {
       expect(updateJson['rutaRepositorio'], 'C:\\Proyectos\\Repo');
       expect(updateJson['databaseDestino'], 'PROD');
       expect(updateJson['reglasNegocio'], 'RN_CALCULO,RN_EMISION');
+      expect(updateJson['procedimientos'], 'PR_ACTUALIZA');
       expect(updateJson['sql'], [
         {
           'id': 'sql-1',
@@ -144,11 +148,8 @@ DBD:PROD
         expect(ticket.tipoSolicitud, 'Freshserver');
         expect(ticket.numeroSolicitud, 'INC-56430');
         expect(ticket.sqlNames, ['script22102026']);
-        expect(ticket.reglasNegocio, [
-          'PR_REGLA_1',
-          'PR_REGLA_2',
-          'PR_REGLA_3',
-        ]);
+        expect(ticket.reglasNegocio, ['PR_REGLA_1', 'PR_REGLA_2']);
+        expect(ticket.procedimientos, ['PR_REGLA_3']);
         expect(ticket.paquetes, ['PKG_TEST']);
         expect(ticket.database, 'DESA');
         expect(ticket.databaseDestino, 'PROD');
@@ -160,10 +161,8 @@ DBD:PROD
         expect(generated.contains('TPSOL:Freshserver'), isTrue);
         expect(generated.contains('NUSOL:INC-56430'), isTrue);
         expect(generated.contains('SQL:script22102026'), isTrue);
-        expect(
-          generated.contains('RN:PR_REGLA_1,PR_REGLA_2,PR_REGLA_3'),
-          isTrue,
-        );
+        expect(generated.contains('RN:PR_REGLA_1,PR_REGLA_2'), isTrue);
+        expect(generated.contains('PROC:PR_REGLA_3'), isTrue);
       },
     );
 

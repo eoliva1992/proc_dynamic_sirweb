@@ -67,7 +67,8 @@ void main() {
     expect(script, contains('MERGE INTO SIR.PROCEDIMIENTODINAMICO'));
     expect(script, contains('WHEN MATCHED THEN UPDATE'));
     expect(script, contains('WHEN NOT MATCHED THEN INSERT'));
-    expect(script, contains("dbms_output.put_line(''ok'');"));
+    expect(script, contains("q'[BEGIN dbms_output.put_line('ok'); END;]'"));
+    expect(script, isNot(contains('COMMIT;')));
   });
 
   test('quita acentos de los nombres de archivo', () {

@@ -25,6 +25,7 @@ class _FakeSqlExecutorService implements SqlExecutorService {
   String? lastOwner;
   int? lastSelectMaxRows;
   int? lastDmlMaxRows;
+  Map<String, dynamic>? lastBinds;
   String? dmlSessionIdToReturn;
   SqlQueryResult? selectResultToReturn;
   void Function(String? sessionId)? onExecuteSelect;
@@ -40,6 +41,7 @@ class _FakeSqlExecutorService implements SqlExecutorService {
     String? sessionId,
     int maxRows = 1000,
     int timeoutSegundos = 30,
+    Map<String, dynamic>? binds,
     http.Client? client,
     bool Function()? cancelado,
     void Function(SqlHttpTraceEntry)? onTrace,
@@ -49,6 +51,7 @@ class _FakeSqlExecutorService implements SqlExecutorService {
     lastOwner = owner;
     lastSessionId = sessionId;
     lastSelectMaxRows = maxRows;
+    lastBinds = binds;
     onExecuteSelect?.call(sessionId);
     return selectResultToReturn ??
         const SqlQueryResult(
@@ -73,6 +76,7 @@ class _FakeSqlExecutorService implements SqlExecutorService {
     String? sessionId,
     int maxRows = 1000,
     int timeoutSegundos = 30,
+    Map<String, dynamic>? binds,
     http.Client? client,
     bool Function()? cancelado,
     void Function(SqlHttpTraceEntry)? onTrace,
@@ -82,6 +86,7 @@ class _FakeSqlExecutorService implements SqlExecutorService {
     lastSessionId = sessionId;
     lastOwner = owner;
     lastDmlMaxRows = maxRows;
+    lastBinds = binds;
     onExecuteDml?.call(sessionId);
     return SqlDmlResult(
       rowsAffected: 3,
@@ -124,6 +129,7 @@ class _FakeSqlExecutorService implements SqlExecutorService {
     required String owner,
     String? sessionId,
     int timeoutSegundos = 30,
+    Map<String, dynamic>? binds,
     http.Client? client,
     bool Function()? cancelado,
     void Function(SqlHttpTraceEntry)? onTrace,
@@ -131,6 +137,7 @@ class _FakeSqlExecutorService implements SqlExecutorService {
     lastSql = plsql;
     lastSessionId = sessionId;
     lastOwner = owner;
+    lastBinds = binds;
     return const SqlPlSqlResult(durationMs: 5);
   }
 
@@ -234,6 +241,7 @@ class _CancellableFakeSqlExecutorService extends _FakeSqlExecutorService {
     String? sessionId,
     int maxRows = 1000,
     int timeoutSegundos = 30,
+    Map<String, dynamic>? binds,
     http.Client? client,
     bool Function()? cancelado,
     void Function(SqlHttpTraceEntry)? onTrace,
@@ -266,6 +274,7 @@ class _BatchCancellableFakeSqlExecutorService extends _FakeSqlExecutorService {
     String? sessionId,
     int maxRows = 1000,
     int timeoutSegundos = 30,
+    Map<String, dynamic>? binds,
     http.Client? client,
     bool Function()? cancelado,
     void Function(SqlHttpTraceEntry)? onTrace,
@@ -1026,6 +1035,57 @@ void main() {
 
         ctrl.setResultsPanelPinned(true);
         expect(ctrl.resultsPanelPinned, isTrue);
+      },
+    );
+
+    test(
+      'solicita variables bind cuando la sentencia contiene :variable o :gen.variable',
+      () async {
+        final fakeSvc = _FakeSqlExecutorService();
+        final ctrl = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'SELECT * FROM POLIZA WHERE ID = :id AND COD = :gen.cod;',
+          service: fakeSvc,
+        );
+        addTearDown(ctrl.dispose);
+
+        List<String>? requestedVars;
+        ctrl.onRequestBindVariables = (variables, preview) async {
+          requestedVars = variables;
+          return {
+            'id': 12345,
+            'gen.cod': 'ABC',
+          };
+        };
+
+        await ctrl.runCurrentOrSelection();
+
+        expect(requestedVars, ['id', 'gen.cod']);
+        expect(fakeSvc.selectCalls, 1);
+        expect(fakeSvc.lastBinds, {
+          'id': 12345,
+          'gen.cod': 'ABC',
+        });
+      },
+    );
+
+    test(
+      'cancela ejecución si el usuario cancela el modal de bind variables',
+      () async {
+        final fakeSvc = _FakeSqlExecutorService();
+        final ctrl = SqlExecutorStateController(
+          initialAmbiente: 'Desa',
+          initialSql: 'UPDATE POLIZA SET STATUS = :status WHERE ID = :id;',
+          service: fakeSvc,
+        );
+        addTearDown(ctrl.dispose);
+
+        ctrl.onRequestBindVariables = (variables, preview) async => null;
+
+        await ctrl.runCurrentOrSelection();
+
+        expect(fakeSvc.dmlCalls, 0);
+        expect(ctrl.running, isFalse);
       },
     );
 

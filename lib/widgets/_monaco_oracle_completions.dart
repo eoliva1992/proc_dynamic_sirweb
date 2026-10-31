@@ -175,7 +175,7 @@ class MonacoOracleCompletionsManager {
 
             // 1.c) Tabla, vista o alias → columnas
             if (trigger == '.' || line.endsWith('.') || member.isNotEmpty) {
-              final fromMap = extractSqlTables(fullText);
+              final fromMap = extractSqlTablesNear(fullText);
               final realTable = fromMap[ref] ?? ref;
 
               final cols = await SchemaService.instance.getColumns(
@@ -223,7 +223,7 @@ class MonacoOracleCompletionsManager {
           // su propio `take()` para que, si hay muchas (varias tablas unidas),
           // no ocupen todo el cupo y dejen afuera tablas/vistas/objetos.
           final colSuggestions = <fm.CompletionItem>[];
-          final fromMap = extractSqlTables(fullText);
+          final fromMap = extractSqlTablesNear(fullText);
           for (final realTable in fromMap.values.toSet()) {
             final cols = schema.cachedColumns.containsKey(realTable)
                 ? schema.cachedColumns[realTable]!

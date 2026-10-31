@@ -213,36 +213,7 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
         _cdTabla = cdTabla;
         _productosCount = datos.isNotEmpty ? datos.first.productos.length : 0;
       });
-      if (cdTabla != null) {
-        _verificarTablasAdicionales(cdTabla);
-      }
     });
-  }
-
-  void _verificarTablasAdicionales(int cdTabla) {
-    _defAdicionalFuture = SirwebService().infoTablaAdicional(
-      cdTabla,
-      ambiente: _ambiente,
-    );
-    _defAdicionalFuture!
-        .then((items) {
-          if (mounted) setState(() => _defAdicionalCount = items.length);
-        })
-        .catchError((_) {
-          if (mounted) setState(() => _defAdicionalCount = 0);
-        });
-
-    _infoAdicionalFuture = SirwebService().valoresTablaAdicional(
-      cdTabla,
-      ambiente: _ambiente,
-    );
-    _infoAdicionalFuture!
-        .then((items) {
-          if (mounted) setState(() => _infoAdicionalCount = items.length);
-        })
-        .catchError((_) {
-          if (mounted) setState(() => _infoAdicionalCount = 0);
-        });
   }
 
   void _toggleCambiarDato() {
@@ -334,19 +305,31 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
         ),
       );
     } else if (idx == 4 && _defAdicionalFuture == null) {
-      setState(
-        () => _defAdicionalFuture = SirwebService().infoTablaAdicional(
-          cdTabla,
-          ambiente: _ambiente,
-        ),
+      final fut = SirwebService().infoTablaAdicional(
+        cdTabla,
+        ambiente: _ambiente,
       );
+      fut
+          .then((items) {
+            if (mounted) setState(() => _defAdicionalCount = items.length);
+          })
+          .catchError((_) {
+            if (mounted) setState(() => _defAdicionalCount = 0);
+          });
+      setState(() => _defAdicionalFuture = fut);
     } else if (idx == 5 && _infoAdicionalFuture == null) {
-      setState(
-        () => _infoAdicionalFuture = SirwebService().valoresTablaAdicional(
-          cdTabla,
-          ambiente: _ambiente,
-        ),
+      final fut = SirwebService().valoresTablaAdicional(
+        cdTabla,
+        ambiente: _ambiente,
       );
+      fut
+          .then((items) {
+            if (mounted) setState(() => _infoAdicionalCount = items.length);
+          })
+          .catchError((_) {
+            if (mounted) setState(() => _infoAdicionalCount = 0);
+          });
+      setState(() => _infoAdicionalFuture = fut);
     }
   }
 
@@ -379,13 +362,21 @@ class _InfoDatoModalState extends State<_InfoDatoModal> {
     setState(() {
       _hiddenCols = {};
       _selectedRowIndices.clear();
-      _infoAdicionalFuture = SirwebService().valoresTablaAdicional(
+      final fut = SirwebService().valoresTablaAdicional(
         cdTabla,
         ambiente: _ambiente,
         deIndiceDato: _tab5IndexCtrl.text.trim().isEmpty
             ? null
             : _tab5IndexCtrl.text.trim(),
       );
+      fut
+          .then((items) {
+            if (mounted) setState(() => _infoAdicionalCount = items.length);
+          })
+          .catchError((_) {
+            if (mounted) setState(() => _infoAdicionalCount = 0);
+          });
+      _infoAdicionalFuture = fut;
     });
   }
 

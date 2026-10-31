@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:proc_dynamic_sirweb/models/ejecucion_procedimiento.dart';
+import 'package:proc_dynamic_sirweb/models/sql_http_trace.dart';
 
 void main() {
   group('EjecucionResultado.fromJson', () {
@@ -143,16 +144,46 @@ void main() {
       expect(res.tieneError, isTrue);
       expect(res.errorOracle, contains('ORA-06550'));
     });
+
+    test('acepta y conserva httpTrace opcional', () {
+      final trace = SqlHttpTraceEntry(
+        id: 1,
+        timestamp: DateTime.now(),
+        method: 'POST',
+        url: 'http://localhost/tools/procedimiento-dinamico/P_TEST/ejecutar',
+        endpoint: '/tools/procedimiento-dinamico/P_TEST/ejecutar',
+        requestHeaders: {'content-type': 'application/json'},
+        requestBody: '{"cdEntidad":30}',
+        statusCode: 200,
+        durationMs: 45,
+        responseBody: '{"salidas":{"RES":1}}',
+      );
+
+      final res = EjecucionResultado.fromJson({
+        'cdProcedimiento': 'P_TEST',
+        'salidas': {'RES': 1},
+      }, httpTrace: trace);
+
+      expect(res.httpTrace, isNotNull);
+      expect(res.httpTrace!.statusCode, 200);
+      expect(res.httpTrace!.durationMs, 45);
+      expect(res.httpTrace!.method, 'POST');
+    });
   });
 
   group('EjecucionRequest.toJson', () {
+    test('usa 30 como valor por defecto de cdEntidad', () {
+      final json = const EjecucionRequest().toJson();
+      expect(json['cdEntidad'], 30);
+    });
+
     test('envía el contrato completo con los null explícitos', () {
       final json = const EjecucionRequest(
-        cdEntidad: 1,
+        cdEntidad: 30,
         nuCotizacion: 500,
       ).toJson();
 
-      expect(json['cdEntidad'], 1);
+      expect(json['cdEntidad'], 30);
       expect(json['nuCotizacion'], 500);
       expect(json.containsKey('nuPoliza'), isTrue);
       expect(json['nuPoliza'], isNull);
@@ -167,12 +198,12 @@ void main() {
   group('EjecucionRequest.toBorradorJson', () {
     test('agrega deTexto e inConfiguracion al contrato de contexto', () {
       final json = const EjecucionRequest(
-        cdEntidad: 1,
+        cdEntidad: 30,
       ).toBorradorJson(deTexto: 'BEGIN NULL; END;', inConfiguracion: 'D');
 
       expect(json['deTexto'], 'BEGIN NULL; END;');
       expect(json['inConfiguracion'], 'D');
-      expect(json['cdEntidad'], 1);
+      expect(json['cdEntidad'], 30);
       expect(json.containsKey('nuPoliza'), isTrue);
       expect(json.containsKey('nuBienAsegurado'), isTrue);
       expect(json.containsKey('capturarVariables'), isTrue);

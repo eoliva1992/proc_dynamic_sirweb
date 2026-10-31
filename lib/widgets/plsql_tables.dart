@@ -142,6 +142,30 @@ Map<String, String> extractSqlTables(String sql) {
   return result;
 }
 
+/// Extrae las tablas relevantes alrededor de un fragmento de código o cursor
+/// para evitar escanear un documento masivo completo durante el autocompletado.
+/// Si el script es pequeño (<= 4000 caracteres), analiza el script completo.
+Map<String, String> extractSqlTablesNear(String sql, {int? offset, int maxCharsAround = 4000}) {
+  if (sql.length <= maxCharsAround) {
+    return extractSqlTables(sql);
+  }
+
+  // Si tenemos offset, tomamos una ventana local hacia atrás y hacia adelante.
+  if (offset != null) {
+    final start = (offset - maxCharsAround ~/ 2).clamp(0, sql.length);
+    final end = (offset + maxCharsAround ~/ 2).clamp(0, sql.length);
+    final window = sql.substring(start, end);
+    final localTables = extractSqlTables(window);
+    if (localTables.isNotEmpty) return localTables;
+  }
+
+  // Si no hay offset o la ventana local no arrojó tablas, tomamos las últimas
+  // `maxCharsAround` caracteres donde comúnmente se ubica la edición actual.
+  final tailStart = (sql.length - maxCharsAround).clamp(0, sql.length);
+  final tailTables = extractSqlTables(sql.substring(tailStart));
+  return tailTables.isNotEmpty ? tailTables : extractSqlTables(sql);
+}
+
 /// Tablas referenciadas mediante `tabla.columna%TYPE` en las declaraciones.
 final _reTypeRef = RegExp(
   r'\b([A-Za-z_][\w$#]*)\s*\.\s*[A-Za-z_][\w$#]*\s*%\s*TYPE',

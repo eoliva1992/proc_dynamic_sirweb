@@ -39,6 +39,7 @@ MonacoThemeDefinition _def({
       MonacoThemeRule(token: 'string', foreground: string),
       MonacoThemeRule(token: 'number', foreground: number),
       MonacoThemeRule(token: 'identifier', foreground: identifier),
+      MonacoThemeRule(token: 'variable', foreground: operator ?? keyword),
       MonacoThemeRule(token: 'operator', foreground: operator ?? keyword),
       MonacoThemeRule(token: 'delimiter', foreground: delimiter ?? fg),
     ],

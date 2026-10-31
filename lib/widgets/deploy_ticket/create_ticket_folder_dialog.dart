@@ -39,7 +39,8 @@ class CreateTicketFolderDialog extends StatefulWidget {
   }
 
   @override
-  State<CreateTicketFolderDialog> createState() => _CreateTicketFolderDialogState();
+  State<CreateTicketFolderDialog> createState() =>
+      _CreateTicketFolderDialogState();
 }
 
 class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
@@ -57,7 +58,9 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
   void initState() {
     super.initState();
     // Nomenclatura sugerida: {numero de ticket azure o tipo de solicitud}_{numero de solicitud}
-    _folderNameCtrl = TextEditingController(text: widget.ticket.suggestedFolderName);
+    _folderNameCtrl = TextEditingController(
+      text: widget.ticket.suggestedFolderName,
+    );
     _rootDirCtrl = TextEditingController();
 
     _loadLastRootDir();
@@ -228,7 +231,9 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final surfaceColor = isDark ? const Color(0xFF1E222B) : Colors.white;
-    final borderColor = isDark ? const Color(0xFF333B4D) : const Color(0xFFD6DBE5);
+    final borderColor = isDark
+        ? const Color(0xFF333B4D)
+        : const Color(0xFFD6DBE5);
     final inputBg = isDark ? const Color(0xFF161922) : const Color(0xFFF7F8FA);
     final primaryColor = theme.colorScheme.primary;
 
@@ -255,17 +260,26 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
             child: _loading
                 ? const SizedBox(
                     height: 240,
-                    child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                    child: Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
                   )
                 : Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       // Cabecera
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 14,
+                        ),
                         decoration: BoxDecoration(
-                          color: isDark ? const Color(0xFF252B37) : const Color(0xFFF1F4F9),
-                          border: Border(bottom: BorderSide(color: borderColor, width: 0.8)),
+                          color: isDark
+                              ? const Color(0xFF252B37)
+                              : const Color(0xFFF1F4F9),
+                          border: Border(
+                            bottom: BorderSide(color: borderColor, width: 0.8),
+                          ),
                         ),
                         child: Row(
                           children: [
@@ -300,7 +314,9 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
                                         : 'Ticket sin número asignado',
                                     style: TextStyle(
                                       fontSize: 11,
-                                      color: isDark ? Colors.white60 : Colors.black54,
+                                      color: isDark
+                                          ? Colors.white60
+                                          : Colors.black54,
                                     ),
                                   ),
                                 ],
@@ -327,29 +343,42 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
                                 // Nombre de la carpeta
                                 const Text(
                                   'Nombre de la Carpeta',
-                                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13,
+                                  ),
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
                                   'Nomenclatura sugerida: {ticket azure o tipo solicitud}_{número solicitud}',
                                   style: TextStyle(
                                     fontSize: 11,
-                                    color: isDark ? Colors.white54 : Colors.black45,
+                                    color: isDark
+                                        ? Colors.white54
+                                        : Colors.black45,
                                   ),
                                 ),
                                 const SizedBox(height: 8),
                                 TextFormField(
                                   controller: _folderNameCtrl,
-                                  enabled: !_creating && _createdFolderPath == null,
+                                  enabled:
+                                      !_creating && _createdFolderPath == null,
                                   onChanged: (_) => setState(() {}),
                                   decoration: InputDecoration(
-                                    prefixIcon: const Icon(Icons.folder_outlined, size: 18),
+                                    prefixIcon: const Icon(
+                                      Icons.folder_outlined,
+                                      size: 18,
+                                    ),
                                     suffixIcon: IconButton(
                                       tooltip: 'Restablecer nombre recomendado',
-                                      icon: const Icon(Icons.restore_rounded, size: 18),
+                                      icon: const Icon(
+                                        Icons.restore_rounded,
+                                        size: 18,
+                                      ),
                                       onPressed: () {
                                         setState(() {
-                                          _folderNameCtrl.text = widget.ticket.suggestedFolderName;
+                                          _folderNameCtrl.text =
+                                              widget.ticket.suggestedFolderName;
                                         });
                                       },
                                     ),
@@ -361,11 +390,15 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
                                     ),
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(8),
-                                      borderSide: BorderSide(color: borderColor),
+                                      borderSide: BorderSide(
+                                        color: borderColor,
+                                      ),
                                     ),
                                     enabledBorder: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(8),
-                                      borderSide: BorderSide(color: borderColor),
+                                      borderSide: BorderSide(
+                                        color: borderColor,
+                                      ),
                                     ),
                                   ),
                                   validator: (v) {
@@ -397,7 +430,10 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
                                       onTap: _pasteDirectoryFromClipboard,
                                       borderRadius: BorderRadius.circular(4),
                                       child: Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
@@ -426,7 +462,9 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
                                   'Se recordará automáticamente esta carpeta para próximas operaciones.',
                                   style: TextStyle(
                                     fontSize: 11,
-                                    color: isDark ? Colors.white54 : Colors.black45,
+                                    color: isDark
+                                        ? Colors.white54
+                                        : Colors.black45,
                                   ),
                                 ),
                                 const SizedBox(height: 8),
@@ -435,27 +473,41 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
                                     Expanded(
                                       child: TextFormField(
                                         controller: _rootDirCtrl,
-                                        enabled: !_creating && _createdFolderPath == null,
+                                        enabled:
+                                            !_creating &&
+                                            _createdFolderPath == null,
                                         onChanged: (val) {
                                           setState(() {});
                                           _saveLastRootDir(val);
                                         },
                                         decoration: InputDecoration(
                                           hintText: 'C:\\Pases o /home/...',
-                                          prefixIcon: const Icon(Icons.drive_file_move_outlined, size: 18),
+                                          prefixIcon: const Icon(
+                                            Icons.drive_file_move_outlined,
+                                            size: 18,
+                                          ),
                                           filled: true,
                                           fillColor: inputBg,
-                                          contentPadding: const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 11,
-                                          ),
+                                          contentPadding:
+                                              const EdgeInsets.symmetric(
+                                                horizontal: 12,
+                                                vertical: 11,
+                                              ),
                                           border: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(8),
-                                            borderSide: BorderSide(color: borderColor),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            borderSide: BorderSide(
+                                              color: borderColor,
+                                            ),
                                           ),
                                           enabledBorder: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(8),
-                                            borderSide: BorderSide(color: borderColor),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            borderSide: BorderSide(
+                                              color: borderColor,
+                                            ),
                                           ),
                                         ),
                                         validator: (v) {
@@ -468,18 +520,28 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
                                     ),
                                     const SizedBox(width: 8),
                                     ElevatedButton.icon(
-                                      icon: const Icon(Icons.folder_open_rounded, size: 16),
-                                      label: const Text('Examinar', style: TextStyle(fontSize: 12)),
+                                      icon: const Icon(
+                                        Icons.folder_open_rounded,
+                                        size: 16,
+                                      ),
+                                      label: const Text(
+                                        'Examinar',
+                                        style: TextStyle(fontSize: 12),
+                                      ),
                                       style: ElevatedButton.styleFrom(
                                         padding: const EdgeInsets.symmetric(
                                           horizontal: 14,
                                           vertical: 14,
                                         ),
                                         shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(8),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
                                         ),
                                       ),
-                                      onPressed: (!_creating && _createdFolderPath == null)
+                                      onPressed:
+                                          (!_creating &&
+                                              _createdFolderPath == null)
                                           ? _pickDirectory
                                           : null,
                                     ),
@@ -491,7 +553,10 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
                                 // Previsualización de la ruta completa
                                 Container(
                                   width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: isDark
                                         ? const Color(0xFF14171E)
@@ -503,14 +568,17 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
                                     ),
                                   ),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Row(
                                         children: [
                                           Icon(
                                             Icons.route_rounded,
                                             size: 14,
-                                            color: isDark ? Colors.cyanAccent : Colors.teal,
+                                            color: isDark
+                                                ? Colors.cyanAccent
+                                                : Colors.teal,
                                           ),
                                           const SizedBox(width: 6),
                                           const Text(
@@ -531,8 +599,12 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
                                           fontFamily: 'Consolas',
                                           fontSize: 11.5,
                                           color: _computedTargetPath.isNotEmpty
-                                              ? (isDark ? Colors.cyanAccent : Colors.teal.shade800)
-                                              : (isDark ? Colors.white38 : Colors.black38),
+                                              ? (isDark
+                                                    ? Colors.cyanAccent
+                                                    : Colors.teal.shade800)
+                                              : (isDark
+                                                    ? Colors.white38
+                                                    : Colors.black38),
                                         ),
                                       ),
                                     ],
@@ -551,16 +623,27 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
                                     decoration: BoxDecoration(
                                       color: Colors.red.withValues(alpha: 0.12),
                                       borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: Colors.redAccent.withValues(alpha: 0.4)),
+                                      border: Border.all(
+                                        color: Colors.redAccent.withValues(
+                                          alpha: 0.4,
+                                        ),
+                                      ),
                                     ),
                                     child: Row(
                                       children: [
-                                        const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 16),
+                                        const Icon(
+                                          Icons.error_outline_rounded,
+                                          color: Colors.redAccent,
+                                          size: 16,
+                                        ),
                                         const SizedBox(width: 8),
                                         Expanded(
                                           child: Text(
                                             _errorMessage!,
-                                            style: const TextStyle(fontSize: 11.5, color: Colors.redAccent),
+                                            style: const TextStyle(
+                                              fontSize: 11.5,
+                                              color: Colors.redAccent,
+                                            ),
                                           ),
                                         ),
                                       ],
@@ -573,16 +656,27 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
                                   Container(
                                     padding: const EdgeInsets.all(12),
                                     decoration: BoxDecoration(
-                                      color: Colors.green.withValues(alpha: 0.12),
+                                      color: Colors.green.withValues(
+                                        alpha: 0.12,
+                                      ),
                                       borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+                                      border: Border.all(
+                                        color: Colors.green.withValues(
+                                          alpha: 0.4,
+                                        ),
+                                      ),
                                     ),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Row(
                                           children: [
-                                            const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 18),
+                                            const Icon(
+                                              Icons.check_circle_rounded,
+                                              color: Colors.greenAccent,
+                                              size: 18,
+                                            ),
                                             const SizedBox(width: 8),
                                             Expanded(
                                               child: Text(
@@ -617,18 +711,31 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
 
                       // Barra inferior de botones
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
                         decoration: BoxDecoration(
-                          color: isDark ? const Color(0xFF222732) : const Color(0xFFF7F8FA),
-                          border: Border(top: BorderSide(color: borderColor, width: 0.8)),
+                          color: isDark
+                              ? const Color(0xFF222732)
+                              : const Color(0xFFF7F8FA),
+                          border: Border(
+                            top: BorderSide(color: borderColor, width: 0.8),
+                          ),
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
                             if (_createdFolderPath != null) ...[
                               OutlinedButton.icon(
-                                icon: const Icon(Icons.folder_open_rounded, size: 16),
-                                label: const Text('Abrir Carpeta', style: TextStyle(fontSize: 12)),
+                                icon: const Icon(
+                                  Icons.folder_open_rounded,
+                                  size: 16,
+                                ),
+                                label: const Text(
+                                  'Abrir Carpeta',
+                                  style: TextStyle(fontSize: 12),
+                                ),
                                 onPressed: _openCreatedFolder,
                               ),
                               const SizedBox(width: 10),
@@ -636,18 +743,33 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.teal.shade700,
                                   foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 18,
+                                    vertical: 12,
+                                  ),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                 ),
-                                onPressed: () => _closeDialog(_createdFolderPath),
-                                child: const Text('Listo', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                                onPressed: () =>
+                                    _closeDialog(_createdFolderPath),
+                                child: const Text(
+                                  'Listo',
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
                             ] else ...[
                               TextButton(
-                                onPressed: _creating ? null : () => _closeDialog(),
-                                child: const Text('Cancelar', style: TextStyle(fontSize: 12)),
+                                onPressed: _creating
+                                    ? null
+                                    : () => _closeDialog(),
+                                child: const Text(
+                                  'Cancelar',
+                                  style: TextStyle(fontSize: 12),
+                                ),
                               ),
                               const SizedBox(width: 10),
                               ElevatedButton.icon(
@@ -655,22 +777,35 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
                                     ? const SizedBox(
                                         width: 14,
                                         height: 14,
-                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
                                       )
                                     : const Icon(Icons.check_rounded, size: 16),
                                 label: Text(
-                                  _creating ? 'Creando...' : 'Crear Directorio y Archivos',
-                                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                                  _creating
+                                      ? 'Creando...'
+                                      : 'Crear Directorio y Archivos',
+                                  style: const TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.teal.shade700,
                                   foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 12,
+                                  ),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                 ),
-                                onPressed: _creating ? null : _createFolderAndFiles,
+                                onPressed: _creating
+                                    ? null
+                                    : _createFolderAndFiles,
                               ),
                             ],
                           ],
@@ -686,10 +821,12 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
 
   Widget _buildSummarySection(bool isDark, Color borderColor) {
     final t = widget.ticket;
-    final totalScripts = t.sql.length +
+    final totalScripts =
+        t.sql.length +
         t.reverseSql.length +
         t.bloqueLogico.length +
         t.reglasNegocio.length +
+        t.procedimientos.length +
         t.paquetes.length +
         t.funciones.length +
         t.triggers.length +
@@ -701,14 +838,21 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1B1F2A) : const Color(0xFFF9FAFB),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: borderColor.withValues(alpha: 0.5), width: 0.8),
+        border: Border.all(
+          color: borderColor.withValues(alpha: 0.5),
+          width: 0.8,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.description_outlined, size: 14, color: Colors.amberAccent),
+              const Icon(
+                Icons.description_outlined,
+                size: 14,
+                color: Colors.amberAccent,
+              ),
               const SizedBox(width: 6),
               const Text(
                 'Archivos que se generarán:',
@@ -731,14 +875,30 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
             runSpacing: 6,
             children: [
               _buildBadge('index.txt', Colors.blueAccent),
-              if (t.sql.isNotEmpty) _buildBadge('${t.sql.length} SQL', Colors.indigoAccent),
-              if (t.reverseSql.isNotEmpty) _buildBadge('${t.reverseSql.length} RSQL', Colors.purpleAccent),
-              if (t.bloqueLogico.isNotEmpty) _buildBadge('${t.bloqueLogico.length} BLK', Colors.orangeAccent),
-              if (t.reglasNegocio.isNotEmpty) _buildBadge('${t.reglasNegocio.length} RN', Colors.greenAccent),
-              if (t.paquetes.isNotEmpty) _buildBadge('${t.paquetes.length} PCK', Colors.cyanAccent),
-              if (t.funciones.isNotEmpty) _buildBadge('${t.funciones.length} FUN', Colors.tealAccent),
-              if (t.triggers.isNotEmpty) _buildBadge('${t.triggers.length} TRG', Colors.redAccent),
-              if (t.objetos.isNotEmpty) _buildBadge('${t.objetos.length} OBJ', Colors.amberAccent),
+              if (t.sql.isNotEmpty)
+                _buildBadge('${t.sql.length} SQL', Colors.indigoAccent),
+              if (t.reverseSql.isNotEmpty)
+                _buildBadge('${t.reverseSql.length} RSQL', Colors.purpleAccent),
+              if (t.bloqueLogico.isNotEmpty)
+                _buildBadge(
+                  '${t.bloqueLogico.length} BLK',
+                  Colors.orangeAccent,
+                ),
+              if (t.reglasNegocio.isNotEmpty)
+                _buildBadge('${t.reglasNegocio.length} RN', Colors.greenAccent),
+              if (t.procedimientos.isNotEmpty)
+                _buildBadge(
+                  '${t.procedimientos.length} PROC',
+                  Colors.deepOrangeAccent,
+                ),
+              if (t.paquetes.isNotEmpty)
+                _buildBadge('${t.paquetes.length} PCK', Colors.cyanAccent),
+              if (t.funciones.isNotEmpty)
+                _buildBadge('${t.funciones.length} FUN', Colors.tealAccent),
+              if (t.triggers.isNotEmpty)
+                _buildBadge('${t.triggers.length} TRG', Colors.redAccent),
+              if (t.objetos.isNotEmpty)
+                _buildBadge('${t.objetos.length} OBJ', Colors.amberAccent),
             ],
           ),
         ],

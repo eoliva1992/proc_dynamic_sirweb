@@ -756,86 +756,115 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
         ? _kFallbackConfigs
         : configs.map((c) => (c.cdModulo, c.deArgumento)).toList();
 
+    final selectedItem = items
+            .where((item) => item.$1 == _selectedConfig)
+            .firstOrNull ??
+        items.first;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _label('Tipo de configuración', required: true),
         const SizedBox(height: 6),
-        DropdownButtonFormField<String>(
-          initialValue: _selectedConfig,
-          isExpanded: true,
-          dropdownColor: isDark ? cs.surfaceContainerHigh : cs.surface,
-          icon: Icon(
-            Icons.expand_more_rounded,
-            size: 18,
-            color: cs.onSurfaceVariant,
-          ),
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: cs.onSurface.withValues(alpha: 0.04),
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(
-              vertical: 10,
-              horizontal: 12,
+        MenuAnchor(
+          alignmentOffset: const Offset(0, 4),
+          style: MenuStyle(
+            backgroundColor: WidgetStatePropertyAll(
+              isDark ? cs.surfaceContainerHigh : cs.surface,
             ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(6),
-              borderSide: BorderSide(color: cs.outline),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(6),
-              borderSide: BorderSide(color: cs.outlineVariant),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(6),
-              borderSide: BorderSide(color: cs.primary, width: 1.5),
+            elevation: const WidgetStatePropertyAll(12),
+            shape: WidgetStatePropertyAll(
+              RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+                side: BorderSide(color: cs.outlineVariant),
+              ),
             ),
           ),
-          selectedItemBuilder: (_) => items.map((item) {
-            final (code, label) = item;
-            return Row(
-              children: [
-                ConfigBadge(config: code, small: true),
-                const SizedBox(width: 8),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: cs.onSurface,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            );
-          }).toList(),
-          items: items.map((item) {
+          menuChildren: items.map((item) {
             final (code, label) = item;
             final active = _selectedConfig == code;
             final color = ConfigBadge.colorForConfig(code);
-            return DropdownMenuItem(
-              value: code,
-              child: Row(
-                children: [
-                  ConfigBadge(config: code, small: true),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: active ? color : cs.onSurface,
-                        fontWeight: active
-                            ? FontWeight.w600
-                            : FontWeight.normal,
-                      ),
-                    ),
+            return MenuItemButton(
+              onPressed: () => _onConfigChanged(code),
+              leadingIcon: ConfigBadge(config: code, small: true),
+              trailingIcon: active
+                  ? Icon(Icons.check_rounded, size: 16, color: color)
+                  : null,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 160),
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: active ? color : cs.onSurface,
+                    fontWeight: active ? FontWeight.w600 : FontWeight.normal,
                   ),
-                  if (active) Icon(Icons.check_rounded, size: 14, color: color),
-                ],
+                ),
               ),
             );
           }).toList(),
-          onChanged: (v) => v != null ? _onConfigChanged(v) : null,
+          builder: (context, controller, child) {
+            return InkWell(
+              borderRadius: BorderRadius.circular(6),
+              onTap: () {
+                if (controller.isOpen) {
+                  controller.close();
+                } else {
+                  controller.open();
+                }
+              },
+              child: InputDecorator(
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: cs.onSurface.withValues(alpha: 0.04),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(
+                    vertical: 8.5,
+                    horizontal: 12,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(6),
+                    borderSide: BorderSide(color: cs.outline),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(6),
+                    borderSide: BorderSide(
+                      color: controller.isOpen ? cs.primary : cs.outlineVariant,
+                      width: controller.isOpen ? 1.5 : 1.0,
+                    ),
+                  ),
+                  suffixIcon: Icon(
+                    controller.isOpen
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                    size: 18,
+                    color: cs.onSurfaceVariant,
+                  ),
+                  suffixIconConstraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 20,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    ConfigBadge(config: selectedItem.$1, small: true),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        selectedItem.$2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: cs.onSurface,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
         ),
       ],
     );

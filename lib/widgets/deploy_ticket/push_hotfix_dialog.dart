@@ -508,6 +508,14 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
                                           'RN: ${widget.ticket.reglasNegocio.length}',
                                           Colors.blue,
                                         ),
+                                      if (widget
+                                          .ticket
+                                          .procedimientos
+                                          .isNotEmpty)
+                                        _badge(
+                                          'PROC: ${widget.ticket.procedimientos.length}',
+                                          Colors.deepOrange,
+                                        ),
                                       if (widget.ticket.paquetes.isNotEmpty)
                                         _badge(
                                           'PCK: ${widget.ticket.paquetes.length}',
@@ -1109,6 +1117,11 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
     for (final rn in widget.ticket.reglasNegocio) {
       if (rn.trim().isNotEmpty) {
         list.add(_ArtifactItem(rn.trim(), 'RN', Colors.blue));
+      }
+    }
+    for (final proc in widget.ticket.procedimientos) {
+      if (proc.trim().isNotEmpty) {
+        list.add(_ArtifactItem(proc.trim(), 'PROC', Colors.deepOrange));
       }
     }
     for (final pck in widget.ticket.paquetes) {

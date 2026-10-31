@@ -81,12 +81,14 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
   // Controladores principales
   late TextEditingController _numeroSolCtrl;
   late TextEditingController _tipoSolCtrl;
+  final FocusNode _tipoSolFocusNode = FocusNode();
   late TextEditingController _autorizaCtrl;
   late TextEditingController _urlCtrl;
   late TextEditingController _versionCtrl;
 
   // Listas de artefactos
   List<String> _reglasNegocio = [];
+  List<String> _procedimientos = [];
   List<String> _paquetes = [];
   List<String> _funciones = [];
   List<DeployTicketScript> _sql = [];
@@ -104,6 +106,7 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
 
   int get _totalArtifacts =>
       _reglasNegocio.length +
+      _procedimientos.length +
       _paquetes.length +
       _funciones.length +
       _sql.length +
@@ -128,6 +131,7 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
     _versionCtrl = TextEditingController(text: (t?.version ?? 1).toString());
 
     _reglasNegocio = List<String>.from(t?.reglasNegocio ?? []);
+    _procedimientos = List<String>.from(t?.procedimientos ?? []);
     _paquetes = List<String>.from(t?.paquetes ?? []);
     _funciones = List<String>.from(t?.funciones ?? []);
     _sql = List<DeployTicketScript>.from(t?.sql ?? []);
@@ -213,6 +217,7 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
     _tabController.dispose();
     _numeroSolCtrl.dispose();
     _tipoSolCtrl.dispose();
+    _tipoSolFocusNode.dispose();
     _autorizaCtrl.dispose();
     _urlCtrl.dispose();
     _versionCtrl.dispose();
@@ -276,6 +281,7 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
       tipoSolicitud: _tipoSolCtrl.text.trim(),
       numeroSolicitud: _numeroSolCtrl.text.trim(),
       reglasNegocio: _reglasNegocio,
+      procedimientos: _procedimientos,
       paquetes: _paquetes,
       funciones: _funciones,
       sql: _sql,
@@ -389,6 +395,7 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
       }
 
       _reglasNegocio = List<String>.from(parsed.reglasNegocio);
+      _procedimientos = List<String>.from(parsed.procedimientos);
       _paquetes = List<String>.from(parsed.paquetes);
       _funciones = List<String>.from(parsed.funciones);
       _sql = List<DeployTicketScript>.from(parsed.sql);
@@ -876,7 +883,7 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
           Tab(
             icon: const Icon(Icons.code_rounded, size: 16),
             text:
-                'Código / PL·SQL (${_reglasNegocio.length + _paquetes.length + _funciones.length})',
+                'Código / PL·SQL (${_reglasNegocio.length + _procedimientos.length + _paquetes.length + _funciones.length})',
           ),
           Tab(
             icon: const Icon(Icons.storage_rounded, size: 16),
@@ -943,29 +950,140 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
             const SizedBox(width: 14),
             Expanded(
               flex: 2,
-              child: TextFormField(
-                controller: _tipoSolCtrl,
-                decoration: InputDecoration(
-                  labelText: 'Tipo de Solicitud (TPSOL) *',
-                  hintText: 'Ej. Freshserver, Matriz',
-                  prefixIcon: const Icon(Icons.category_outlined, size: 18),
-                  filled: true,
-                  fillColor: inputBg,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 12,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: borderColor),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: borderColor),
-                  ),
-                ),
-                validator: (v) =>
-                    v == null || v.trim().isEmpty ? 'Requerido' : null,
+              child: RawAutocomplete<String>(
+                textEditingController: _tipoSolCtrl,
+                focusNode: _tipoSolFocusNode,
+                optionsBuilder: (TextEditingValue textEditingValue) {
+                  final text = textEditingValue.text.trim().toLowerCase();
+                  if (text.isEmpty) {
+                    return DeployTicket.tiposSolicitudSugerencias;
+                  }
+                  return DeployTicket.tiposSolicitudSugerencias.where(
+                    (opt) => opt.toLowerCase().contains(text),
+                  );
+                },
+                onSelected: (String selection) {
+                  _tipoSolCtrl.text = selection;
+                },
+                fieldViewBuilder:
+                    (
+                      BuildContext context,
+                      TextEditingController controller,
+                      FocusNode focusNode,
+                      VoidCallback onFieldSubmitted,
+                    ) {
+                      return TextFormField(
+                        controller: controller,
+                        focusNode: focusNode,
+                        onFieldSubmitted: (_) => onFieldSubmitted(),
+                        decoration: InputDecoration(
+                          labelText: 'Tipo de Solicitud (TPSOL) *',
+                          hintText: 'Ej. Freshserver, Matriz',
+                          prefixIcon: const Icon(
+                            Icons.category_outlined,
+                            size: 18,
+                          ),
+                          filled: true,
+                          fillColor: inputBg,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 12,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: borderColor),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: borderColor),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(
+                              color: cs.primary,
+                              width: 1.5,
+                            ),
+                          ),
+                        ),
+                        validator: (v) =>
+                            v == null || v.trim().isEmpty ? 'Requerido' : null,
+                      );
+                    },
+                optionsViewBuilder:
+                    (
+                      BuildContext context,
+                      AutocompleteOnSelected<String> onSelected,
+                      Iterable<String> options,
+                    ) {
+                      return Align(
+                        alignment: Alignment.topLeft,
+                        child: Material(
+                          elevation: 6,
+                          color: isDark
+                              ? const Color(0xFF222328)
+                              : Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            side: BorderSide(
+                              color: isDark
+                                  ? const Color(0xFF383844)
+                                  : Colors.grey.shade300,
+                              width: 0.8,
+                            ),
+                          ),
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(
+                              maxHeight: 200,
+                              maxWidth: 260,
+                            ),
+                            child: ListView.builder(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              shrinkWrap: true,
+                              itemCount: options.length,
+                              itemBuilder: (BuildContext context, int index) {
+                                final option = options.elementAt(index);
+                                return InkWell(
+                                  onTap: () => onSelected(option),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 8,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons
+                                              .subdirectory_arrow_right_rounded,
+                                          size: 14,
+                                          color: isDark
+                                              ? Colors.deepPurpleAccent.shade100
+                                              : Colors.deepPurple.shade700,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            option,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: isDark
+                                                  ? Colors.white.withValues(
+                                                      alpha: 0.9,
+                                                    )
+                                                  : Colors.black87,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      );
+                    },
               ),
             ),
             const SizedBox(width: 14),
@@ -1147,13 +1265,23 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
       padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
       children: [
         ArtifactListEditor(
-          title: 'Reglas de Negocio / Procedimientos (RN / PROC)',
-          hintText: 'Ej. RN_CALCULO_PRIMA, PR_ACTUALIZA_COTIZACION',
+          title: 'Reglas de Negocio (RN)',
+          hintText: 'Ej. RN_CALCULO_PRIMA, RN_VALIDA_COBERTURA',
           icon: Icons.bolt_outlined,
           color: Colors.amber.shade700,
           items: _reglasNegocio,
           onChanged: (val) => setState(() => _reglasNegocio = val),
-          emptyMessage: 'No hay reglas ni procedimientos asignados.',
+          emptyMessage: 'No hay reglas de negocio asignadas.',
+        ),
+        const SizedBox(height: 14),
+        ArtifactListEditor(
+          title: 'Procedimientos Almacenados (PROC)',
+          hintText: 'Ej. PR_ACTUALIZA_COTIZACION, PR_VALIDA_POLIZA',
+          icon: Icons.data_usage_rounded,
+          color: Colors.deepOrange.shade600,
+          items: _procedimientos,
+          onChanged: (val) => setState(() => _procedimientos = val),
+          emptyMessage: 'No hay procedimientos asignados.',
         ),
         const SizedBox(height: 14),
         ArtifactListEditor(

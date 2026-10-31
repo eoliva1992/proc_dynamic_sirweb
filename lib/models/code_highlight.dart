@@ -482,11 +482,17 @@ List<CodeToken> _tokenizeSql(String s) {
       continue;
     }
 
-    // Bind variable `:p_dato`, omnipresente en las reglas dinámicas.
+    // Bind variable `:p_dato` o `:gen.variable`, omnipresente en las reglas dinámicas y SQL.
     if (ch == ':' && i + 1 < s.length && _isWordChar(s[i + 1])) {
       var j = i + 1;
-      while (j < s.length && _isWordChar(s[j])) {
-        j++;
+      while (j < s.length) {
+        if (_isWordChar(s[j])) {
+          j++;
+        } else if (s[j] == '.' && j + 1 < s.length && _isWordChar(s[j + 1])) {
+          j++; // Consume el punto para notación compuesta :gen.variable
+        } else {
+          break;
+        }
       }
       out.emit(s.substring(i, j), CodeTokenKind.param);
       i = j;

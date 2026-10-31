@@ -21,6 +21,7 @@ import '../widgets/editor_split_container.dart';
 import '../widgets/monaco_editor_widget.dart';
 import '../widgets/plsql_tables.dart' show extractSqlTables;
 import '../widgets/slide_up_panel.dart';
+import '../widgets/sql_executor/sql_bind_variables_modal.dart';
 import '../widgets/sql_executor/sql_dml_generator_dialog.dart';
 import '../widgets/sql_executor/sql_executor_results_panel.dart';
 import '../widgets/sql_executor/sql_executor_status_bar.dart';
@@ -89,6 +90,14 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
       return procedimientosProvider.cdUsuario.trim().isNotEmpty;
     };
     _stateCtrl.confirmProdExecution = _confirmProdExecution;
+    _stateCtrl.onRequestBindVariables = (variables, preview) {
+      return SqlBindVariablesModal.show(
+        context,
+        variables: variables,
+        statementPreview: preview,
+        ambiente: _stateCtrl.ambiente,
+      );
+    };
     _stateCtrl.onDdlCompilationErrors = _handleDdlCompilationErrors;
     _stateCtrl.onTabChangeRequested = (idx) {
       if (mounted && _resultTabCtrl.index != idx) {

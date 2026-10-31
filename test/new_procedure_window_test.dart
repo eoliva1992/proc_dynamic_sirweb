@@ -57,6 +57,24 @@ void main() {
       reason: 'minimizar no debe reiniciar el formulario',
     );
 
+    // ── Cambio de Tipo de Configuración con MenuAnchor ────────────────────
+    // Delphi es el valor por defecto
+    expect(find.text('Delphi'), findsOneWidget);
+
+    // Abrir menú de configuración
+    await tester.tap(find.text('Delphi'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    // Verificar que se listan opciones de configuración y seleccionar JavaScript
+    expect(find.text('JavaScript'), findsOneWidget);
+    await tester.tap(find.text('JavaScript'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    // El selector ahora muestra JavaScript y la etiqueta de lenguaje se actualizó
+    expect(find.text('JavaScript'), findsWidgets);
+
     // ── Cerrar completa el Future con null ────────────────────────────────
     await tester.tap(find.byTooltip('Cerrar (Esc)'));
     // El clic debe responder de inmediato: sin esperar el timeout del

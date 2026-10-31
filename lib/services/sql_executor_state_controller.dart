@@ -127,6 +127,14 @@ class SqlExecutorStateController extends ChangeNotifier {
   /// PL-SQL en ambiente Producción. Devuelve `true` para continuar.
   Future<bool> Function(SqlStatement stmt)? confirmProdExecution;
 
+  /// Inyectado por la página: solicita al usuario los valores para las bind variables detectadas.
+  /// Si devuelve `null`, la ejecución se cancela.
+  Future<Map<String, dynamic>?> Function(
+    List<String> variables,
+    String statementPreview,
+  )?
+  onRequestBindVariables;
+
   /// Inyectado por la página: llamado cuando una sentencia DDL termina con errores de compilación,
   /// o con una lista vacía cuando termina con éxito para limpiar los marcadores.
   void Function(SqlStatement stmt, List<SqlDdlError> errors)?
@@ -560,22 +568,43 @@ class SqlExecutorStateController extends ChangeNotifier {
   }
 
   int _offsetOf(int line, int col) {
-    final lines = _text.split('\n');
     var offset = 0;
-    for (var i = 0; i < line - 1 && i < lines.length; i++) {
-      offset += lines[i].length + 1;
+    var currentLine = 1;
+    final targetLine = line;
+    final len = _text.length;
+
+    while (currentLine < targetLine && offset < len) {
+      final nextNewline = _text.indexOf('\n', offset);
+      if (nextNewline == -1) {
+        offset = len;
+        break;
+      }
+      offset = nextNewline + 1;
+      currentLine++;
     }
-    return offset + (col - 1);
+    return (offset + (col - 1)).clamp(0, len);
   }
 
   SqlStatement? currentStatement() {
     if (_text.trim().isEmpty) return null;
     final offset = _offsetOf(_cursorLine, _cursorCol);
     final stmts = statements;
-    for (final s in stmts) {
-      if (offset >= s.startOffset && offset <= s.endOffset) return s;
+    if (stmts.isEmpty) return null;
+
+    var low = 0;
+    var high = stmts.length - 1;
+    while (low <= high) {
+      final mid = (low + high) >> 1;
+      final s = stmts[mid];
+      if (offset < s.startOffset) {
+        high = mid - 1;
+      } else if (offset > s.endOffset) {
+        low = mid + 1;
+      } else {
+        return s;
+      }
     }
-    return stmts.isNotEmpty ? stmts.last : null;
+    return stmts.last;
   }
 
   // ─── Ejecución ─────────────────────────────────────────────────────────────
@@ -661,6 +690,18 @@ class SqlExecutorStateController extends ChangeNotifier {
       final confirmed = await confirmProdExecution!(stmt);
       if (!confirmed) return;
     }
+
+    // Detectar si la sentencia utiliza bind variables (:variable o :gen.variable)
+    Map<String, dynamic>? binds;
+    final detectedBinds = extractBindVariables(stmt.text);
+    if (detectedBinds.isNotEmpty && onRequestBindVariables != null) {
+      binds = await onRequestBindVariables!(detectedBinds, _preview(stmt.text));
+      if (binds == null) {
+        // Usuario canceló el modal de entrada
+        return;
+      }
+    }
+
     _running = true;
     _cancelRequested = false;
     final client = http.Client();
@@ -695,6 +736,7 @@ class SqlExecutorStateController extends ChangeNotifier {
                 ambiente: _ambiente,
                 owner: owner,
                 sessionId: currentSessionId,
+                binds: binds,
                 maxRows: _maxRows,
                 timeoutSegundos: _timeoutSeconds,
                 client: client,
@@ -723,6 +765,7 @@ class SqlExecutorStateController extends ChangeNotifier {
                 ambiente: _ambiente,
                 owner: owner,
                 sessionId: currentSessionId,
+                binds: binds,
                 maxRows: _maxRows,
                 timeoutSegundos: _timeoutSeconds,
                 client: client,
@@ -774,6 +817,7 @@ class SqlExecutorStateController extends ChangeNotifier {
                 ambiente: _ambiente,
                 owner: owner,
                 sessionId: currentSessionId,
+                binds: binds,
                 timeoutSegundos: _timeoutSeconds,
                 client: client,
                 cancelado: () => _cancelRequested,

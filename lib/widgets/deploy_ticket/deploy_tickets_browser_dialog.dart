@@ -63,13 +63,8 @@ class _DeployTicketsBrowserDialogState
   String? _selectedDb;
   String? _selectedDbd;
 
-  static const List<String> _tipoSolicitudSugerencias = [
-    'FreshServer',
-    'Matriz',
-    'Mesa de servicio',
-    'Sysid',
-    'Satelite',
-  ];
+  static const List<String> _tipoSolicitudSugerencias =
+      DeployTicket.tiposSolicitudSugerencias;
 
   static const String _prefKeyViewMode = 'deploy_tickets_browser_view_mode';
   static const String _prefKeyInspectorOpen =
@@ -1872,6 +1867,7 @@ class _DeployTicketsBrowserDialogState
 
   int _countArtifacts(DeployTicket t) {
     return t.reglasNegocio.length +
+        t.procedimientos.length +
         t.paquetes.length +
         t.funciones.length +
         t.sql.length +
@@ -2130,6 +2126,11 @@ class _DeployTicketsBrowserDialogState
           runSpacing: 6,
           children: [
             _buildCountBadge('RN', t.reglasNegocio.length, Colors.amber),
+            _buildCountBadge(
+              'PROC',
+              t.procedimientos.length,
+              Colors.deepOrange,
+            ),
             _buildCountBadge('PCK', t.paquetes.length, Colors.blue),
             _buildCountBadge('FUN', t.funciones.length, Colors.purple),
             _buildCountBadge('SQL', t.sql.length, Colors.teal),
@@ -2237,10 +2238,16 @@ class _DeployTicketsBrowserDialogState
       padding: const EdgeInsets.all(12),
       children: [
         _buildArtifactListTile(
-          'Reglas de Negocio (RN / PROC)',
+          'Reglas de Negocio (RN)',
           t.reglasNegocio,
           Icons.bolt_outlined,
           Colors.amber,
+        ),
+        _buildArtifactListTile(
+          'Procedimientos Almacenados (PROC)',
+          t.procedimientos,
+          Icons.data_usage_rounded,
+          Colors.deepOrange,
         ),
         _buildArtifactListTile(
           'Paquetes (PCK)',

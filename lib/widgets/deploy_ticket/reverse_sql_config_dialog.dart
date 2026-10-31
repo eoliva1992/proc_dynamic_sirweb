@@ -463,18 +463,6 @@ class _ReverseSqlConfigDialogState extends State<ReverseSqlConfigDialog> {
                             ),
                           ),
                         // Selector de vista: Visual vs YAML
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 12),
-                          child: SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                        // Selector de vista: Visual vs YAML
                         SegmentedButton<_ConfigMode>(
                           showSelectedIcon: false,
                           segments: const [

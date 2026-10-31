@@ -76,6 +76,16 @@ class DeployTicketScript {
 /// Modelo que representa un Ticket de Despliegue / Ficha de Pase Git
 /// para la gestión de pases de base de datos e integración con el archivo index.txt.
 class DeployTicket {
+  /// Lista de tipos de solicitud sugeridos/recomendados tanto en la consulta
+  /// como en la creación/edición de tickets de despliegue.
+  static const List<String> tiposSolicitudSugerencias = [
+    'FreshServer',
+    'Matriz',
+    'Mesa de servicio',
+    'Sysid',
+    'Satelite',
+  ];
+
   final String id;
   final int version;
   final String autoriza;
@@ -83,6 +93,7 @@ class DeployTicket {
   final String tipoSolicitud;
   final String numeroSolicitud;
   final List<String> reglasNegocio;
+  final List<String> procedimientos;
   final List<String> paquetes;
   final List<String> funciones;
   final List<DeployTicketScript> sql;
@@ -107,6 +118,7 @@ class DeployTicket {
     this.tipoSolicitud = '',
     this.numeroSolicitud = '',
     this.reglasNegocio = const [],
+    this.procedimientos = const [],
     this.paquetes = const [],
     this.funciones = const [],
     this.sql = const [],
@@ -141,6 +153,7 @@ class DeployTicket {
     String? tipoSolicitud,
     String? numeroSolicitud,
     List<String>? reglasNegocio,
+    List<String>? procedimientos,
     List<String>? paquetes,
     List<String>? funciones,
     List<DeployTicketScript>? sql,
@@ -165,6 +178,7 @@ class DeployTicket {
       tipoSolicitud: tipoSolicitud ?? this.tipoSolicitud,
       numeroSolicitud: numeroSolicitud ?? this.numeroSolicitud,
       reglasNegocio: reglasNegocio ?? this.reglasNegocio,
+      procedimientos: procedimientos ?? this.procedimientos,
       paquetes: paquetes ?? this.paquetes,
       funciones: funciones ?? this.funciones,
       sql: sql ?? this.sql,
@@ -236,6 +250,7 @@ class DeployTicket {
       tipoSolicitud: json['tipoSolicitud']?.toString() ?? '',
       numeroSolicitud: json['numeroSolicitud']?.toString() ?? '',
       reglasNegocio: parseStringList(json['reglasNegocio']),
+      procedimientos: parseStringList(json['procedimientos']),
       paquetes: parseStringList(json['paquetes']),
       funciones: parseStringList(json['funciones']),
       sql: parseScriptList(json['sql']),
@@ -272,6 +287,7 @@ class DeployTicket {
       'usuarioCrea': usuarioCrea,
       'url': url?.trim().isEmpty ?? true ? null : url!.trim(),
       'reglasNegocio': joinOrNull(reglasNegocio),
+      'procedimientos': joinOrNull(procedimientos),
       'paquetes': joinOrNull(paquetes),
       'funciones': joinOrNull(funciones),
       'sql': scriptsOrNull(sql),
@@ -321,6 +337,7 @@ class DeployTicket {
           : (Platform.environment['USERNAME'] ?? '').toUpperCase(),
       'url': url?.trim().isEmpty ?? true ? null : url!.trim(),
       'reglasNegocio': joinOrNull(reglasNegocio),
+      'procedimientos': joinOrNull(procedimientos),
       'paquetes': joinOrNull(paquetes),
       'funciones': joinOrNull(funciones),
       'sql': scriptsOrNull(sql),
@@ -345,6 +362,7 @@ class DeployTicket {
     String? parsedDbd;
 
     final reglasNegocio = <String>[];
+    final procedimientos = <String>[];
     final paquetes = <String>[];
     final funciones = <String>[];
     final sql = <DeployTicketScript>[];
@@ -390,8 +408,10 @@ class DeployTicket {
           parsedDbd = val;
           break;
         case 'RN':
-        case 'PROC':
           _addCommaSeparated(reglasNegocio, val);
+          break;
+        case 'PROC':
+          _addCommaSeparated(procedimientos, val);
           break;
         case 'PCK':
           _addCommaSeparated(paquetes, val);
@@ -424,6 +444,7 @@ class DeployTicket {
       tipoSolicitud: parsedTipoSolicitud,
       numeroSolicitud: parsedNumeroSolicitud,
       reglasNegocio: reglasNegocio,
+      procedimientos: procedimientos,
       paquetes: paquetes,
       funciones: funciones,
       sql: sql,
@@ -513,6 +534,9 @@ class DeployTicket {
     }
 
     if (reglasNegocio.isNotEmpty) sb.writeln('RN:${reglasNegocio.join(',')}');
+    if (procedimientos.isNotEmpty) {
+      sb.writeln('PROC:${procedimientos.join(',')}');
+    }
     if (paquetes.isNotEmpty) sb.writeln('PCK:${paquetes.join(',')}');
     if (funciones.isNotEmpty) sb.writeln('FUN:${funciones.join(',')}');
     if (sql.isNotEmpty) sb.writeln('SQL:${sqlNames.join(',')}');

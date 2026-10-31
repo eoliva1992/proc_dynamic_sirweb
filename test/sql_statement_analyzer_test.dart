@@ -365,5 +365,66 @@ Select *
       expect(cleaned.endsWith(';'), isFalse);
       expect(cleaned, contains('Select * \n from evento'));
     });
+
+    test(
+      'extractBindVariables extrae :variable y :gen.variable ignorando :=, strings y comentarios',
+      () {
+        const sql = '''
+          -- Comentario con :falso_var
+          /* Bloque con :otro_falso */
+          SELECT * FROM poliza 
+          WHERE cd_ramo = :cd_ramo 
+            AND nu_poliza = :gen.nu_poliza 
+            AND texto = 'no es :var ni :nada'
+            AND estado = :cd_ramo; -- repetida
+        ''';
+        final vars = extractBindVariables(sql);
+        expect(vars, ['cd_ramo', 'gen.nu_poliza']);
+
+        const plsql = '''
+          DECLARE
+            v_num NUMBER := 10;
+          BEGIN
+            IF :gen.limite > v_num THEN
+              :p_resultado := 'MAYOR';
+            END IF;
+          END;
+        ''';
+        final varsPlSql = extractBindVariables(plsql);
+        expect(varsPlSql, ['gen.limite', 'p_resultado']);
+      },
+    );
+
+    test(
+      'rendimiento en scripts masivos (10.000+ lineas) se completa rapidamente',
+      () {
+        final buffer = StringBuffer();
+        for (var i = 1; i <= 3000; i++) {
+          buffer.writeln(
+            'SELECT $i AS id, \'texto de prueba $i\' AS descripcion FROM dual;',
+          );
+          buffer.writeln('UPDATE mi_tabla SET valor = $i WHERE id = $i;');
+          buffer.writeln('/* comentario $i */');
+          buffer.writeln('DELETE FROM temp_table WHERE id = $i;');
+        }
+        final script = buffer.toString();
+        final sw = Stopwatch()..start();
+        final stmts = splitStatements(script);
+        sw.stop();
+
+        expect(stmts.length, equals(9000));
+        // Debe completarse en menos de 1 segundo (usualmente < 150ms tras optimizar a O(N))
+        expect(sw.elapsedMilliseconds, lessThan(1500));
+
+        // Verificar que el cálculo de líneas sea coherente
+        expect(stmts.first.startLine, equals(0));
+        expect(stmts.last.startLine, greaterThan(10000));
+
+        // Búsqueda binaria en statementAtCursor
+        final midStmt = statementAtCursor(script, stmts[4500].startOffset + 5);
+        expect(midStmt, isNotNull);
+        expect(midStmt!.startOffset, equals(stmts[4500].startOffset));
+      },
+    );
   });
 }

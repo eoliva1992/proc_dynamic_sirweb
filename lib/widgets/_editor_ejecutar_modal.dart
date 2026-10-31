@@ -92,6 +92,17 @@ const _kCamposTextoEjecucion = <_CampoEjecucion>[
   _CampoEjecucion('stringMatriz', 'STRING_MATRIZ', numerico: false),
 ];
 
+/// Campos específicos según la configuración de la regla de negocio.
+const _kCamposPorConfiguracion = <String, List<_CampoEjecucion>>{
+  'D': [
+    _CampoEjecucion(
+      'p_cd_dato',
+      'P_CD_DATO',
+      hint: 'Código del dato (CD_DATO)',
+    ),
+  ],
+};
+
 class _EjecutarProcedimientoModal extends StatefulWidget {
   final String cdProcedimiento;
   final String ambiente;
@@ -129,6 +140,7 @@ class _EjecutarProcedimientoModalState
   http.Client? _ejecucionClient;
   bool _cancelado = false;
   EjecucionResultado? _resultado;
+  SqlHttpTraceEntry? _lastHttpTrace;
   String? _error;
 
   /// Ambiente contra el que se ejecuta. Arranca en el del tab pero se puede
@@ -137,7 +149,8 @@ class _EjecutarProcedimientoModalState
   late String _ambiente = widget.ambiente;
 
   /// 0 = salidas, 1 = traza, 2 = contexto, 3 = variables dinámicas,
-  /// 4 = variables declaradas (bloque `DECLARE` del orquestador).
+  /// 4 = variables declaradas (bloque `DECLARE` del orquestador),
+  /// 5 = consola HTTP (request / response / cURL).
   int _tab = 0;
 
   Offset _position = Offset.zero;
@@ -154,13 +167,20 @@ class _EjecutarProcedimientoModalState
 
   String get _prefsKey => 'ejecutar_params_${widget.cdProcedimiento}';
 
+  List<_CampoEjecucion> get _camposEspecificosConfig =>
+      _kCamposPorConfiguracion[widget.inConfiguracion ?? ''] ?? const [];
+
   @override
   void initState() {
     super.initState();
-    for (final c in [..._kCamposEjecucion, ..._kCamposTextoEjecucion]) {
+    for (final c in [
+      ..._kCamposEjecucion,
+      ..._kCamposTextoEjecucion,
+      ..._camposEspecificosConfig,
+    ]) {
       _ctrls[c.key] = TextEditingController();
     }
-    _ctrls['cdEntidad']!.text = '1';
+    _ctrls['cdEntidad']!.text = '30';
     unawaited(_restaurarParametros());
   }
 
@@ -298,14 +318,32 @@ class _EjecutarProcedimientoModalState
 
     // Validación de numéricos: un valor no parseable se enviaría como null
     // silenciosamente y la ejecución daría un resultado engañoso.
-    for (final c in _kCamposEjecucion) {
-      final txt = _ctrls[c.key]!.text.trim();
+    for (final c in [..._kCamposEjecucion, ..._camposEspecificosConfig]) {
+      if (!c.numerico) continue;
+      final txt = _ctrls[c.key]?.text.trim() ?? '';
       if (txt.isNotEmpty && int.tryParse(txt) == null) {
         setState(() {
           _error = '${c.label} debe ser un número entero.';
           _resultado = null;
         });
         return;
+      }
+    }
+
+    // Si la configuración requiere campos específicos (ej. p_cd_dato en 'D'),
+    // se agregan a camposAdicionales si tienen valor.
+    for (final c in _camposEspecificosConfig) {
+      final txt = _ctrls[c.key]?.text.trim() ?? '';
+      if (txt.isNotEmpty) {
+        extra ??= <String, dynamic>{};
+        if (c.numerico) {
+          final n = int.tryParse(txt);
+          if (n != null) {
+            extra[c.key] = n;
+          }
+        } else {
+          extra[c.key] = txt;
+        }
       }
     }
 
@@ -377,6 +415,7 @@ class _EjecutarProcedimientoModalState
       if (!mounted || _cancelado) return;
       setState(() {
         _resultado = res;
+        _lastHttpTrace = res.httpTrace;
         _ejecutando = false;
         _tab = res.tieneError ? 1 : 0;
       });
@@ -418,7 +457,7 @@ class _EjecutarProcedimientoModalState
   void _limpiar() {
     setState(() {
       for (final entry in _ctrls.entries) {
-        entry.value.text = entry.key == 'cdEntidad' ? '1' : '';
+        entry.value.text = entry.key == 'cdEntidad' ? '30' : '';
       }
       _camposAdicionalesCtrl.clear();
       _timeoutCtrl.text = '30';
@@ -543,7 +582,8 @@ class _EjecutarProcedimientoModalState
     1 => 'traza',
     2 => 'contexto',
     3 => 'variables',
-    _ => 'declaradas',
+    4 => 'declaradas',
+    _ => 'http',
   };
   static String _tsv(Iterable<List<String>> filas) =>
       filas.map((f) => f.join('\t')).join('\n');
@@ -597,7 +637,7 @@ class _EjecutarProcedimientoModalState
           ]),
           'tsv',
         );
-      default:
+      case 4:
         return (
           _tsv([
             ['VARIABLE', 'TIPO', 'INICIAL', 'VALOR FINAL'],
@@ -612,6 +652,23 @@ class _EjecutarProcedimientoModalState
           ]),
           'tsv',
         );
+      default:
+        final trace = res.httpTrace ?? _lastHttpTrace;
+        if (trace == null) {
+          return ('Sin traza HTTP', 'txt');
+        }
+        final buf = StringBuffer()
+          ..writeln('${trace.method} ${trace.url}')
+          ..writeln('Status: ${trace.statusCode ?? "-"} | Duración: ${trace.durationMs ?? 0}ms')
+          ..writeln('\n--- HEADERS ---');
+        trace.requestHeaders.forEach((k, v) => buf.writeln('$k: $v'));
+        buf.writeln('\n--- REQUEST BODY ---');
+        final req = trace.prettyRequestBody;
+        buf.writeln(req.isNotEmpty ? req : (trace.requestBody ?? '(vacío)'));
+        buf.writeln('\n--- RESPONSE BODY ---');
+        final resp = trace.prettyResponseBody;
+        buf.writeln(resp.isNotEmpty ? resp : (trace.responseBody ?? '(vacío)'));
+        return (buf.toString(), 'log');
     }
   }
 
@@ -860,42 +917,46 @@ class _EjecutarProcedimientoModalState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Row(
-                        children: [
-                          Text(
-                            'Ejecutar procedimiento dinámico',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                              color: isDark ? Colors.white38 : Colors.black38,
-                              letterSpacing: 0.4,
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Ejecutar procedimiento dinámico',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: isDark ? Colors.white38 : Colors.black38,
+                                letterSpacing: 0.4,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          // El ambiente se cambia acá mismo: no hace falta
-                          // cerrar la ventana ni volver al tab del editor.
-                          AmbienteSelector(
-                            value: _ambiente,
-                            onChanged: _onAmbienteChanged,
-                          ),
-                          if (widget.inConfiguracion != null &&
-                              widget.inConfiguracion!.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            // El ambiente se cambia acá mismo: no hace falta
+                            // cerrar la ventana ni volver al tab del editor.
+                            AmbienteSelector(
+                              value: _ambiente,
+                              onChanged: _onAmbienteChanged,
+                            ),
+                            if (widget.inConfiguracion != null &&
+                                widget.inConfiguracion!.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              _StatusBadge(
+                                label: 'Config ${widget.inConfiguracion}',
+                                color: const Color(0xFF607D8B),
+                              ),
+                            ],
                             const SizedBox(width: 6),
                             _StatusBadge(
-                              label: 'Config ${widget.inConfiguracion}',
-                              color: const Color(0xFF607D8B),
+                              label: widget.obtenerTexto != null
+                                  ? 'Código del editor'
+                                  : 'Código guardado',
+                              color: widget.obtenerTexto != null
+                                  ? Colors.orange
+                                  : const Color(0xFF16A34A),
                             ),
                           ],
-                          const SizedBox(width: 6),
-                          _StatusBadge(
-                            label: widget.obtenerTexto != null
-                                ? 'Código del editor'
-                                : 'Código guardado',
-                            color: widget.obtenerTexto != null
-                                ? Colors.orange
-                                : const Color(0xFF16A34A),
-                          ),
-                        ],
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
@@ -1040,6 +1101,16 @@ class _EjecutarProcedimientoModalState
                 const SizedBox(height: 4),
                 _SeccionLabel(label: 'Parámetros', isDark: isDark),
                 const SizedBox(height: 8),
+                for (final c in _camposEspecificosConfig) ...[
+                  _CampoTexto(
+                    controller: _ctrls[c.key]!,
+                    label: c.label,
+                    hint: c.hint ?? '',
+                    numerico: c.numerico,
+                    isDark: isDark,
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 for (final c in _kCamposTextoEjecucion) ...[
                   _CampoTexto(
                     controller: _ctrls[c.key]!,
@@ -1184,10 +1255,27 @@ class _EjecutarProcedimientoModalState
                 style: const TextStyle(color: Colors.redAccent, fontSize: 12),
               ),
               const SizedBox(height: 12),
-              TextButton.icon(
-                onPressed: _ejecutando ? null : () => unawaited(_ejecutar()),
-                icon: const Icon(Icons.refresh_rounded, size: 16),
-                label: const Text('Reintentar'),
+              Wrap(
+                spacing: 8,
+                alignment: WrapAlignment.center,
+                children: [
+                  TextButton.icon(
+                    onPressed: _ejecutando ? null : () => unawaited(_ejecutar()),
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('Reintentar'),
+                  ),
+                  if (_lastHttpTrace != null)
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _error = null;
+                          _tab = 5;
+                        });
+                      },
+                      icon: const Icon(Icons.lan_outlined, size: 16),
+                      label: const Text('Ver traza HTTP'),
+                    ),
+                ],
               ),
             ],
           ),
@@ -1339,6 +1427,15 @@ class _EjecutarProcedimientoModalState
             isDark: isDark,
             onTap: () => setState(() => _tab = 4),
           ),
+          const SizedBox(width: 6),
+          _TabChip(
+            label: 'HTTP',
+            count: (res.httpTrace ?? _lastHttpTrace) != null ? 1 : 0,
+            active: _tab == 5,
+            accent: const Color(0xFF0284C7),
+            isDark: isDark,
+            onTap: () => setState(() => _tab = 5),
+          ),
           const Spacer(),
           IconButton(
             icon: const Icon(Icons.file_download_outlined, size: 16),
@@ -1365,7 +1462,8 @@ class _EjecutarProcedimientoModalState
       1 => _buildTraza(res, isDark),
       2 => _buildContexto(res, isDark),
       3 => _buildVariables(res, isDark),
-      _ => _buildDeclaradas(res, isDark),
+      4 => _buildDeclaradas(res, isDark),
+      _ => _buildHttpTrace(res, isDark),
     };
   }
 
@@ -1582,6 +1680,248 @@ class _EjecutarProcedimientoModalState
                 if (i > 0) Divider(height: 1, color: borderColor),
                 _FilaVariableDeclarada(variable: vars[i], isDark: isDark),
               ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Pestaña HTTP: Muestra la consola con la petición y respuesta HTTP detalladas,
+  /// incluyendo URL, método, código de estado, tiempo transcurrido, encabezados,
+  /// payloads JSON formateados y opción para copiar comando cURL.
+  Widget _buildHttpTrace(EjecucionResultado res, bool isDark) {
+    final trace = res.httpTrace ?? _lastHttpTrace;
+    if (trace == null) {
+      return _EmptyState(
+        icon: Icons.lan_outlined,
+        message: 'No hay traza HTTP disponible para esta ejecución.',
+        isDark: isDark,
+      );
+    }
+
+    final borderColor = isDark
+        ? const Color(0xFF2F2F2F)
+        : const Color(0xFFEDF0F5);
+    final cardBg = isDark
+        ? const Color(0xFF1E1E1E)
+        : const Color(0xFFFAFAFA);
+    final isSuccess = trace.statusCode != null &&
+        trace.statusCode! >= 200 &&
+        trace.statusCode! < 300;
+    final statusColor = isSuccess
+        ? const Color(0xFF16A34A)
+        : (trace.statusCode != null ? Colors.redAccent : Colors.orange);
+
+    final reqText = trace.prettyRequestBody.isNotEmpty
+        ? trace.prettyRequestBody
+        : (trace.requestBody ?? '(vacío)');
+    final respText = trace.prettyResponseBody.isNotEmpty
+        ? trace.prettyResponseBody
+        : (trace.responseBody ?? '(vacío)');
+
+    return ListView(
+      padding: const EdgeInsets.all(14),
+      children: [
+        // ── Header de estado HTTP y acciones ──
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: borderColor),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(
+                    color: statusColor.withValues(alpha: 0.5),
+                  ),
+                ),
+                child: Text(
+                  trace.statusCode != null ? '${trace.statusCode}' : 'ERR',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontFamily: 'Consolas',
+                    fontWeight: FontWeight.w700,
+                    color: statusColor,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.blueGrey.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  trace.method,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontFamily: 'Consolas',
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SelectableText(
+                  trace.url,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontFamily: 'Consolas',
+                  ),
+                ),
+              ),
+              if (trace.durationMs != null) ...[
+                const SizedBox(width: 8),
+                Text(
+                  '${trace.durationMs} ms',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? Colors.white60 : Colors.black54,
+                  ),
+                ),
+              ],
+              const SizedBox(width: 6),
+              IconButton(
+                icon: const Icon(Icons.terminal_rounded, size: 16),
+                tooltip: 'Copiar cURL',
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: trace.toCurlCommand()));
+                  AppToast.info('Comando cURL copiado al portapapeles');
+                },
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+              ),
+            ],
+          ),
+        ),
+
+        if (trace.error != null) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.redAccent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: Colors.redAccent.withValues(alpha: 0.4),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.error_outline, size: 16, color: Colors.redAccent),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: SelectableText(
+                    trace.error!,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      fontFamily: 'Consolas',
+                      color: Colors.redAccent,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        const SizedBox(height: 14),
+
+        // ── Petición (Request Body) ──
+        _SeccionLabel(
+          label: 'Request Body (Payload enviado al servidor)',
+          isDark: isDark,
+        ),
+        const SizedBox(height: 6),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: borderColor),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.content_copy_rounded, size: 14),
+                    tooltip: 'Copiar Request JSON',
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: reqText));
+                      AppToast.info('Request JSON copiado');
+                    },
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                  ),
+                ],
+              ),
+              SelectableText(
+                reqText,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontFamily: 'Consolas',
+                  height: 1.35,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 14),
+
+        // ── Respuesta (Response Body) ──
+        _SeccionLabel(
+          label: 'Response Body (Respuesta del servidor)',
+          isDark: isDark,
+        ),
+        const SizedBox(height: 6),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: borderColor),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.content_copy_rounded, size: 14),
+                    tooltip: 'Copiar Response JSON',
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: respText));
+                      AppToast.info('Response JSON copiado');
+                    },
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                  ),
+                ],
+              ),
+              SelectableText(
+                respText,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontFamily: 'Consolas',
+                  height: 1.35,
+                ),
+              ),
             ],
           ),
         ),

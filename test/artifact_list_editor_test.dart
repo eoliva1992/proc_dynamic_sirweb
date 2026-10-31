@@ -55,6 +55,7 @@ void main() {
                 icon: Icons.rule,
                 color: Colors.amber,
                 items: items,
+                initiallyExpanded: true,
                 onChanged: (updated) => setState(() => items = updated),
               );
             },
@@ -121,6 +122,49 @@ void main() {
 
       expect(items, isEmpty);
       expect(find.text('Limpiar'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'ArtifactListEditor inicia colapsado cuando items esta vacio y se expande al tocar la cabecera',
+    (tester) async {
+      List<String> items = [];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                return ArtifactListEditor(
+                  title: 'Procedimientos',
+                  hintText: 'Ingresa procedimiento',
+                  icon: Icons.code,
+                  color: Colors.blue,
+                  items: items,
+                  onChanged: (updated) => setState(() => items = updated),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+
+      // Al estar vacio, por defecto inicia colapsado (no se ve el TextField)
+      expect(find.byType(TextField), findsNothing);
+
+      // Tocar la cabecera para expandir
+      await tester.tap(find.text('Procedimientos'));
+      await tester.pumpAndSettle();
+
+      // Ahora el campo de texto es visible
+      expect(find.byType(TextField), findsOneWidget);
+
+      // Tocar el chevron para colapsar nuevamente
+      await tester.tap(find.byIcon(Icons.keyboard_arrow_down_rounded));
+      await tester.pumpAndSettle();
+
+      // Vuelve a estar colapsado
+      expect(find.byType(TextField), findsNothing);
     },
   );
 }

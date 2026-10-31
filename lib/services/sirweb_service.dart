@@ -9,6 +9,7 @@ import '../models/ejecucion_procedimiento.dart';
 import '../models/evento_info.dart';
 import '../models/llamada_plsql.dart';
 import '../models/procedimiento.dart';
+import '../models/sql_http_trace.dart';
 import '../models/uso_procedimiento.dart';
 import '../models/variable_dinamica.dart';
 import 'app_log.dart';
@@ -963,34 +964,65 @@ class SirwebService {
     final segundos = timeoutSegundos ?? 30;
     final httpClient = client ?? _client;
     final reloj = Stopwatch()..start();
+    final requestBodyStr = jsonEncode(body);
+    final headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
 
-    final response = await guardRequest(
-      () => httpClient.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: jsonEncode(body),
-      ),
-      timeout: Duration(seconds: segundos + 15),
-      contexto: 'el servidor SirWeb',
-      cancelado: cancelado,
+    final trace = SqlHttpTraceEntry(
+      id: DateTime.now().millisecondsSinceEpoch,
+      timestamp: DateTime.now(),
+      method: 'POST',
+      url: uri.toString(),
+      endpoint: uri.path,
+      requestHeaders: headers,
+      requestBody: requestBodyStr,
+      status: SqlHttpTraceStatus.running,
     );
 
+    http.Response response;
+    try {
+      response = await guardRequest(
+        () => httpClient.post(
+          uri,
+          headers: headers,
+          body: requestBodyStr,
+        ),
+        timeout: Duration(seconds: segundos + 15),
+        contexto: 'el servidor SirWeb',
+        cancelado: cancelado,
+      );
+    } catch (e) {
+      trace.durationMs = reloj.elapsedMilliseconds;
+      trace.status = cancelado?.call() == true
+          ? SqlHttpTraceStatus.cancelled
+          : SqlHttpTraceStatus.error;
+      trace.error = e.toString();
+      rethrow;
+    }
+
+    final elapsed = reloj.elapsedMilliseconds;
+    trace.durationMs = elapsed;
+    trace.statusCode = response.statusCode;
+    final rawResp = _cuerpo(response.bodyBytes);
+    trace.responseBody = rawResp;
+
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      trace.status = SqlHttpTraceStatus.error;
       // El backend suele devolver el detalle del fallo en el envelope aun con
       // status de error: se intenta leerlo antes de tirar el mensaje genérico.
       final detalle = _mensajeDeEnvelope(response.bodyBytes);
       final msg =
           detalle ??
           'Error ${response.statusCode} al ejecutar el procedimiento';
+      trace.error = msg;
       AppLog.instance.server(
         uri.path,
         message: msg,
         statusCode: response.statusCode,
         argumentos: body,
-        respuesta: _cuerpo(response.bodyBytes),
+        respuesta: rawResp,
       );
       throw Exception(msg);
     }
@@ -1004,22 +1036,28 @@ class SirwebService {
         : null;
 
     if (envelope['success'] == false) {
+      trace.status = SqlHttpTraceStatus.error;
       final msg =
           envelope['message']?.toString() ??
           envelope['error']?.toString() ??
           'Error al ejecutar el procedimiento';
+      trace.error = msg;
       AppLog.instance.server(
         uri.path,
         message: msg,
         statusCode: response.statusCode,
         argumentos: body,
-        respuesta: _cuerpo(response.bodyBytes),
+        respuesta: rawResp,
       );
       // Si vino data, se devuelve igual: contiene errorOracle y traza, que es
       // justo lo que el usuario necesita ver cuando la ejecución falla.
-      if (dataMap != null) return EjecucionResultado.fromJson(dataMap);
+      if (dataMap != null) {
+        return EjecucionResultado.fromJson(dataMap, httpTrace: trace);
+      }
       throw Exception(msg);
     }
+
+    trace.status = SqlHttpTraceStatus.success;
 
     AppLog.instance.transaction(
       'Ejecutar procedimiento',
@@ -1032,8 +1070,10 @@ class SirwebService {
       },
     );
 
-    if (dataMap != null) return EjecucionResultado.fromJson(dataMap);
-    return const EjecucionResultado();
+    if (dataMap != null) {
+      return EjecucionResultado.fromJson(dataMap, httpTrace: trace);
+    }
+    return EjecucionResultado(httpTrace: trace);
   }
 
   /// Cuerpo de la respuesta como texto, para dejarlo en el log.

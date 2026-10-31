@@ -162,6 +162,11 @@ class DeployTicketExporterService {
         (ticket.database != null && ticket.database!.trim().isNotEmpty)
         ? ticket.database!.trim()
         : 'Desa';
+    final dbDestino =
+        (ticket.databaseDestino != null &&
+            ticket.databaseDestino!.trim().isNotEmpty)
+        ? ticket.databaseDestino!.trim()
+        : 'Prod';
     final usuario = ticket.usuarioActualiza?.trim().isNotEmpty == true
         ? ticket.usuarioActualiza!.trim().toLowerCase()
         : (ticket.usuarioCrea.trim().isNotEmpty
@@ -176,6 +181,7 @@ class DeployTicketExporterService {
     // Calcular total aproximado de tareas para la barra de progreso
     final totalItems =
         ticket.reglasNegocio.length +
+        ticket.procedimientos.length +
         ticket.sql.length +
         ticket.reverseSql.length +
         ticket.objetos.length +
@@ -400,6 +406,36 @@ class DeployTicketExporterService {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // 7.5 Procedimientos Almacenados (PROC)
+    // Nomenclatura: {DUENO}.{NOMBRE}.sql
+    // ─────────────────────────────────────────────────────────────────────────
+    for (final proc in ticket.procedimientos) {
+      if (proc.trim().isEmpty) continue;
+      final procName = proc.trim().toUpperCase();
+      report('Extrayendo Procedimiento $procName...');
+      final owner = await _resolverDueno(procName, 'PROCEDURE', dbOrigen);
+      final source = await _extraerFuenteObjeto(
+        procName,
+        'PROCEDURE',
+        dbOrigen,
+      );
+      final grantSynonym = await _generarGrantYSinonimoSiNoExiste(
+        objectName: procName,
+        objectType: 'PROCEDURE',
+        owner: owner,
+        dbDestino: dbDestino,
+      );
+      final finalContent = '$source$grantSynonym';
+      final fileName = '$owner.$procName.sql';
+
+      await registrarScript(
+        fileName: fileName,
+        content: finalContent,
+        categoria: 'PROC',
+      );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // 8. Paquetes (PCK)
     // Nomenclatura: {PAQUETE}.sql (especificación y cuerpo separados por /)
     // ─────────────────────────────────────────────────────────────────────────
@@ -530,6 +566,11 @@ class DeployTicketExporterService {
         (ticket.database != null && ticket.database!.trim().isNotEmpty)
         ? ticket.database!.trim()
         : 'Desa';
+    final dbDestino =
+        (ticket.databaseDestino != null &&
+            ticket.databaseDestino!.trim().isNotEmpty)
+        ? ticket.databaseDestino!.trim()
+        : 'Prod';
     final usuario = ticket.usuarioActualiza?.trim().isNotEmpty == true
         ? ticket.usuarioActualiza!.trim().toLowerCase()
         : (ticket.usuarioCrea.trim().isNotEmpty
@@ -545,6 +586,7 @@ class DeployTicketExporterService {
 
     final totalItems =
         ticket.reglasNegocio.length +
+        ticket.procedimientos.length +
         ticket.sql.length +
         ticket.reverseSql.length +
         ticket.objetos.length +
@@ -650,6 +692,28 @@ class DeployTicketExporterService {
         fileName: fileName,
         content: ddl,
         categoria: 'FUNCION',
+      );
+    }
+
+    // 3.5 Procedimientos (PROC)
+    for (final proc in ticket.procedimientos) {
+      if (proc.trim().isEmpty) continue;
+      final procName = proc.trim().toUpperCase();
+      report('Consultando procedimiento $procName...');
+      final dueno = await _resolverDueno(procName, 'PROCEDURE', dbOrigen);
+      final ddl = await _extraerFuenteObjeto(procName, 'PROCEDURE', dbOrigen);
+      final grantSynonym = await _generarGrantYSinonimoSiNoExiste(
+        objectName: procName,
+        objectType: 'PROCEDURE',
+        owner: dueno,
+        dbDestino: dbDestino,
+      );
+      final finalDdl = '$ddl$grantSynonym';
+      final fileName = '$dueno.$procName.sql';
+      await registrarScript(
+        fileName: fileName,
+        content: finalDdl,
+        categoria: 'PROC',
       );
     }
 
@@ -899,8 +963,22 @@ class DeployTicketExporterService {
       )) {
         await escribirArchivo(
           nombreArchivo: fileName,
-          contenido: '-- Función / Procedimiento: ${fun.trim()}\n',
+          contenido: '-- Función: ${fun.trim()}\n',
           categoria: 'FUNCION',
+        );
+      }
+    }
+
+    for (final proc in ticket.procedimientos) {
+      if (proc.trim().isEmpty) continue;
+      final fileName = resolverNombre(proc, defaultExtension: '.sql');
+      if (!exportedFiles.any(
+        (f) => f.nombreArchivo.toLowerCase() == fileName.toLowerCase(),
+      )) {
+        await escribirArchivo(
+          nombreArchivo: fileName,
+          contenido: '-- Procedimiento: ${proc.trim()}\n',
+          categoria: 'PROC',
         );
       }
     }
@@ -999,6 +1077,79 @@ class DeployTicketExporterService {
     }
   }
 
+  /// Verifica si un objeto Oracle existe en el ambiente destino especificado.
+  /// Retorna `false` si el backend responde indicando que no existe o no tiene código fuente.
+  Future<bool> _existeObjetoEnDestino(
+    String objectName,
+    String objectType,
+    String dbDestino,
+  ) async {
+    try {
+      final source = await schemaService.getObjectSource(
+        objectName,
+        objectType,
+        ambiente: dbDestino,
+      );
+      if (source.spec.trim().isNotEmpty) {
+        return true;
+      }
+    } catch (e) {
+      final msg = e.toString().toLowerCase()
+          .replaceAll('ó', 'o')
+          .replaceAll('í', 'i')
+          .replaceAll('á', 'a')
+          .replaceAll('é', 'e')
+          .replaceAll('ú', 'u');
+      if (msg.contains('no se encontro codigo fuente') ||
+          msg.contains('no se encontro el objeto') ||
+          msg.contains('no existe') ||
+          msg.contains('not found')) {
+        return false;
+      }
+    }
+
+    try {
+      final info = await schemaService.getObjectInfo(
+        objectName,
+        objectType,
+        ambiente: dbDestino,
+      );
+      if (info.isNotEmpty) {
+        final hasOwnerOrStatus = info.any(
+          (item) =>
+              (item.name.toUpperCase() == 'OWNER' && item.value.trim().isNotEmpty) ||
+              (item.name.toUpperCase() == 'STATUS' && item.value.trim().isNotEmpty),
+        );
+        if (hasOwnerOrStatus) return true;
+      }
+    } catch (_) {}
+
+    return false;
+  }
+
+  /// Genera las cláusulas GRANT y PUBLIC SYNONYM únicamente si el objeto
+  /// no existe en el ambiente destino especificado.
+  Future<String> _generarGrantYSinonimoSiNoExiste({
+    required String objectName,
+    required String objectType,
+    required String owner,
+    required String dbDestino,
+  }) async {
+    final existe = await _existeObjetoEnDestino(
+      objectName,
+      objectType,
+      dbDestino,
+    );
+
+    if (existe) {
+      return '';
+    }
+
+    final ref = owner.isNotEmpty ? '$owner.$objectName' : objectName;
+    return '\nGRANT EXECUTE ON $ref TO PUBLIC;\n/\n\n'
+        'CREATE OR REPLACE PUBLIC SYNONYM $objectName FOR $ref;\n/\n';
+  }
+
   /// Extrae el paquete completo con especificación y cuerpo separados por `/`.
   Future<String> _extraerFuentePaquete(
     String packageName,
@@ -1078,7 +1229,7 @@ class DeployTicketExporterService {
         '-- Tabla: $tableName (DML: ${table.dml.name.toUpperCase()})',
       );
 
-      // 1. Construir WHERE desde filters e ins
+      // 1. Construir WHERE desde filters, ins, not_ins, betweens y exists
       final whereClauses = <String>[];
       table.filters.forEach((col, expr) {
         final colTrim = col.trim();
@@ -1087,8 +1238,12 @@ class DeployTicketExporterService {
           if (exprTrim.startsWith('=') ||
               exprTrim.startsWith('>') ||
               exprTrim.startsWith('<') ||
+              exprTrim.startsWith('!=') ||
+              exprTrim.startsWith('<>') ||
               exprTrim.toUpperCase().startsWith('LIKE') ||
-              exprTrim.toUpperCase().startsWith('IS')) {
+              exprTrim.toUpperCase().startsWith('NOT LIKE') ||
+              exprTrim.toUpperCase().startsWith('IS') ||
+              exprTrim.toUpperCase().startsWith('BETWEEN')) {
             whereClauses.add('$colTrim $exprTrim');
           } else {
             whereClauses.add("$colTrim = '$exprTrim'");
@@ -1104,6 +1259,38 @@ class DeployTicketExporterService {
         }
       });
 
+      table.notIns.forEach((col, notInList) {
+        final colTrim = col.trim();
+        final notInTrim = notInList.trim();
+        if (colTrim.isNotEmpty && notInTrim.isNotEmpty) {
+          whereClauses.add('$colTrim NOT IN ($notInTrim)');
+        }
+      });
+
+      table.betweens.forEach((col, betweenExpr) {
+        final colTrim = col.trim();
+        final bTrim = betweenExpr.trim();
+        if (colTrim.isNotEmpty && bTrim.isNotEmpty) {
+          if (bTrim.toUpperCase().startsWith('BETWEEN ')) {
+            whereClauses.add('$colTrim $bTrim');
+          } else {
+            whereClauses.add('$colTrim BETWEEN $bTrim');
+          }
+        }
+      });
+
+      for (final ex in table.exists) {
+        final exTrim = ex.trim();
+        if (exTrim.isNotEmpty) {
+          if (exTrim.toUpperCase().startsWith('EXISTS') ||
+              exTrim.toUpperCase().startsWith('NOT EXISTS')) {
+            whereClauses.add(exTrim);
+          } else {
+            whereClauses.add('EXISTS ($exTrim)');
+          }
+        }
+      }
+
       String query;
       if (table.sql != null && table.sql!.trim().isNotEmpty) {
         query = table.sql!.trim();
@@ -1111,17 +1298,24 @@ class DeployTicketExporterService {
         final wherePart = whereClauses.isNotEmpty
             ? ' WHERE ${whereClauses.join(' AND ')}'
             : '';
-        query = 'SELECT * FROM $tableName$wherePart';
+        final orderPart =
+            (table.orderBy != null && table.orderBy!.trim().isNotEmpty)
+            ? ' ORDER BY ${table.orderBy!.trim()}'
+            : '';
+        query = 'SELECT * FROM $tableName$wherePart$orderPart';
       }
 
       // 2. Ejecutar consulta sobre BD origen
+      final executionLimit = (table.limit != null && table.limit! > 0)
+          ? table.limit!
+          : 1000;
       SqlQueryResult result;
       try {
         result = await sqlExecutorService.executeSelect(
           query,
           owner: owner,
           ambiente: ambiente,
-          maxRows: 1000,
+          maxRows: executionLimit,
         );
       } catch (e) {
         buffer.writeln('-- Error consultando $tableName: $e');
@@ -1336,7 +1530,6 @@ class DeployTicketExporterService {
       buffer.writeln();
     }
 
-    buffer.writeln('COMMIT;');
     return buffer.toString();
   }
 
@@ -1454,7 +1647,7 @@ class DeployTicketExporterService {
     return '''DECLARE
   v_texto CLOB;
 BEGIN
-  v_texto := 'BEGIN NULL; END;';
+  v_texto := q'[BEGIN NULL; END;]';
 
   MERGE INTO SIR.PROCEDIMIENTODINAMICO T
   USING DUAL ON (T.CD_PROCEDIMIENTO = '$cdProcedimiento')
@@ -1471,7 +1664,6 @@ BEGIN
     $version, '$cdProcedimiento', '1',
     v_texto, 'P', '$usuario', SYSDATE
   );
-  COMMIT;
 END;
 /
 ''';
@@ -1510,7 +1702,6 @@ END;
       );
     }
 
-    buffer.writeln('\nCOMMIT;');
     return buffer.toString();
   }
 }

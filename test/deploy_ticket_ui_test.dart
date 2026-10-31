@@ -83,4 +83,51 @@ void main() {
       );
     },
   );
+
+  testWidgets(
+    'DeployTicketEditorDialog muestra sugerencias de Tipo de Solicitud (TPSOL) al interactuar',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: rootNavigatorKey,
+          home: Scaffold(
+            body: DeployTicketEditorDialog(
+              onClose: () {},
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      final tipoSolField = find.widgetWithText(
+        TextFormField,
+        'Tipo de Solicitud (TPSOL) *',
+      );
+      expect(tipoSolField, findsOneWidget);
+
+      // Limpiar o escribir texto para disparar sugerencias
+      await tester.enterText(tipoSolField, 'Mat');
+      await tester.pumpAndSettle();
+
+      // Debe aparecer la sugerencia "Matriz"
+      expect(find.text('Matriz'), findsOneWidget);
+
+      // Al tocar la sugerencia "Matriz", debe seleccionarse
+      await tester.tap(find.text('Matriz'));
+      await tester.pumpAndSettle();
+
+      // El campo debe contener 'Matriz'
+      final textFormFieldWidget = tester.widget<TextFormField>(tipoSolField);
+      expect(textFormFieldWidget.controller?.text, 'Matriz');
+    },
+  );
 }

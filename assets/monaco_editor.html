@@ -59,6 +59,7 @@
             [/\/\*/, 'comment', '@comment'],
             [/'[^']*'/, 'string'],
             [/\d+(\.\d+)?/, 'number'],
+            [/:[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*/, 'variable'],
             [/[a-zA-Z_]\w*/, {
               cases: { '@keywords': 'keyword', '@default': 'identifier' }
             }],

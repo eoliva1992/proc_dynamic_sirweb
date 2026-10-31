@@ -41,6 +41,8 @@
 /// ```
 library;
 
+import 'sql_http_trace.dart';
+
 /// Parámetros de contexto con los que se ejecuta la regla de negocio.
 class EjecucionRequest {
   final int? cdEntidad;
@@ -67,7 +69,7 @@ class EjecucionRequest {
   final bool? capturarVariables;
 
   const EjecucionRequest({
-    this.cdEntidad = 1,
+    this.cdEntidad = 30,
     this.nuCotizacion,
     this.nuItem,
     this.cdArea,
@@ -338,6 +340,9 @@ class EjecucionResultado {
   /// JSON original de `data`, para inspección/copiado en la UI.
   final Map<String, dynamic> raw;
 
+  /// Traza HTTP (método, URL, cabeceras, payload enviado y recibido).
+  final SqlHttpTraceEntry? httpTrace;
+
   const EjecucionResultado({
     this.ambiente,
     this.cdProcedimiento,
@@ -355,6 +360,7 @@ class EjecucionResultado {
     this.rollback = false,
     this.commitDetectado = false,
     this.raw = const {},
+    this.httpTrace,
   });
 
   static bool _bool(dynamic raw) {
@@ -363,7 +369,10 @@ class EjecucionResultado {
     return s == 'true' || s == '1';
   }
 
-  factory EjecucionResultado.fromJson(Map<String, dynamic> json) {
+  factory EjecucionResultado.fromJson(
+    Map<String, dynamic> json, {
+    SqlHttpTraceEntry? httpTrace,
+  }) {
     final rawSalidas = json['salidas'];
     final rawContexto = json['contexto'];
     final duracion = json['duracionMs'];
@@ -397,6 +406,7 @@ class EjecucionResultado {
       rollback: _bool(json['rollback']),
       commitDetectado: _bool(json['commitDetectado']),
       raw: json,
+      httpTrace: httpTrace,
     );
   }
 

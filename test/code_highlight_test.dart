@@ -58,8 +58,9 @@ void main() {
     });
 
     test('las bind variables se distinguen del texto normal', () {
-      final t = tokenizeCode('WHERE cd_dato = :p_cd_dato', 'sql');
+      final t = tokenizeCode('WHERE cd_dato = :p_cd_dato AND gen = :gen.variable', 'sql');
       expect(kindOf(t, ':p_cd_dato'), CodeTokenKind.param);
+      expect(kindOf(t, ':gen.variable'), CodeTokenKind.param);
     });
 
     test('los identificadores corrientes quedan en texto plano', () {

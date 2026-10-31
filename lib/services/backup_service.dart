@@ -241,6 +241,27 @@ abstract final class BackupService {
 
   // ── Script generation — Oracle MERGE against SIR.PROCEDIMIENTODINAMICO ───
 
+  /// Envuelve un texto de código PL/SQL en un literal Oracle seguro para CLOB.
+  /// Utiliza la sintaxis de comillas alternativas `q'[...]'` (o delimitador alternativo
+  /// si el texto contiene `]'`) para evitar que herramientas como PL/SQL Developer
+  /// o SQL*Plus interpreten `:` como variables de entrada / bind variables.
+  static String formatClobLiteral(String code) {
+    if (!code.contains("]'")) {
+      return "q'[$code]'";
+    } else if (!code.contains("}'")) {
+      return "q'{$code}'";
+    } else if (!code.contains(">'")) {
+      return "q'<$code>'";
+    } else if (!code.contains(")'")) {
+      return "q'($code)'";
+    } else if (!code.contains("~'")) {
+      return "q'~$code~'";
+    } else {
+      // Fallback a escape estándar de comillas simples
+      return "'${code.replaceAll("'", "''")}'";
+    }
+  }
+
   static String buildDynamicScript(
     Procedimiento proc,
     String ambiente,
@@ -252,8 +273,7 @@ abstract final class BackupService {
         '${now.year}-${p(now.month)}-${p(now.day)} ${p(now.hour)}:${p(now.minute)}:${p(now.second)}';
     final estado = proc.activo ? '1' : '0';
 
-    // Escape single quotes in the procedure code for SQL safety
-    final safeTexto = proc.deTexto.replaceAll("'", "''");
+    final safeTextoLiteral = formatClobLiteral(proc.deTexto);
 
     return """-- ============================================================
 -- BACKUP ProcDynamic SirWeb
@@ -271,7 +291,7 @@ abstract final class BackupService {
 DECLARE
   v_texto CLOB;
 BEGIN
-  v_texto := '$safeTexto';
+  v_texto := $safeTextoLiteral;
 
   MERGE INTO SIR.PROCEDIMIENTODINAMICO T
   USING DUAL ON (T.CD_PROCEDIMIENTO = '${proc.cdProcedimiento}')
@@ -288,7 +308,6 @@ BEGIN
     ${proc.version}, '${proc.cdProcedimiento}', '$estado',
     v_texto, '${proc.inConfiguracion}', '$cdUsuario', SYSDATE
   );
-  COMMIT;
 END;
 /
 """;
@@ -320,14 +339,22 @@ END;
 
     if (cdProcedimiento == null || ambiente == null) return null;
 
-    // Extract procedure code: content of the CLOB assignment  v_texto := '...';
+    // Extract procedure code: content of the CLOB assignment v_texto := q'[...]' or '...';
     String deTexto = '';
-    final assignMatch = RegExp(
-      r"v_texto\s*:=\s*'([\s\S]*?)';\s*\n\s*MERGE",
+    final qMatch = RegExp(
+      r"v_texto\s*:=\s*q'([\[<{([~])([\s\S]*?)([\s\S])';\s*\n\s*MERGE",
     ).firstMatch(content);
-    if (assignMatch != null) {
-      // Unescape doubled single quotes
-      deTexto = assignMatch.group(1)!.replaceAll("''", "'");
+
+    if (qMatch != null) {
+      deTexto = qMatch.group(2)!;
+    } else {
+      final assignMatch = RegExp(
+        r"v_texto\s*:=\s*'([\s\S]*?)';\s*\n\s*MERGE",
+      ).firstMatch(content);
+      if (assignMatch != null) {
+        // Unescape doubled single quotes
+        deTexto = assignMatch.group(1)!.replaceAll("''", "'");
+      }
     }
 
     return (
