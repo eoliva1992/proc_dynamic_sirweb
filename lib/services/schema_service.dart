@@ -113,6 +113,9 @@ class SchemaService {
 
   // ── Carga inicial ──────────────────────────────────────────────────────────
 
+  /// Retorna el schema en memoria síncronamente si ya fue cargado, o `null` si no está en caché.
+  SchemaMetadata? peekMetadata({String? ambiente}) => _caches[_env(ambiente)];
+
   /// Devuelve el schema en caché sin disparar un refresco.
   /// Si la carga inicial aún está en curso, espera a que termine.
   Future<SchemaMetadata> getMetadata({String? ambiente}) async {

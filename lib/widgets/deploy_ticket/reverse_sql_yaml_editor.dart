@@ -8,12 +8,14 @@ import '../monaco_editor_widget.dart';
 /// validación básica, copiado y restablecimiento de plantilla.
 class ReverseSqlYamlEditor extends StatefulWidget {
   final String yamlContent;
+  final String ambiente;
   final ValueChanged<String> onChanged;
   final VoidCallback? onResetTemplate;
 
   const ReverseSqlYamlEditor({
     super.key,
     required this.yamlContent,
+    this.ambiente = 'Desa',
     required this.onChanged,
     this.onResetTemplate,
   });
@@ -145,6 +147,7 @@ class _ReverseSqlYamlEditorState extends State<ReverseSqlYamlEditor> {
             controller: _monacoCtrl,
             initialCode: _currentText,
             language: 'yaml',
+            ambiente: widget.ambiente,
             darkTheme: isDark,
             onChanged: (text) {
               _currentText = text;

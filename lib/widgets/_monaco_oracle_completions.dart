@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_monaco/flutter_monaco.dart' as fm;
 
 import '../providers/procedimientos_provider.dart';
+import '../services/reverse_sql_yaml_context_extractor.dart';
 import '../services/schema_service.dart';
 import '_editor_plsql_completions.dart';
 import 'monaco_snippets.dart';
@@ -25,6 +26,7 @@ class MonacoOracleCompletionsManager {
   fm.MonacoCompletionRegistration? _kwReg;
   fm.MonacoCompletionRegistration? _snippetsReg;
   fm.MonacoCompletionRegistration? _schemaReg;
+  fm.MonacoCompletionRegistration? _yamlReg;
   fm.MonacoCompletionRegistration? _variablesReg;
   VoidCallback? _snippetsSub;
   bool _disposed = false;
@@ -75,6 +77,9 @@ class MonacoOracleCompletionsManager {
 
     // 4. Esquema dinámico Oracle
     await registerSchema(ctrl, getText: getText, getAmbiente: getAmbiente);
+
+    // 5. Esquema dinámico YAML (Reverse SQL: columnas y tipos por tabla)
+    await registerYamlSchema(ctrl, getText: getText, getAmbiente: getAmbiente);
   }
 
   Future<void> _registerUserSnippets(fm.MonacoController ctrl) async {
@@ -329,6 +334,78 @@ class MonacoOracleCompletionsManager {
     } catch (_) {}
   }
 
+  /// Registra autocompletado inteligente para configuraciones YAML de Reverse SQL.
+  /// Detecta la tabla activa mediante `ReverseSqlYamlContextExtractor` y sugiere las
+  /// columnas con sus tipos de datos (ej. `CD_PROCEDIMIENTO` `VARCHAR2(4)`) en campos
+  /// de columnas (`columns:`, `ignore_pk:`, `order_by:`) y bloques de mapa (`filters:`, `ins:`, etc.).
+  Future<void> registerYamlSchema(
+    fm.MonacoController ctrl, {
+    required String Function() getText,
+    required String Function() getAmbiente,
+  }) async {
+    try {
+      _yamlReg?.dispose();
+      _yamlReg = null;
+
+      _yamlReg = await ctrl.registerCompletions(
+        id: 'reverse-sql-yaml-schema',
+        languages: const [fm.MonacoLanguage('yaml'), fm.MonacoLanguage('yml')],
+        triggerCharacters: const [' ', ':', ',', '\n'],
+        provider: (request) async {
+          final fullText = getText();
+          final curAmbiente = getAmbiente();
+
+          final pos = request.position;
+          final lineNum = pos.line;
+          final colNum = pos.column;
+
+          final ctx = ReverseSqlYamlContextExtractor.extractContext(
+            fullText: fullText,
+            lineNumber: lineNum,
+            column: colNum,
+          );
+
+          if (!ctx.expectsColumn || ctx.tableName == null) {
+            return const fm.CompletionList(suggestions: []);
+          }
+
+          final realTable = ctx.tableName!;
+          final cols = await SchemaService.instance.getColumns(
+            realTable,
+            ambiente: curAmbiente,
+          );
+
+          if (cols.isEmpty) {
+            return const fm.CompletionList(suggestions: []);
+          }
+
+          final upperWord = ctx.currentWord.toUpperCase();
+
+          final suggestions = cols
+              .where(
+                (c) =>
+                    upperWord.isEmpty ||
+                    c.name.toUpperCase().contains(upperWord),
+              )
+              .map(
+                (c) => fm.CompletionItem(
+                  label: c.name,
+                  kind: fm.CompletionItemKind.field,
+                  detail: '${c.dataType} · $realTable',
+                  documentation:
+                      'Columna de $realTable\nTipo de dato: ${c.dataType}',
+                  insertText: c.name,
+                  sortText: '0${c.name}',
+                ),
+              )
+              .toList();
+
+          return fm.CompletionList(suggestions: suggestions);
+        },
+      );
+    } catch (_) {}
+  }
+
   ({String text, bool isSnippet}) _callInsertText(
     String name,
     String type,
@@ -576,11 +653,13 @@ class MonacoOracleCompletionsManager {
       _kwReg?.dispose();
       _snippetsReg?.dispose();
       _schemaReg?.dispose();
+      _yamlReg?.dispose();
       _variablesReg?.dispose();
     } catch (_) {}
     _kwReg = null;
     _snippetsReg = null;
     _schemaReg = null;
+    _yamlReg = null;
     _variablesReg = null;
   }
 }

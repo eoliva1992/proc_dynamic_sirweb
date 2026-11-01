@@ -101,6 +101,7 @@ class DeployTicket {
   final List<String> objetos;
   final List<String> triggers;
   final List<DeployTicketScript> bloqueLogico;
+  final List<String> noteIds;
   final String? database;
   final String? databaseDestino;
   final String? rutaDirectorioLocal;
@@ -126,6 +127,7 @@ class DeployTicket {
     this.objetos = const [],
     this.triggers = const [],
     this.bloqueLogico = const [],
+    this.noteIds = const [],
     this.database,
     this.databaseDestino,
     this.rutaDirectorioLocal,
@@ -161,6 +163,7 @@ class DeployTicket {
     List<String>? objetos,
     List<String>? triggers,
     List<DeployTicketScript>? bloqueLogico,
+    List<String>? noteIds,
     String? database,
     String? databaseDestino,
     String? rutaDirectorioLocal,
@@ -186,6 +189,7 @@ class DeployTicket {
       objetos: objetos ?? this.objetos,
       triggers: triggers ?? this.triggers,
       bloqueLogico: bloqueLogico ?? this.bloqueLogico,
+      noteIds: noteIds ?? this.noteIds,
       database: database ?? this.database,
       databaseDestino: databaseDestino ?? this.databaseDestino,
       rutaDirectorioLocal: rutaDirectorioLocal ?? this.rutaDirectorioLocal,
@@ -258,6 +262,7 @@ class DeployTicket {
       objetos: parseStringList(json['objetos']),
       triggers: parseStringList(json['triggers']),
       bloqueLogico: parseScriptList(json['bloqueLogico']),
+      noteIds: parseStringList(json['noteIds'] ?? json['note_ids']),
       database: json['database']?.toString(),
       databaseDestino: json['databaseDestino']?.toString(),
       rutaDirectorioLocal: json['rutaDirectorioLocal']?.toString(),
@@ -295,6 +300,7 @@ class DeployTicket {
       'objetos': joinOrNull(objetos),
       'triggers': joinOrNull(triggers),
       'bloqueLogico': scriptsOrNull(bloqueLogico),
+      'noteIds': joinOrNull(noteIds),
       'database': database?.trim().isEmpty ?? true ? null : database!.trim(),
       'databaseDestino': databaseDestino?.trim().isEmpty ?? true
           ? null
@@ -345,6 +351,7 @@ class DeployTicket {
       'objetos': joinOrNull(objetos),
       'triggers': joinOrNull(triggers),
       'bloqueLogico': scriptsOrNull(bloqueLogico),
+      'noteIds': joinOrNull(noteIds),
     };
   }
 
@@ -541,13 +548,13 @@ class DeployTicket {
     if (funciones.isNotEmpty) sb.writeln('FUN:${funciones.join(',')}');
 
     // En el archivo index.txt no se coloca la extensión (.sql o .pls), solo el nombre base
-    String _cleanIndexScriptName(String name) {
+    String cleanIndexScriptName(String name) {
       return name.replaceAll(RegExp(r'\.(sql|pls)$', caseSensitive: false), '');
     }
 
     if (sql.isNotEmpty) {
       final cleanSqlNames = sql
-          .map((s) => _cleanIndexScriptName(s.nombre))
+          .map((s) => cleanIndexScriptName(s.nombre))
           .where((n) => n.trim().isNotEmpty)
           .toList();
       if (cleanSqlNames.isNotEmpty) {
@@ -559,7 +566,7 @@ class DeployTicket {
     if (triggers.isNotEmpty) sb.writeln('TRG:${triggers.join(',')}');
     if (bloqueLogico.isNotEmpty) {
       final cleanBlkNames = bloqueLogico
-          .map((s) => _cleanIndexScriptName(s.nombre))
+          .map((s) => cleanIndexScriptName(s.nombre))
           .where((n) => n.trim().isNotEmpty)
           .toList();
       if (cleanBlkNames.isNotEmpty) {

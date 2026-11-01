@@ -46,7 +46,9 @@ enum NotePermission {
       final n = raw.toInt();
       // C# enum NotePermission { ReadOnly = 0, Edit = 1 }
       // O formato 1-based tradicional: 1 = ReadOnly, 2 = Edit
-      return (n == 1 || n == 2) ? (n == 1 ? NotePermission.edit : NotePermission.edit) : NotePermission.readOnly;
+      return (n == 1 || n == 2)
+          ? (n == 1 ? NotePermission.edit : NotePermission.edit)
+          : NotePermission.readOnly;
     }
     final s = raw.toString().trim().toLowerCase();
     switch (s) {
@@ -90,6 +92,7 @@ class Note {
   final int version;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final String? ticketDespliegueId;
 
   const Note({
     required this.id,
@@ -101,6 +104,7 @@ class Note {
     this.version = 0,
     this.createdAt,
     this.updatedAt,
+    this.ticketDespliegueId,
   });
 
   bool get isPersisted => id.isNotEmpty;
@@ -115,6 +119,7 @@ class Note {
     int? version,
     DateTime? createdAt,
     DateTime? updatedAt,
+    String? ticketDespliegueId,
   }) => Note(
     id: id ?? this.id,
     title: title ?? this.title,
@@ -125,6 +130,7 @@ class Note {
     version: version ?? this.version,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
+    ticketDespliegueId: ticketDespliegueId ?? this.ticketDespliegueId,
   );
 
   factory Note.fromJson(Map<String, dynamic> json) {
@@ -169,6 +175,11 @@ class Note {
       updatedAt: _parseDate(
         json['updatedAt'] ?? json['updated_at'] ?? json['UPDATED_AT'],
       ),
+      ticketDespliegueId: str([
+        'ticketDespliegueId',
+        'ticket_despliegue_id',
+        'TICKET_DESPLIEGUE_ID',
+      ]),
     );
   }
 
@@ -187,6 +198,9 @@ class Note {
       'tags': tags.isEmpty ? null : tags.join(','),
       'isActive': isActive,
       'id': id.isEmpty ? null : id,
+      'ticketDespliegueId': ticketDespliegueId?.trim().isEmpty ?? true
+          ? null
+          : ticketDespliegueId!.trim(),
     };
   }
 
@@ -200,6 +214,9 @@ class Note {
       'requestingUser': requestingUser,
       'tags': tags.isEmpty ? null : tags.join(','),
       'isActive': isActive,
+      'ticketDespliegueId': ticketDespliegueId?.trim().isEmpty ?? true
+          ? null
+          : ticketDespliegueId!.trim(),
     };
   }
 
@@ -211,6 +228,8 @@ class Note {
     'tags': tags,
     'isActive': isActive,
     'version': version,
+    if (ticketDespliegueId != null && ticketDespliegueId!.isNotEmpty)
+      'ticketDespliegueId': ticketDespliegueId,
     if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
     if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
   };

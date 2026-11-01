@@ -309,43 +309,124 @@ class DeployTicketExporterService {
 
     // ─────────────────────────────────────────────────────────────────────────
     // 3. Reverse SQL (RSQL) -> Extracción desde BD Origen según YAML
-    // Nomenclatura: {posicion:00}-{usuario}-{nombre}Reverse{ddmmyyyy}-{yyyymmdd}-V{version}.sql
+    // Nomenclatura:
+    // Base:      {posicion:00}-{usuario}-{nombre}Reverse{ddmmyyyy}-{yyyymmdd}-V{version}.sql
+    // Separados: {posicion:00}-{usuario}-{nombre}Reverse{ddmmyyyy}P{N}-{yyyymmdd}-V{version}.sql
     // ─────────────────────────────────────────────────────────────────────────
     for (final r in ticket.reverseSql) {
       if (r.nombre.trim().isEmpty) continue;
       report('Extrayendo RSQL ${r.nombre} desde BD $dbOrigen...');
 
-      final posStr = posicion.toString().padLeft(2, '0');
       final cleanBaseName = r.nombre
           .replaceAll('.yaml', '')
           .replaceAll('.yml', '')
           .replaceAll('.sql', '')
           .replaceAll(' ', '_');
-      final fileName =
-          '$posStr-$usuario-${cleanBaseName}Reverse$fechaDdmmyyyy-$fechaYmd-V${ticket.version}.sql';
-      posicion++;
 
-      String rsqlContent;
+      ReverseSqlConfig rsqlConfig;
       try {
-        rsqlContent = await _generarRsqlDesdeYaml(
-          yamlContent: r.contenido,
-          ambiente: dbOrigen,
-          owner: 'SIR',
-          usuario: usuarioMayus,
-        );
-      } catch (e) {
-        debugPrint('Error extrayendo RSQL desde BD: $e');
-        rsqlContent =
-            '-- Error al extraer datos desde $dbOrigen: $e\n'
-            '-- Contenido YAML original:\n'
-            '${r.contenido.split('\n').map((l) => '-- $l').join('\n')}\n';
+        rsqlConfig = ReverseSqlConfig.parseYaml(r.contenido);
+      } catch (_) {
+        rsqlConfig = const ReverseSqlConfig();
       }
 
-      await registrarScript(
-        fileName: fileName,
-        content: rsqlContent,
-        categoria: 'RSQL',
-      );
+      final nonSplitTables = rsqlConfig.tables
+          .where((t) => t.splitFile != true)
+          .toList();
+      final splitTables = rsqlConfig.tables
+          .where((t) => t.splitFile == true)
+          .toList();
+
+      // Si no hay tablas marcadas como split_file (o la lista quedó vacía),
+      // se procesa el script completo como antes.
+      if (splitTables.isEmpty) {
+        final posStr = posicion.toString().padLeft(2, '0');
+        final fileName =
+            '$posStr-$usuario-${cleanBaseName}Reverse$fechaDdmmyyyy-$fechaYmd-V${ticket.version}.sql';
+        posicion++;
+
+        String rsqlContent;
+        try {
+          rsqlContent = await _generarRsqlDesdeYaml(
+            yamlContent: r.contenido,
+            ambiente: dbOrigen,
+            owner: 'SIR',
+            usuario: usuarioMayus,
+          );
+        } catch (e) {
+          debugPrint('Error extrayendo RSQL desde BD: $e');
+          rsqlContent =
+              '-- Error al extraer datos desde $dbOrigen: $e\n'
+              '-- Contenido YAML original:\n'
+              '${r.contenido.split('\n').map((l) => '-- $l').join('\n')}\n';
+        }
+
+        await registrarScript(
+          fileName: fileName,
+          content: rsqlContent,
+          categoria: 'RSQL',
+        );
+      } else {
+        // Hay tablas que se separan en scripts individuales.
+        // 1. Script base con las tablas que no tienen split_file (si las hay)
+        if (nonSplitTables.isNotEmpty) {
+          final posStr = posicion.toString().padLeft(2, '0');
+          final fileName =
+              '$posStr-$usuario-${cleanBaseName}Reverse$fechaDdmmyyyy-$fechaYmd-V${ticket.version}.sql';
+          posicion++;
+
+          String rsqlContent;
+          try {
+            rsqlContent = await _generarRsqlDesdeYaml(
+              yamlContent: r.contenido,
+              ambiente: dbOrigen,
+              owner: 'SIR',
+              usuario: usuarioMayus,
+              tables: nonSplitTables,
+            );
+          } catch (e) {
+            debugPrint('Error extrayendo RSQL desde BD: $e');
+            rsqlContent = '-- Error al extraer datos desde $dbOrigen: $e\n';
+          }
+
+          await registrarScript(
+            fileName: fileName,
+            content: rsqlContent,
+            categoria: 'RSQL',
+          );
+        }
+
+        // 2. Por cada tabla con split_file: se genera un script nuevo con sufijo P2, P3, ...
+        var splitIndex = 2;
+        for (final splitTable in splitTables) {
+          final posStr = posicion.toString().padLeft(2, '0');
+          final fileName =
+              '$posStr-$usuario-${cleanBaseName}Reverse${fechaDdmmyyyy}P$splitIndex-$fechaYmd-V${ticket.version}.sql';
+          posicion++;
+          splitIndex++;
+
+          String rsqlContent;
+          try {
+            rsqlContent = await _generarRsqlDesdeYaml(
+              yamlContent: r.contenido,
+              ambiente: dbOrigen,
+              owner: 'SIR',
+              usuario: usuarioMayus,
+              tables: [splitTable],
+            );
+          } catch (e) {
+            debugPrint('Error extrayendo RSQL para tabla ${splitTable.name}: $e');
+            rsqlContent =
+                '-- Error al extraer datos de ${splitTable.name} desde $dbOrigen: $e\n';
+          }
+
+          await registrarScript(
+            fileName: fileName,
+            content: rsqlContent,
+            categoria: 'RSQL',
+          );
+        }
+      }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -742,27 +823,97 @@ class DeployTicketExporterService {
       if (r.nombre.trim().isEmpty) continue;
       final rName = r.nombre.trim();
       report('Generando Reverse SQL para $rName...');
-      String dmlGenerado;
+
+      ReverseSqlConfig rsqlConfig;
       try {
-        dmlGenerado = await _generarRsqlDesdeYaml(
-          yamlContent: r.contenido,
-          ambiente: dbOrigen,
-          owner: 'SIR',
-          usuario: usuario,
-        );
-      } catch (e) {
-        dmlGenerado = '-- Error al generar DML de RSQL $rName: $e\n';
+        rsqlConfig = ReverseSqlConfig.parseYaml(r.contenido);
+      } catch (_) {
+        rsqlConfig = const ReverseSqlConfig();
       }
 
-      final posStr = posicion.toString().padLeft(2, '0');
-      final fileName =
-          '$posStr-$usuario-${rName}Reverse$fechaDdmmyyyy-$fechaYmd-V${ticket.version}.sql';
-      await registrarScript(
-        fileName: fileName,
-        content: dmlGenerado,
-        categoria: 'RSQL',
-      );
-      posicion++;
+      final nonSplitTables = rsqlConfig.tables
+          .where((t) => t.splitFile != true)
+          .toList();
+      final splitTables = rsqlConfig.tables
+          .where((t) => t.splitFile == true)
+          .toList();
+
+      if (splitTables.isEmpty) {
+        String dmlGenerado;
+        try {
+          dmlGenerado = await _generarRsqlDesdeYaml(
+            yamlContent: r.contenido,
+            ambiente: dbOrigen,
+            owner: 'SIR',
+            usuario: usuario,
+          );
+        } catch (e) {
+          dmlGenerado = '-- Error al generar DML de RSQL $rName: $e\n';
+        }
+
+        final posStr = posicion.toString().padLeft(2, '0');
+        final fileName =
+            '$posStr-$usuario-${rName}Reverse$fechaDdmmyyyy-$fechaYmd-V${ticket.version}.sql';
+        await registrarScript(
+          fileName: fileName,
+          content: dmlGenerado,
+          categoria: 'RSQL',
+        );
+        posicion++;
+      } else {
+        if (nonSplitTables.isNotEmpty) {
+          String dmlGenerado;
+          try {
+            dmlGenerado = await _generarRsqlDesdeYaml(
+              yamlContent: r.contenido,
+              ambiente: dbOrigen,
+              owner: 'SIR',
+              usuario: usuario,
+              tables: nonSplitTables,
+            );
+          } catch (e) {
+            dmlGenerado = '-- Error al generar DML de RSQL $rName: $e\n';
+          }
+
+          final posStr = posicion.toString().padLeft(2, '0');
+          final fileName =
+              '$posStr-$usuario-${rName}Reverse$fechaDdmmyyyy-$fechaYmd-V${ticket.version}.sql';
+          await registrarScript(
+            fileName: fileName,
+            content: dmlGenerado,
+            categoria: 'RSQL',
+          );
+          posicion++;
+        }
+
+        var splitIndex = 2;
+        for (final splitTable in splitTables) {
+          String dmlGenerado;
+          try {
+            dmlGenerado = await _generarRsqlDesdeYaml(
+              yamlContent: r.contenido,
+              ambiente: dbOrigen,
+              owner: 'SIR',
+              usuario: usuario,
+              tables: [splitTable],
+            );
+          } catch (e) {
+            dmlGenerado =
+                '-- Error al generar DML de RSQL $rName (${splitTable.name}): $e\n';
+          }
+
+          final posStr = posicion.toString().padLeft(2, '0');
+          final fileName =
+              '$posStr-$usuario-${rName}Reverse${fechaDdmmyyyy}P$splitIndex-$fechaYmd-V${ticket.version}.sql';
+          await registrarScript(
+            fileName: fileName,
+            content: dmlGenerado,
+            categoria: 'RSQL',
+          );
+          posicion++;
+          splitIndex++;
+        }
+      }
     }
 
     // 6. Objetos / Types (OBJ)
@@ -1205,13 +1356,16 @@ class DeployTicketExporterService {
   }
 
   /// Genera DML a partir de una configuración YAML de Reverse SQL consultando la BD origen.
+  /// Puede recibir un conjunto específico de [tables] a procesar.
   Future<String> _generarRsqlDesdeYaml({
     required String yamlContent,
     required String ambiente,
     required String owner,
     required String usuario,
+    List<ReverseSqlTableConfig>? tables,
   }) async {
     final config = ReverseSqlConfig.parseYaml(yamlContent);
+    final targetTables = tables ?? config.tables;
     final buffer = StringBuffer();
     buffer.writeln(
       '-- =============================================================================',
@@ -1226,7 +1380,7 @@ class DeployTicketExporterService {
       '-- =============================================================================\n',
     );
 
-    for (final table in config.tables) {
+    for (final table in targetTables) {
       if (table.name.trim().isEmpty) continue;
       final tableName = table.name.trim().toUpperCase();
       buffer.writeln(
@@ -1400,6 +1554,15 @@ class DeployTicketExporterService {
         );
       }
 
+      // Mapa normalizado de columnas a modificar con valores personalizados (set_columns)
+      final normalizedSetColumns = <String, String>{};
+      table.setColumns.forEach((k, v) {
+        final cleanKey = k.trim().toUpperCase();
+        if (cleanKey.isNotEmpty) {
+          normalizedSetColumns[cleanKey] = v.trim();
+        }
+      });
+
       // 4. Generar sentencias según operación DML
       switch (table.dml) {
         case ReverseSqlDml.insert:
@@ -1408,7 +1571,13 @@ class DeployTicketExporterService {
                 .map((i) => result.columns[i].name.toUpperCase())
                 .join(', ');
             final valsStr = columnsToInclude
-                .map((i) => _formatSqlValue(row[i], result.columns[i].dataType))
+                .map((i) {
+                  final colName = result.columns[i].name.toUpperCase();
+                  if (normalizedSetColumns.containsKey(colName)) {
+                    return normalizedSetColumns[colName]!;
+                  }
+                  return _formatSqlValue(row[i], result.columns[i].dataType);
+                })
                 .join(', ');
             buffer.writeln(
               'INSERT INTO $tableName ($colsStr) VALUES ($valsStr);',
@@ -1437,7 +1606,9 @@ class DeployTicketExporterService {
                 .map((i) {
                   final col = result.columns[i];
                   final colName = col.name.toUpperCase();
-                  final valStr = _formatSqlValue(row[i], col.dataType);
+                  final valStr = normalizedSetColumns.containsKey(colName)
+                      ? normalizedSetColumns[colName]!
+                      : _formatSqlValue(row[i], col.dataType);
                   return '$colName = $valStr';
                 })
                 .join(', ');
@@ -1505,10 +1676,13 @@ class DeployTicketExporterService {
 
           for (final row in result.rows) {
             final selectCols = columnsToInclude
-                .map(
-                  (i) =>
-                      '${_formatSqlValue(row[i], result.columns[i].dataType)} AS ${result.columns[i].name.toUpperCase()}',
-                )
+                .map((i) {
+                  final colName = result.columns[i].name.toUpperCase();
+                  final valExpr = normalizedSetColumns.containsKey(colName)
+                      ? normalizedSetColumns[colName]!
+                      : _formatSqlValue(row[i], result.columns[i].dataType);
+                  return '$valExpr AS $colName';
+                })
                 .join(', ');
             final insertCols = columnsToInclude
                 .map((i) => result.columns[i].name.toUpperCase())

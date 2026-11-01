@@ -16,7 +16,7 @@ extension _EditorCompletionsMethods on _CodeEditorPanelState {
 
   Future<void> _runBackendValidation(String code, String procId) async {
     if (code.length > _kBackendSizeLimit) {
-      if (mounted) setState(() => _backendIssuesPerProc.remove(procId));
+      if (mounted) updateState(() => _backendIssuesPerProc.remove(procId));
       return;
     }
     final proc = _openProcs.cast<Procedimiento?>().firstWhere(
@@ -27,7 +27,7 @@ extension _EditorCompletionsMethods on _CodeEditorPanelState {
     _backendCheckVersion++;
     final version = _backendCheckVersion;
     if (!mounted) return;
-    setState(() => _backendChecking = true);
+    updateState(() => _backendChecking = true);
     try {
       final results = await SchemaService.instance
           .compilarProcedimientoDinamico(
@@ -51,7 +51,7 @@ extension _EditorCompletionsMethods on _CodeEditorPanelState {
             ),
           )
           .toList();
-      setState(() {
+      updateState(() {
         _backendIssuesPerProc[procId] = issues;
         _errorCounts[procId] = [
           ...(_compileErrorsPerProc[procId] ?? []),
@@ -60,10 +60,7 @@ extension _EditorCompletionsMethods on _CodeEditorPanelState {
       });
       if (_activeProcId == procId) {
         final markersToSet = [
-          for (final e in [
-            ...(_compileErrorsPerProc[procId] ?? []),
-            ...issues,
-          ])
+          for (final e in [...(_compileErrorsPerProc[procId] ?? []), ...issues])
             MarkerData(
               range: Range(
                 startLine: e.line,
@@ -80,7 +77,10 @@ extension _EditorCompletionsMethods on _CodeEditorPanelState {
         void applyMarkers() {
           unawaited(
             _withCtrl(
-              (ctrl) => ctrl.document.setMarkers(markersToSet, owner: 'plsql-checker'),
+              (ctrl) => ctrl.document.setMarkers(
+                markersToSet,
+                owner: 'plsql-checker',
+              ),
             ),
           );
         }
@@ -94,249 +94,9 @@ extension _EditorCompletionsMethods on _CodeEditorPanelState {
       }
     } finally {
       if (mounted && version == _backendCheckVersion) {
-        setState(() => _backendChecking = false);
+        updateState(() => _backendChecking = false);
       }
     }
-  }
-
-  // ── LSP ──────────────────────────────────────────────────────────────────────
-
-  Future<void> _tryConnectLsp(MonacoController ctrl) async {
-    try {
-      final server = await LspServerProcess.start('sql-language-server', [
-        'up',
-        '--method',
-        'stdio',
-      ]);
-      await ctrl.connectLanguageServer(
-        id: 'sql-lsp',
-        transport: server.transport,
-        initializationTimeout: const Duration(seconds: 15),
-      );
-    } catch (_) {
-      // sql-language-server no instalado — saltar silenciosamente
-    }
-  }
-
-  // ── Variables dinámicas ───────────────────────────────────────────────────────
-
-  List<VariableDinamica> _filteredVariables() {
-    final activeConfig = _openProcs
-        .cast<Procedimiento?>()
-        .firstWhere(
-          (p) => p?.cdProcedimiento == _activeProcId,
-          orElse: () => null,
-        )
-        ?.inConfiguracion;
-    if (activeConfig == null) return [];
-    return procedimientosProvider.variablesDinamicas
-        .where((v) => v.inConfiguracion == activeConfig)
-        .toList();
-  }
-
-  // ── Schema completions ────────────────────────────────────────────────────────
-
-  Future<void> _registerSchemaCompletions(MonacoController ctrl) async {
-    _schemaReg?.dispose();
-    _schemaReg = null;
-
-    // El ambiente debe propagarse: `SchemaService` cachea por entorno y sin
-    // este argumento siempre resolvería 'Desa', devolviendo completions del
-    // esquema equivocado al trabajar en Demo/QA/Prod.
-    final ambiente = widget.ambiente;
-
-    SchemaService.instance
-        .getMetadata(ambiente: ambiente)
-        .then((schema) async {
-          if (!mounted) return;
-
-          _cachedSchemaObjTypes = schema.objects.fold(
-            <String, String>{},
-            (map, o) => map!..[o.name.toUpperCase()] = o.type,
-          );
-
-          _schemaReg = await _withCtrl(
-            (ctrl) => ctrl.registerCompletions(
-              id: 'oracle-schema',
-              languages: [MonacoLanguage.sql, MonacoLanguage('plsql')],
-              triggerCharacters: ['.', ' '],
-              provider: (request) async {
-                final line = request.lineText ?? '';
-                final trigger = request.triggerCharacter;
-                final fullText = _editorFullText;
-
-                // Caso 1: "PKG." → subprogramas; "TYPE." → atributos;
-                // "ALIAS." → columnas
-                final dotMatch = _CodeEditorPanelState._reDotMember.firstMatch(
-                  line,
-                );
-                if (dotMatch != null) {
-                  final ref = dotMatch.group(1)!.toUpperCase();
-                  final member = dotMatch.group(2)!.toUpperCase();
-                  final refType = _cachedSchemaObjTypes?[ref];
-                  if (refType == 'PACKAGE') {
-                    return CompletionList(
-                      suggestions: await _packageMemberCompletions(ref, member),
-                    );
-                  }
-                  if (refType == 'TYPE') {
-                    return CompletionList(
-                      suggestions: await _typeMemberCompletions(ref, member),
-                    );
-                  }
-                  if (trigger == '.' ||
-                      line.endsWith('.') ||
-                      member.isNotEmpty) {
-                    final fromMap = _extractFromTables(fullText);
-                    final realTable = fromMap[ref] ?? ref;
-                    final cols = await SchemaService.instance.getColumns(
-                      realTable,
-                      ambiente: ambiente,
-                    );
-                    return CompletionList(
-                      suggestions: cols
-                          .where(
-                            (c) => member.isEmpty || c.name.startsWith(member),
-                          )
-                          .map(
-                            (c) => CompletionItem(
-                              label: c.name,
-                              kind: CompletionItemKind.field,
-                              detail: '${c.dataType} · $realTable',
-                              insertText: c.name,
-                              sortText: '0${c.name}',
-                            ),
-                          )
-                          .toList(),
-                    );
-                  }
-                }
-
-                // Dentro de "MI_PROC(" → parámetros con notación nombrada
-                final callMatch = _CodeEditorPanelState._reCallOpen.firstMatch(
-                  line,
-                );
-                if (callMatch != null) {
-                  final params = await _parameterCompletions(
-                    owner: callMatch.group(1)!,
-                    member: callMatch.group(2),
-                    written: callMatch.group(3) ?? '',
-                    prefix: _wordBefore(line),
-                  );
-                  if (params.isNotEmpty) {
-                    return CompletionList(suggestions: params);
-                  }
-                }
-
-                // Caso 2: palabra suelta → prioriza columnas del FROM
-                final word = _wordBefore(line);
-                final upper = word.toUpperCase();
-                final suggestions = <CompletionItem>[];
-
-                final fromMap = _extractFromTables(fullText);
-                for (final realTable in fromMap.values.toSet()) {
-                  final cols = schema.cachedColumns.containsKey(realTable)
-                      ? schema.cachedColumns[realTable]!
-                      : await SchemaService.instance.getColumns(
-                          realTable,
-                          ambiente: ambiente,
-                        );
-                  suggestions.addAll(
-                    cols
-                        .where((c) => upper.isEmpty || c.name.startsWith(upper))
-                        .map(
-                          (c) => CompletionItem(
-                            label: c.name,
-                            kind: CompletionItemKind.field,
-                            detail: '${c.dataType} · $realTable',
-                            sortText: '1${c.name}',
-                          ),
-                        ),
-                  );
-                }
-
-                suggestions.addAll(
-                  schema.tables
-                      .where((t) => upper.isEmpty || t.startsWith(upper))
-                      .map(
-                        (t) => CompletionItem(
-                          label: t,
-                          kind: CompletionItemKind.classType,
-                          detail: 'TABLE',
-                          sortText: '2$t',
-                        ),
-                      ),
-                );
-
-                suggestions.addAll(
-                  schema.views
-                      .where((v) => upper.isEmpty || v.startsWith(upper))
-                      .map(
-                        (v) => CompletionItem(
-                          label: v,
-                          kind: CompletionItemKind.interfaceType,
-                          detail: 'VIEW',
-                          sortText: '3$v',
-                        ),
-                      ),
-                );
-
-                final objMatches = schema.objects
-                    .where((o) => upper.isEmpty || o.name.startsWith(upper))
-                    .take(20)
-                    .toList();
-
-                // Precarga los argumentos / atributos (con caché) de los objetos
-                // candidatos para poder ofrecer un snippet de llamada completo.
-                if (upper.length >= 2) {
-                  final pending = objMatches
-                      .where(
-                        (o) =>
-                            o.type == 'PROCEDURE' ||
-                            o.type == 'FUNCTION' ||
-                            o.type == 'TYPE',
-                      )
-                      .take(10);
-                  await Future.wait([
-                    for (final o in pending)
-                      if (o.type == 'TYPE')
-                        SchemaService.instance.getTypeAttributes(
-                          o.name,
-                          ambiente: widget.ambiente,
-                        )
-                      else
-                        SchemaService.instance.getObjectArguments(
-                          o.name,
-                          ambiente: widget.ambiente,
-                        ),
-                  ]);
-                }
-
-                suggestions.addAll(
-                  objMatches.map((o) {
-                    final call = _callInsertText(o.name, o.type);
-                    return CompletionItem(
-                      label: o.name,
-                      kind: _objectKind(o.type),
-                      detail: _callDetail(o.name, o.type),
-                      documentation: _callDocumentation(o.name, o.type),
-                      insertText: call.text,
-                      insertTextRules: call.isSnippet
-                          ? {InsertTextRule.insertAsSnippet}
-                          : null,
-                      sortText: '4${o.name}',
-                    );
-                  }),
-                );
-
-                return CompletionList(
-                  suggestions: suggestions.take(50).toList(),
-                );
-              },
-            ),
-          );
-        })
-        .catchError((_) {});
   }
 
   // ── Snippets de llamada a procedimientos / funciones / types ────────────────
@@ -609,118 +369,5 @@ extension _EditorCompletionsMethods on _CodeEditorPanelState {
     return args
         .map((a) => '${a.name} ${a.inOut} ${a.dataType}'.trim())
         .join('\n');
-  }
-
-  /// Devuelve la palabra que está escribiendo el usuario al final de la línea.
-  String _wordBefore(String line) {
-    final match = _CodeEditorPanelState._reWordEnd.firstMatch(line);
-    return match?.group(1) ?? '';
-  }
-
-  void _onEditorThemeChanged() {
-    // El store es global: puede notificar entre el dispose del webview y el
-    // removeListener de este State, así que va por el guard de _withCtrl.
-    unawaited(_withCtrl((ctrl) => ctrl.setTheme(editorThemeStore.monacoTheme)));
-  }
-
-  // ── Registros de completions ──────────────────────────────────────────────────
-
-  Future<void> _registerVariableCompletions() async {
-    final ctrl = _ctrl;
-    if (ctrl == null) return;
-    await _variablesReg?.dispose();
-    _variablesReg = null;
-    final vars = _filteredVariables();
-    if (vars.isEmpty) return;
-    final items = [
-      for (final v in vars)
-        CompletionItem(
-          label: ':${v.cdVariable}',
-          kind: CompletionItemKind.variable,
-          detail: v.deVariable,
-          documentation: v.deVariable,
-          insertText: ':${v.cdVariable}',
-        ),
-    ];
-    _variablesReg = await ctrl.registerStaticCompletions(
-      id: 'plsql-variables',
-      languages: [MonacoLanguage.sql, MonacoLanguage('plsql')],
-      triggerCharacters: [':', ' ', '.', '('],
-      items: items,
-    );
-  }
-
-  Future<void> _registerSnippetCompletions() async {
-    final ctrl = _ctrl;
-    if (ctrl == null) return;
-    await _snippetsReg?.dispose();
-    _snippetsReg = null;
-    final allSnippets = await SnippetService.instance.loadAll();
-    final snippets = allSnippets
-        .where((s) => s.language.toLowerCase().trim() != 'yaml')
-        .toList();
-    if (snippets.isEmpty) return;
-    _snippetsReg = await ctrl.registerStaticCompletions(
-      id: 'user-snippets',
-      languages: [
-        MonacoLanguage.sql,
-        MonacoLanguage('plsql'),
-        MonacoLanguage.javascript,
-      ],
-      triggerCharacters: [' '],
-      items: [
-        for (final s in snippets)
-          CompletionItem(
-            label: s.prefix,
-            kind: CompletionItemKind.snippet,
-            detail: s.name,
-            documentation: s.description.isNotEmpty ? s.description : null,
-            insertText: s.body,
-            insertTextRules: {InsertTextRule.insertAsSnippet},
-            sortText: '0${s.prefix}',
-          ),
-      ],
-    );
-  }
-
-  Future<void> _registerDeclareVarCompletions() async {
-    final ctrl = _ctrl;
-    if (ctrl == null || _isActiveJs) return;
-    final code = _editorFullText.isNotEmpty
-        ? _editorFullText
-        : widget.procedimiento.deTexto;
-    final outlineItems = await compute(_parseOutlineItems, code);
-    await _declareVarsReg?.dispose();
-    _declareVarsReg = null;
-    final seen = <String>{};
-    final items = <CompletionItem>[];
-    for (final item in outlineItems) {
-      if (item.type != _OutlineItemType.variable &&
-          item.type != _OutlineItemType.cursor) {
-        continue;
-      }
-      if (!seen.add(item.name.toUpperCase())) continue;
-      items.add(
-        CompletionItem(
-          label: item.name,
-          kind: CompletionItemKind.variable,
-          insertText: item.name,
-          sortText: '0${item.name}',
-        ),
-      );
-    }
-    if (items.isEmpty) return;
-    _declareVarsReg = await ctrl.registerStaticCompletions(
-      id: 'plsql-declare-vars',
-      languages: [MonacoLanguage.sql, MonacoLanguage('plsql')],
-      triggerCharacters: [':', ' ', '.', '('],
-      items: items,
-    );
-  }
-
-  void _openSnippetsManager() {
-    showSnippetsBrowser(context).then((_) {
-      if (mounted) _registerSnippetCompletions();
-    });
   }
 }

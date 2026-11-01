@@ -30,6 +30,7 @@ import '../providers/procedimientos_provider.dart';
 import '../services/backup_service.dart';
 import '../services/app_log.dart';
 import '../services/schema_service.dart';
+import '../services/server_config_service.dart';
 import '../services/sirweb_service.dart';
 import '../services/snippet_service.dart';
 import 'constellation_background.dart';
@@ -64,7 +65,6 @@ part '_editor_info_autorizacion_modal.dart';
 part '_editor_navigation.dart';
 part '_editor_options_prefs.dart';
 part '_editor_completions_system.dart';
-part '_editor_save_compile.dart';
 part '_editor_build_methods.dart';
 
 // Máximo de caracteres permitidos para validación backend de Oracle DDL.
@@ -293,6 +293,11 @@ class CodeEditorPanel extends StatefulWidget {
 }
 
 class _CodeEditorPanelState extends State<CodeEditorPanel> {
+  @override
+  void setState(VoidCallback fn) {
+    if (mounted) super.setState(fn);
+  }
+
   // Compiled once — reused on every completion keystroke and FROM-clause parse
   /// `PKG.` o `PKG.PRE` → captura el objeto y el miembro parcial que se escribe.
   static final _reDotMember = RegExp(r'([A-Za-z]\w*)\.(\w*)$');
@@ -382,6 +387,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   MonacoActionRegistration? _ejecutarAction;
   MonacoActionRegistration? _llamadaAction;
   MonacoActionRegistration? _findAction;
+  MonacoActionRegistration? _undoAction;
+  MonacoActionRegistration? _redoAction;
   MonacoActionRegistration? _copyAction;
   MonacoActionRegistration? _cutAction;
   MonacoActionRegistration? _pasteAction;
@@ -398,6 +405,12 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   bool _problemsMaximized = false;
   bool _problemsMinimized = false;
   Duration _problemsAnim = Duration.zero;
+
+  void updateState([VoidCallback? fn]) {
+    if (!mounted) return;
+    setState(fn ?? () {});
+  }
+
   final Map<String, bool> _draftVisible = {}; // procId → show restore banner
   final GlobalKey _varsButtonKey = GlobalKey();
 
@@ -546,6 +559,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _disposeQuietly(() => _ejecutarAction?.dispose());
     _disposeQuietly(() => _llamadaAction?.dispose());
     _disposeQuietly(() => _findAction?.dispose());
+    _disposeQuietly(() => _undoAction?.dispose());
+    _disposeQuietly(() => _redoAction?.dispose());
     _disposeQuietly(() => _copyAction?.dispose());
     _disposeQuietly(() => _cutAction?.dispose());
     _disposeQuietly(() => _pasteAction?.dispose());
@@ -871,17 +886,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       '      e.preventDefault();'
       '      try { window.__fmCutNow(); } catch(_) {}'
       '    } else if (key === "z" && !e.shiftKey) {'
-      '      var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
-      '      if (aux) {'
-      '        e.preventDefault();'
-      '        window.__fmUndo();'
-      '      }'
+      '      e.preventDefault();'
+      '      window.__fmUndo();'
       '    } else if ((key === "y" && !e.shiftKey) || (key === "z" && e.shiftKey)) {'
-      '      var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
-      '      if (aux) {'
-      '        e.preventDefault();'
-      '        window.__fmRedo();'
-      '      }'
+      '      e.preventDefault();'
+      '      window.__fmRedo();'
       '    }'
       '  },true);'
       '})()',
@@ -1190,6 +1199,35 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           .then((a) => _findAction = a),
       // Clipboard bridge: navigator.clipboard is blocked on file:// (WebView2).
       // These actions override Ctrl+C/X/V so Flutter's native clipboard is used.
+      ctrl
+          .addAction(
+            MonacoActionDescriptor(
+              id: MonacoAction('custom.undo'),
+              label: 'Deshacer',
+              keybindings: [
+                MonacoKeybinding(ctrlCmd: true, key: MonacoKey.keyZ),
+              ],
+            ),
+            () async => _undo(),
+          )
+          .then((a) => _undoAction = a),
+      ctrl
+          .addAction(
+            MonacoActionDescriptor(
+              id: MonacoAction('custom.redo'),
+              label: 'Rehacer',
+              keybindings: [
+                MonacoKeybinding(ctrlCmd: true, key: MonacoKey.keyY),
+                MonacoKeybinding(
+                  ctrlCmd: true,
+                  shift: true,
+                  key: MonacoKey.keyZ,
+                ),
+              ],
+            ),
+            () async => _redo(),
+          )
+          .then((a) => _redoAction = a),
       ctrl
           .addAction(
             MonacoActionDescriptor(

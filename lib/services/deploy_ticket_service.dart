@@ -30,7 +30,14 @@ class DeployTicketService {
 
   static final instance = DeployTicketService._();
 
-  static final http.Client _client = http.Client();
+  static final http.Client _defaultClient = http.Client();
+  static http.Client? _overrideClient;
+  static http.Client get _client => _overrideClient ?? _defaultClient;
+
+  /// Permite inyectar un cliente HTTP en pruebas unitarias / de widgets.
+  static void setHttpClientForTesting(http.Client? client) {
+    _overrideClient = client;
+  }
 
   /// Usuario del sistema (fallback Windows)
   static String currentUser = (Platform.environment['USERNAME'] ?? '')
@@ -274,8 +281,95 @@ class DeployTicketService {
         );
       }
 
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>?;
+      if (decoded != null && decoded['success'] == false) {
+        final err =
+            decoded['error'] ??
+            decoded['message'] ??
+            'Error al eliminar ticket';
+        throw Exception(err.toString());
+      }
+
       AppLog.instance.info('Ticket eliminado: $id', source: 'DeployTicket');
       return true;
     }, contexto: 'eliminar ticket de despliegue');
+  }
+
+  /// Asocia una nota existente al ticket de despliegue
+  Future<DeployTicket> asociarNota(
+    String ticketId,
+    String noteId, {
+    String? usuarioActualiza,
+  }) async {
+    return SirwebService.guardRequest(() async {
+      final base = await getBaseUrl();
+      final user = (usuarioActualiza?.trim().isNotEmpty ?? false)
+          ? usuarioActualiza!.trim()
+          : currentUser;
+      final uri = Uri.parse(
+        '$base/$ticketId/notas/$noteId',
+      ).replace(queryParameters: {'usuarioActualiza': user});
+
+      final response = await _client.post(
+        uri,
+        headers: {'Accept': 'application/json'},
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception(
+          'Error al asociar nota ($noteId) al ticket ($ticketId): ${response.statusCode} ${response.body}',
+        );
+      }
+
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+      if (decoded['success'] == false || decoded['error'] != null) {
+        final err =
+            decoded['error'] ?? decoded['message'] ?? 'Error al asociar nota';
+        throw Exception(err.toString());
+      }
+
+      final data = decoded['data'] as Map<String, dynamic>? ?? {};
+      return DeployTicket.fromJson(data);
+    }, contexto: 'asociar nota a ticket de despliegue');
+  }
+
+  /// Desasocia una nota del ticket de despliegue
+  Future<DeployTicket> desasociarNota(
+    String ticketId,
+    String noteId, {
+    String? usuarioActualiza,
+  }) async {
+    return SirwebService.guardRequest(() async {
+      final base = await getBaseUrl();
+      final user = (usuarioActualiza?.trim().isNotEmpty ?? false)
+          ? usuarioActualiza!.trim()
+          : currentUser;
+      final uri = Uri.parse(
+        '$base/$ticketId/notas/$noteId',
+      ).replace(queryParameters: {'usuarioActualiza': user});
+
+      final response = await _client.delete(
+        uri,
+        headers: {'Accept': 'application/json'},
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception(
+          'Error al desasociar nota ($noteId) del ticket ($ticketId): ${response.statusCode} ${response.body}',
+        );
+      }
+
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+      if (decoded['success'] == false || decoded['error'] != null) {
+        final err =
+            decoded['error'] ??
+            decoded['message'] ??
+            'Error al desasociar nota';
+        throw Exception(err.toString());
+      }
+
+      final data = decoded['data'] as Map<String, dynamic>? ?? {};
+      return DeployTicket.fromJson(data);
+    }, contexto: 'desasociar nota de ticket de despliegue');
   }
 }

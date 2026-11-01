@@ -12,6 +12,12 @@ class SearchTabView extends StatelessWidget {
   final VoidCallback? onNewProcedure;
   final ValueChanged<Procedimiento>? onSelect;
   final ValueChanged<Procedimiento>? onOpenInNewTab;
+  final VoidCallback? onOpenBlank;
+  final VoidCallback? onOpenSqlExecutor;
+  final VoidCallback? onBatchTransfer;
+  final VoidCallback? onDeployTickets;
+  final VoidCallback? onNewNote;
+  final VoidCallback? onCompare;
 
   const SearchTabView({
     super.key,
@@ -21,6 +27,12 @@ class SearchTabView extends StatelessWidget {
     this.onNewProcedure,
     this.onSelect,
     this.onOpenInNewTab,
+    this.onOpenBlank,
+    this.onOpenSqlExecutor,
+    this.onBatchTransfer,
+    this.onDeployTickets,
+    this.onNewNote,
+    this.onCompare,
   });
 
   @override
@@ -38,6 +50,12 @@ class SearchTabView extends StatelessWidget {
             tabState: state,
             onSelect: onSelect,
             onOpenInNewTab: onOpenInNewTab,
+            onOpenBlank: onOpenBlank,
+            onOpenSqlExecutor: onOpenSqlExecutor,
+            onBatchTransfer: onBatchTransfer,
+            onDeployTickets: onDeployTickets,
+            onNewNote: onNewNote,
+            onCompare: onCompare,
             onClearFilters: () {
               state.config = null;
               state.estado = '1';

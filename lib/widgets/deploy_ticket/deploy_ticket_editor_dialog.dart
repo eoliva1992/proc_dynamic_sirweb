@@ -9,10 +9,12 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/deploy_ticket.dart';
 import '../../providers/procedimientos_provider.dart';
 import '../../services/deploy_ticket_service.dart';
+import '../../services/note_service.dart';
 import '../ambiente_selector.dart';
 import '../app_toast.dart';
 import '../constellation_background.dart';
 import '../floating_window.dart';
+import '../notes/note_editor_window.dart';
 import 'artifact_list_editor.dart';
 import 'create_ticket_folder_dialog.dart';
 import 'deploy_ticket_export_progress_dialog.dart';
@@ -96,6 +98,7 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
   List<String> _objetos = [];
   List<String> _triggers = [];
   List<DeployTicketScript> _bloqueLogico = [];
+  List<String> _noteIds = [];
 
   String? _selectedDb;
   String? _selectedDbd;
@@ -118,7 +121,7 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
 
     final t = widget.initialTicket;
 
@@ -139,6 +142,7 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
     _objetos = List<String>.from(t?.objetos ?? []);
     _triggers = List<String>.from(t?.triggers ?? []);
     _bloqueLogico = List<DeployTicketScript>.from(t?.bloqueLogico ?? []);
+    _noteIds = List<String>.from(t?.noteIds ?? []);
 
     _selectedDb = t?.database ?? 'DESA';
     _selectedDbd = t?.databaseDestino ?? 'PROD';
@@ -289,6 +293,7 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
       objetos: _objetos,
       triggers: _triggers,
       bloqueLogico: _bloqueLogico,
+      noteIds: _noteIds,
       database: _selectedDb?.trim().isEmpty ?? true
           ? null
           : _selectedDb!.trim(),
@@ -575,6 +580,7 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
                                             _buildCodeTab(cs, isDark),
                                             _buildScriptsTab(cs, isDark),
                                             _buildSchemaTab(cs, isDark),
+                                            _buildNotesTab(cs, isDark),
                                             _buildPreviewTab(
                                               cs,
                                               divColor,
@@ -893,6 +899,10 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
           Tab(
             icon: const Icon(Icons.view_in_ar_rounded, size: 16),
             text: 'Esquema & Objetos (${_objetos.length + _triggers.length})',
+          ),
+          Tab(
+            icon: const Icon(Icons.sticky_note_2_outlined, size: 16),
+            text: 'Notas (${_noteIds.length})',
           ),
           const Tab(
             icon: Icon(Icons.description_outlined, size: 16),
@@ -1403,6 +1413,7 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
               ReverseSqlConfigDialog.show(
                 context,
                 title: 'Editor de Extracción RSQL (YAML)',
+                ambiente: _selectedDb,
                 onSave: (yaml, filePath, scriptName) {
                   final fileName = scriptName.isNotEmpty
                       ? scriptName
@@ -1437,14 +1448,19 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
               title: 'Archivo RSQL: $item',
               initialYaml: script.contenido,
               scriptName: script.nombre,
+              ambiente: _selectedDb,
               onSave: (yaml, filePath, scriptName) {
-                final targetName = scriptName.isNotEmpty ? scriptName : item;
+                final targetName = scriptName.trim().isNotEmpty
+                    ? scriptName.trim()
+                    : item;
                 setState(() {
-                  final idx = _reverseSql.indexWhere(
-                    (s) => s.nombre == targetName,
-                  );
+                  var idx = _reverseSql.indexWhere((s) => s.nombre == item);
+                  if (idx < 0) {
+                    idx = _reverseSql.indexWhere((s) => s.nombre == targetName);
+                  }
                   if (idx >= 0) {
                     _reverseSql[idx] = _reverseSql[idx].copyWith(
+                      nombre: targetName,
                       contenido: yaml,
                     );
                   } else {
@@ -1546,6 +1562,463 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
           emptyMessage: 'No hay disparadores asignados.',
         ),
       ],
+    );
+  }
+
+  Widget _buildNotesTab(ColorScheme cs, bool isDark) {
+    final ticketId = widget.initialTicket?.id;
+    final isPersisted = widget.initialTicket?.isPersisted ?? false;
+
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+      children: [
+        Row(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Notas de Trabajo vinculadas (${_noteIds.length})',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  isPersisted
+                      ? 'Estas notas están vinculadas bidireccionalmente a esta solicitud de pase.'
+                      : 'Guarda primero el ticket para vincular notas con el servidor.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                  ),
+                ),
+              ],
+            ),
+            const Spacer(),
+            if (isPersisted) ...[
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+                icon: const Icon(Icons.link_rounded, size: 15),
+                label: const Text(
+                  'Vincular existente',
+                  style: TextStyle(fontSize: 12),
+                ),
+                onPressed: _showLinkExistingNoteDialog,
+              ),
+              const SizedBox(width: 8),
+            ],
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
+              icon: const Icon(Icons.note_add_outlined, size: 15),
+              label: const Text('Nueva Nota', style: TextStyle(fontSize: 12)),
+              onPressed: () {
+                final solNum = _numeroSolCtrl.text.trim();
+                showNewNoteWindow(
+                  context,
+                  ticketDespliegueId: isPersisted ? ticketId : null,
+                  tag: solNum.isNotEmpty ? 'Ticket-$solNum' : null,
+                  onSaved: ({silent = false}) {
+                    setState(() {});
+                  },
+                );
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (!isPersisted)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.amber.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: Colors.amber.withValues(alpha: 0.3),
+                width: 0.8,
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.info_outline_rounded,
+                  color: Colors.amber,
+                  size: 20,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Para asociar y gestionar notas a nivel de base de datos, primero guarda el ticket.',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: isDark
+                          ? Colors.grey.shade300
+                          : Colors.grey.shade800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          FutureBuilder<NotePage>(
+            future: NoteService.instance.search(
+              ticketDespliegueId: ticketId,
+              requestingUser: NoteService.currentUser,
+            ),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(32),
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                );
+              }
+
+              final notes = snapshot.data?.items ?? [];
+
+              if (notes.isEmpty) {
+                return Container(
+                  padding: const EdgeInsets.all(28),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF1E2024)
+                        : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isDark
+                          ? const Color(0xFF2C2D32)
+                          : Colors.grey.shade300,
+                      width: 0.8,
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.sticky_note_2_outlined,
+                        size: 42,
+                        color: Colors.grey.withValues(alpha: 0.4),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'No hay notas vinculadas a este ticket.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: isDark
+                              ? Colors.grey.shade400
+                              : Colors.grey.shade600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.add, size: 14),
+                        label: const Text('Crear primera nota para este pase'),
+                        onPressed: () {
+                          final solNum = _numeroSolCtrl.text.trim();
+                          showNewNoteWindow(
+                            context,
+                            ticketDespliegueId: ticketId,
+                            tag: solNum.isNotEmpty ? 'Ticket-$solNum' : null,
+                            onSaved: ({silent = false}) {
+                              setState(() {});
+                            },
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              return ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: notes.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  final item = notes[index];
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF22242A) : Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: isDark
+                            ? const Color(0xFF33353D)
+                            : Colors.grey.shade300,
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.sticky_note_2_rounded,
+                          size: 20,
+                          color: Colors.amber,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.note.title.isEmpty
+                                    ? 'Sin título'
+                                    : item.note.title,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                item.note.content.replaceAll('\n', ' ').trim(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isDark
+                                      ? Colors.grey.shade400
+                                      : Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Abrir nota flotante',
+                          icon: const Icon(Icons.open_in_new_rounded, size: 17),
+                          onPressed: () {
+                            showNoteEditorWindow(
+                              context,
+                              item: item,
+                              onSaved: ({silent = false}) {
+                                setState(() {});
+                              },
+                              onDeleted: () {
+                                setState(() {
+                                  _noteIds.remove(item.note.id);
+                                });
+                              },
+                            );
+                          },
+                        ),
+                        IconButton(
+                          tooltip: 'Desvincular del ticket',
+                          icon: const Icon(
+                            Icons.link_off_rounded,
+                            size: 17,
+                            color: Colors.redAccent,
+                          ),
+                          onPressed: () async {
+                            final conf = await showFloatingDialog<bool>(
+                              context,
+                              (ctx, close) => AlertDialog(
+                                title: const Text('Desvincular Nota'),
+                                content: Text(
+                                  '¿Deseas desvincular la nota "${item.note.title}" de este ticket?',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => close(false),
+                                    child: const Text('Cancelar'),
+                                  ),
+                                  FilledButton(
+                                    onPressed: () => close(true),
+                                    child: const Text('Desvincular'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (conf == true && ticketId != null) {
+                              try {
+                                await DeployTicketService.instance
+                                    .desasociarNota(
+                                      ticketId,
+                                      item.note.id,
+                                      usuarioActualiza: _resolveActiveUser(),
+                                    );
+                                AppToast.success('Nota desvinculada');
+                                setState(() {
+                                  _noteIds.remove(item.note.id);
+                                });
+                              } catch (e) {
+                                AppToast.error('Error al desvincular: $e');
+                              }
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  Future<void> _showLinkExistingNoteDialog() async {
+    final ticketId = widget.initialTicket?.id;
+    if (ticketId == null) return;
+
+    final user = NoteService.currentUser;
+    final res = await NoteService.instance.search(
+      requestingUser: user,
+      top: 100,
+    );
+    // Filtrar las notas que no estén ya vinculadas a este ticket
+    final availableNotes = res.items
+        .where((n) => !_noteIds.contains(n.note.id))
+        .toList();
+
+    if (!mounted) return;
+
+    await showFloatingDialog<void>(
+      context,
+      (ctx, close) => StatefulBuilder(
+        builder: (dialogCtx, setDialogState) {
+          String searchFilter = '';
+          final filtered = availableNotes.where((n) {
+            if (searchFilter.isEmpty) return true;
+            final q = searchFilter.toLowerCase();
+            return n.note.title.toLowerCase().contains(q) ||
+                n.note.content.toLowerCase().contains(q);
+          }).toList();
+
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.link_rounded, color: Colors.blueAccent),
+                SizedBox(width: 8),
+                Text('Vincular Nota Existente'),
+              ],
+            ),
+            content: SizedBox(
+              width: 450,
+              height: 350,
+              child: Column(
+                children: [
+                  TextField(
+                    decoration: const InputDecoration(
+                      hintText: 'Buscar notas...',
+                      prefixIcon: Icon(Icons.search, size: 18),
+                      isDense: true,
+                    ),
+                    onChanged: (val) =>
+                        setDialogState(() => searchFilter = val),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'No se encontraron notas disponibles.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          )
+                        : ListView.separated(
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, _) =>
+                                const Divider(height: 1),
+                            itemBuilder: (ctx, i) {
+                              final item = filtered[i];
+                              final hasOtherTicket =
+                                  item.note.ticketDespliegueId != null &&
+                                  item.note.ticketDespliegueId!.isNotEmpty &&
+                                  item.note.ticketDespliegueId != ticketId;
+
+                              return ListTile(
+                                dense: true,
+                                title: Text(
+                                  item.note.title.isEmpty
+                                      ? 'Sin título'
+                                      : item.note.title,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  hasOtherTicket
+                                      ? 'Reasignará desde Ticket #${item.note.ticketDespliegueId}'
+                                      : (item.note.content.isEmpty
+                                            ? 'Sin contenido'
+                                            : item.note.content.replaceAll(
+                                                '\n',
+                                                ' ',
+                                              )),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: hasOtherTicket
+                                        ? Colors.orange
+                                        : Colors.grey,
+                                  ),
+                                ),
+                                trailing: const Icon(
+                                  Icons.add_circle_outline,
+                                  size: 18,
+                                ),
+                                onTap: () async {
+                                  try {
+                                    await DeployTicketService.instance
+                                        .asociarNota(
+                                          ticketId,
+                                          item.note.id,
+                                          usuarioActualiza:
+                                              _resolveActiveUser(),
+                                        );
+                                    AppToast.success(
+                                      'Nota vinculada exitosamente',
+                                    );
+                                    close();
+                                    if (mounted) {
+                                      setState(() {
+                                        if (!_noteIds.contains(item.note.id)) {
+                                          _noteIds.add(item.note.id);
+                                        }
+                                      });
+                                    }
+                                  } catch (e) {
+                                    AppToast.error(
+                                      'Error al vincular nota: $e',
+                                    );
+                                  }
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => close(), child: const Text('Cerrar')),
+            ],
+          );
+        },
+      ),
     );
   }
 

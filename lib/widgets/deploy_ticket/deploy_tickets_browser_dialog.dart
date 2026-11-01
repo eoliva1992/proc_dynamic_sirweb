@@ -7,10 +7,12 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/deploy_ticket.dart';
 import '../../providers/procedimientos_provider.dart';
 import '../../services/deploy_ticket_service.dart';
+import '../../services/note_service.dart';
 import '../ambiente_selector.dart';
 import '../app_toast.dart';
 import '../constellation_background.dart';
 import '../floating_window.dart';
+import '../notes/note_editor_window.dart';
 import 'create_hotfix_branch_dialog.dart';
 import 'create_ticket_folder_dialog.dart';
 import 'deploy_ticket_card_menu.dart';
@@ -277,6 +279,33 @@ class _DeployTicketsBrowserDialogState
   }
 
   Future<void> _confirmDelete(DeployTicket ticket) async {
+    if (ticket.noteIds.isNotEmpty) {
+      await showFloatingDialog<void>(
+        context,
+        (ctx, close) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.link_off_rounded, color: Colors.orangeAccent),
+              SizedBox(width: 8),
+              Text('Ticket con Notas Vinculadas'),
+            ],
+          ),
+          content: Text(
+            'El ticket ${ticket.numeroSolicitud} (${ticket.tipoSolicitud}) tiene '
+            '${ticket.noteIds.length} nota(s) vinculada(s).\n\n'
+            'Por restricciones de integridad, debes desasociar las notas antes de poder eliminar el ticket.',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => close(),
+              child: const Text('Entendido'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     final confirmed = await showFloatingDialog<bool>(
       context,
       (ctx, close) => AlertDialog(
@@ -326,6 +355,59 @@ class _DeployTicketsBrowserDialogState
 
   Future<void> _exportDeployProduction(DeployTicket ticket) async {
     await DeployTicketExportProgressDialog.show(context, ticket: ticket);
+  }
+
+  Future<void> _saveReverseSqlFromArtifact(
+    DeployTicket ticket,
+    String originalItemName,
+    String yamlContent,
+    String scriptName,
+  ) async {
+    final targetName = scriptName.trim().isNotEmpty
+        ? scriptName.trim()
+        : originalItemName;
+
+    final updatedList = List<DeployTicketScript>.from(ticket.reverseSql);
+    var idx = updatedList.indexWhere((s) => s.nombre == originalItemName);
+    if (idx < 0) {
+      idx = updatedList.indexWhere((s) => s.nombre == targetName);
+    }
+
+    if (idx >= 0) {
+      updatedList[idx] = updatedList[idx].copyWith(
+        nombre: targetName,
+        contenido: yamlContent,
+      );
+    } else {
+      updatedList.add(
+        DeployTicketScript(nombre: targetName, contenido: yamlContent),
+      );
+    }
+
+    try {
+      final updatedTicket = ticket.copyWith(
+        reverseSql: updatedList,
+        usuarioActualiza: _resolveDefaultUser(),
+      );
+      final saved = await DeployTicketService.instance.save(updatedTicket);
+      if (mounted) {
+        setState(() {
+          final itemIdx = _items.indexWhere((it) => it.id == saved.id);
+          if (itemIdx != -1) {
+            _items[itemIdx] = saved;
+          }
+          if (_selectedTicket?.id == saved.id) {
+            _selectedTicket = saved;
+          }
+        });
+      }
+      AppToast.success(
+        'Configuración YAML ($targetName) guardada en el ticket ${saved.numeroSolicitud}',
+      );
+    } catch (e) {
+      AppToast.error('Error al guardar configuración YAML en el ticket: $e');
+      rethrow;
+    }
   }
 
   Future<void> _createTicketFolder(DeployTicket ticket) async {
@@ -516,12 +598,15 @@ class _DeployTicketsBrowserDialogState
               width: w,
               height: h,
               child: Material(
-                color: Colors.transparent,
+                color: bg,
+                borderRadius: BorderRadius.circular(
+                  _maximized ? 0 : (_minimized ? 8 : 14),
+                ),
+                clipBehavior: Clip.antiAlias,
                 child: AnimatedContainer(
                   duration: _anim,
                   curve: Curves.easeOutCubic,
                   decoration: BoxDecoration(
-                    color: bg,
                     borderRadius: BorderRadius.circular(
                       _maximized ? 0 : (_minimized ? 8 : 14),
                     ),
@@ -536,7 +621,6 @@ class _DeployTicketsBrowserDialogState
                       ),
                     ],
                   ),
-                  clipBehavior: Clip.antiAlias,
                   child: _minimized
                       ? MinimizedWindowCard(
                           title: 'Tickets de Despliegue',
@@ -1995,7 +2079,7 @@ class _DeployTicketsBrowserDialogState
       );
     }
 
-    return Container(
+    return Material(
       color: isDark ? const Color(0xFF1B1D22) : Colors.grey.shade50,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2077,6 +2161,12 @@ class _DeployTicketsBrowserDialogState
                   Icons.description_outlined,
                   cs,
                 ),
+                _buildInspectorTabButton(
+                  3,
+                  'Notas (${t.noteIds.length})',
+                  Icons.sticky_note_2_outlined,
+                  cs,
+                ),
               ],
             ),
           ),
@@ -2085,7 +2175,9 @@ class _DeployTicketsBrowserDialogState
                 ? _buildInspectorOverviewTab(t, divColor, isDark)
                 : _inspectorTab == 1
                 ? _buildInspectorArtifactsTab(t, cs)
-                : _buildInspectorIndexTxtTab(t, cs, isDark),
+                : _inspectorTab == 2
+                ? _buildInspectorIndexTxtTab(t, cs, isDark)
+                : _buildInspectorNotesTab(t, cs, isDark),
           ),
         ],
       ),
@@ -2364,7 +2456,10 @@ class _DeployTicketsBrowserDialogState
           Icons.replay_circle_filled_rounded,
           Colors.green,
           onItemTap: (item) {
-            final script = t.reverseSql.firstWhere(
+            final currentTicket = _selectedTicket?.id == t.id
+                ? _selectedTicket!
+                : t;
+            final script = currentTicket.reverseSql.firstWhere(
               (s) => s.nombre == item,
               orElse: () => DeployTicketScript(nombre: item),
             );
@@ -2373,6 +2468,14 @@ class _DeployTicketsBrowserDialogState
               title: 'Detalle YAML RSQL: $item',
               initialYaml: script.contenido,
               scriptName: script.nombre,
+              ambiente: currentTicket.database,
+              onSave: (yaml, filePath, scriptName) =>
+                  _saveReverseSqlFromArtifact(
+                    currentTicket,
+                    item,
+                    yaml,
+                    scriptName,
+                  ),
             );
           },
         ),
@@ -2474,6 +2577,205 @@ class _DeployTicketsBrowserDialogState
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildInspectorNotesTab(
+    DeployTicket t,
+    ColorScheme cs,
+    bool isDark,
+  ) {
+    return FutureBuilder<NotePage>(
+      future: NoteService.instance.search(
+        ticketDespliegueId: t.id,
+        requestingUser: NoteService.currentUser,
+      ),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          );
+        }
+
+        final notes = snapshot.data?.items ?? [];
+
+        return Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    'Notas vinculadas (${notes.length})',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const Spacer(),
+                  FilledButton.tonalIcon(
+                    style: FilledButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 0,
+                      ),
+                    ),
+                    icon: const Icon(Icons.add, size: 14),
+                    label: const Text(
+                      'Nueva nota',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    onPressed: () {
+                      showNewNoteWindow(
+                        context,
+                        ticketDespliegueId: t.id,
+                        tag: t.numeroSolicitud.isNotEmpty
+                            ? 'Ticket-${t.numeroSolicitud}'
+                            : null,
+                        onSaved: ({silent = false}) {
+                          setState(() {});
+                          _fetchTickets();
+                        },
+                      );
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (notes.isEmpty)
+                Expanded(
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.sticky_note_2_outlined,
+                          size: 38,
+                          color: Colors.grey.withValues(alpha: 0.4),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'No hay notas vinculadas a este ticket.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.post_add_rounded, size: 14),
+                          label: const Text('Crear primera nota'),
+                          onPressed: () {
+                            showNewNoteWindow(
+                              context,
+                              ticketDespliegueId: t.id,
+                              tag: t.numeroSolicitud.isNotEmpty
+                                  ? 'Ticket-${t.numeroSolicitud}'
+                                  : null,
+                              onSaved: ({silent = false}) {
+                                setState(() {});
+                                _fetchTickets();
+                              },
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: notes.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 6),
+                    itemBuilder: (context, index) {
+                      final item = notes[index];
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? const Color(0xFF1E2024)
+                              : Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isDark
+                                ? const Color(0xFF2C2D32)
+                                : Colors.grey.shade300,
+                            width: 0.8,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.description_outlined,
+                              size: 16,
+                              color: Colors.blueAccent,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    item.note.title.isEmpty
+                                        ? 'Sin título'
+                                        : item.note.title,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  if (item.note.tags.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 2),
+                                      child: Text(
+                                        item.note.tags.map((tg) => '#$tg').join(' '),
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: Colors.blueGrey.shade400,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Abrir nota en ventana flotante',
+                              icon: const Icon(
+                                Icons.open_in_new_rounded,
+                                size: 16,
+                              ),
+                              onPressed: () {
+                                showNoteEditorWindow(
+                                  context,
+                                  item: item,
+                                  onSaved: ({silent = false}) {
+                                    setState(() {});
+                                  },
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 

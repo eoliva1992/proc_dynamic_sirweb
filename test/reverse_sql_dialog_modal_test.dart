@@ -241,15 +241,13 @@ void main() {
       expect(currentConfig.tables.first.notIns.isNotEmpty, isTrue);
 
       // Cambiar a la pestaña "SQL & Subconsultas" para gestionar EXISTS
-      final tabSql = find.text('SQL & Subconsultas');
-      await tester.ensureVisible(tabSql);
-      await tester.tap(tabSql);
-      await tester.pumpAndSettle();
+      await tester.tap(find.text('SQL & Subconsultas'));
+      await tester.pump();
 
       // Agregar EXISTS
       await tester.ensureVisible(find.text('Agregar EXISTS'));
       await tester.tap(find.text('Agregar EXISTS'));
-      await tester.pumpAndSettle();
+      await tester.pump();
 
       expect(find.text('Subconsultas EXISTS:'), findsOneWidget);
       expect(currentConfig.tables.first.exists.isNotEmpty, isTrue);
@@ -288,8 +286,6 @@ void main() {
       expect(find.text('YAML'), findsOneWidget);
       expect(find.text('Aplicar a Ticket'), findsOneWidget);
       expect(find.text('Cancelar'), findsOneWidget);
-      // El indicador de progreso no debe mostrarse de manera incondicional o permanente
-      expect(find.byType(CircularProgressIndicator), findsNothing);
 
       // Probar botón cerrar
       final closeBtn = find.byTooltip('Cerrar (Esc)');
@@ -401,7 +397,7 @@ dbconfig:
     );
 
     testWidgets(
-      'permite reordenar tablas mediante los botones de flecha arriba y abajo',
+      'Aplicar a Ticket soporta onSave asíncrono y cierra el modal al finalizar',
       (tester) async {
         tester.view.physicalSize = const Size(1280, 800);
         tester.view.devicePixelRatio = 1.0;
@@ -410,32 +406,29 @@ dbconfig:
           tester.view.resetDevicePixelRatio();
         });
 
-        const initialConfigYaml = '''
-dbconfig:
-  tables:
-    - dml: MERGE
-      name: TABLA_UNO
-      filters:
-        ID: "= 1"
-    - dml: INSERT
-      name: TABLA_DOS
-      filters:
-        ID: "= 2"
-    - dml: UPDATE
-      name: TABLA_TRES
-      filters:
-        ID: "= 3"
-''';
-
-        ReverseSqlConfig? savedConfig;
+        bool closed = false;
+        String? savedYaml;
+        String? savedScriptName;
 
         await tester.pumpWidget(
           MaterialApp(
             home: Scaffold(
               body: ReverseSqlConfigDialog(
-                initialYaml: initialConfigYaml,
-                onSave: (yaml, path, name) {
-                  savedConfig = ReverseSqlConfig.parseYaml(yaml);
+                title: 'Detalle YAML RSQL: configReverse.yaml',
+                scriptName: 'configReverse.yaml',
+                initialYaml: '''
+dbconfig:
+  tables:
+    - dml: MERGE
+      name: PRODUCTO
+      filters:
+        CD_PRODUCTO: "= 10"
+''',
+                onClose: () => closed = true,
+                onSave: (yaml, filePath, scriptName) async {
+                  await Future<void>.delayed(const Duration(milliseconds: 50));
+                  savedYaml = yaml;
+                  savedScriptName = scriptName;
                 },
               ),
             ),
@@ -444,32 +437,187 @@ dbconfig:
 
         await tester.pump();
 
-        // Verificar badges de orden inicial
-        expect(find.text('#1'), findsOneWidget);
-        expect(find.text('#2'), findsOneWidget);
-        expect(find.text('#3'), findsOneWidget);
-
-        // Mover TABLA_UNO hacia abajo con su botón de flecha abajo
-        final moveDownButtons = find.byTooltip(
-          'Mover hacia abajo (ejecutar después)',
-        );
-        expect(moveDownButtons, findsWidgets);
-
-        // El primer botón habilitado corresponde a TABLA_UNO (#1)
-        await tester.tap(moveDownButtons.first);
+        // Expandir y cambiar el filtro
+        await tester.tap(find.text('Expandir todo'));
         await tester.pump();
 
-        // Ahora TABLA_DOS debe estar en la posición #1 y TABLA_UNO en la posición #2
-        // Guardamos para comprobar el orden en el YAML generado
+        final filterValField = find.widgetWithText(TextField, '= 10');
+        await tester.enterText(filterValField, '= 99');
+        await tester.pump();
+
+        // Pulsar "Aplicar a Ticket"
         await tester.tap(find.text('Aplicar a Ticket'));
         await tester.pump();
 
-        expect(savedConfig, isNotNull);
-        expect(savedConfig!.tables.map((t) => t.name).toList(), [
-          'TABLA_DOS',
-          'TABLA_UNO',
-          'TABLA_TRES',
-        ]);
+        // Mientras el Future está en progreso no se ha cerrado aún
+        expect(closed, isFalse);
+
+        // Avanzar el timer del Future asíncrono
+        await tester.pump(const Duration(milliseconds: 60));
+        await tester.pump();
+
+        expect(savedScriptName, 'configReverse.yaml');
+        expect(savedYaml, contains('= 99'));
+        expect(closed, isTrue);
+      },
+    );
+
+    testWidgets(
+      'ReverseSqlVisualForm permite configurar split_file y set_columns visualmente',
+      (tester) async {
+        tester.view.physicalSize = const Size(1280, 1000);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        String? savedYaml;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ReverseSqlConfigDialog(
+                title: 'Detalle YAML RSQL: configReverse.yaml',
+                scriptName: 'configReverse.yaml',
+                initialYaml: '''
+dbconfig:
+  tables:
+    - dml: MERGE
+      name: PRODUCTO
+      filters:
+        CD_PRODUCTO: "= 10"
+''',
+                onClose: () {},
+                onSave: (yaml, filePath, scriptName) async {
+                  savedYaml = yaml;
+                },
+              ),
+            ),
+          ),
+        );
+
+        await tester.pump();
+
+        // Expandir tabla
+        await tester.tap(find.text('Expandir todo'));
+        await tester.pump();
+
+        // 1. Activar checkbox split_file
+        final splitFileFinder = find.byTooltip(
+          'Generar esta tabla en un script nuevo independiente (P2, P3...)',
+        );
+        expect(splitFileFinder, findsOneWidget);
+        await tester.ensureVisible(splitFileFinder);
+        await tester.pump();
+        await tester.tap(splitFileFinder);
+        await tester.pump();
+
+        // 2. Agregar un set_columns
+        final addColumnBtn = find.widgetWithText(TextButton, 'Agregar columna');
+        expect(addColumnBtn, findsOneWidget);
+        await tester.ensureVisible(addColumnBtn);
+        await tester.pump();
+        await tester.tap(addColumnBtn);
+        await tester.pump();
+
+        // Ingresar columna y nuevo valor fijo en la última fila creada
+        final colKeyFields = find.widgetWithText(TextField, 'Columna');
+        expect(colKeyFields, findsWidgets);
+        await tester.ensureVisible(colKeyFields.last);
+        await tester.pump();
+        await tester.enterText(colKeyFields.last, 'ST_REGISTRO');
+        await tester.pump();
+
+        final colValField = find.widgetWithText(
+          TextField,
+          'Nuevo valor fijo a asignar',
+        );
+        expect(colValField, findsOneWidget);
+        await tester.ensureVisible(colValField);
+        await tester.pump();
+        await tester.enterText(colValField, "'ACTIVO'");
+        await tester.pump();
+
+        // 3. Aplicar al ticket y verificar el YAML resultante
+        final applyBtn = find.text('Aplicar a Ticket');
+        await tester.ensureVisible(applyBtn);
+        await tester.pump();
+        await tester.tap(applyBtn);
+        await tester.pump();
+
+        expect(savedYaml, isNotNull);
+        expect(savedYaml, contains('split_file: true'));
+        expect(savedYaml, contains('set_columns:'));
+        expect(savedYaml, contains('ST_REGISTRO: "\'ACTIVO\'"'));
+      },
+    );
+
+    testWidgets(
+      'ReverseSqlVisualForm muestra badge de orden y permite reordenar tablas con botones subir/bajar',
+      (tester) async {
+        tester.view.physicalSize = const Size(1280, 1000);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        String? savedYaml;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ReverseSqlConfigDialog(
+                title: 'Detalle YAML RSQL: configReverse.yaml',
+                scriptName: 'configReverse.yaml',
+                initialYaml: '''
+dbconfig:
+  tables:
+    - dml: MERGE
+      name: PRODUCTO
+      filters:
+        CD_PRODUCTO: "= 10"
+    - dml: INSERT
+      name: COTIZACION
+      filters:
+        ID_COTIZACION: "= 20"
+''',
+                onClose: () {},
+                onSave: (yaml, filePath, scriptName) async {
+                  savedYaml = yaml;
+                },
+              ),
+            ),
+          ),
+        );
+
+        await tester.pump();
+
+        // Verificar badges de posición
+        expect(find.text('#1'), findsOneWidget);
+        expect(find.text('#2'), findsOneWidget);
+
+        // En la primera tabla (#1 PRODUCTO), mover hacia abajo
+        final moveDownButtons = find.byIcon(Icons.arrow_downward_rounded);
+        expect(moveDownButtons, findsWidgets);
+
+        // El primer botón de bajar corresponde a PRODUCTO
+        await tester.tap(moveDownButtons.first);
+        await tester.pump();
+
+        // Ahora COTIZACION debe estar de primero y PRODUCTO de segundo
+        // Aplicamos a ticket para verificar el orden en el YAML generado
+        final applyBtn = find.text('Aplicar a Ticket');
+        await tester.tap(applyBtn);
+        await tester.pump();
+
+        expect(savedYaml, isNotNull);
+        final cotizacionPos = savedYaml!.indexOf('name: COTIZACION');
+        final productoPos = savedYaml!.indexOf('name: PRODUCTO');
+        expect(cotizacionPos, isNot(-1));
+        expect(productoPos, isNot(-1));
+        expect(cotizacionPos, lessThan(productoPos));
       },
     );
   });

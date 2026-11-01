@@ -1615,6 +1615,13 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         ambiente: tab.ambiente,
         onAmbienteChanged: (v) => _onTabAmbienteChanged(tab, v),
         onNewProcedure: () => _showNewProcedureDialog(context),
+        onOpenBlank: () => _openBlankDocumentTab(extension: 'txt'),
+        onOpenSqlExecutor: _addSqlExecutorTab,
+        onBatchTransfer: () =>
+            showBatchTransferWindow(context, ambiente: tab.ambiente),
+        onDeployTickets: () => showDeployTicketsBrowser(context),
+        onNewNote: () => showNotesManager(context),
+        onCompare: _openPasteDiff,
         onOpenInNewTab: (Procedimiento proc) async {
           if (!mounted) return;
           if (!_ensureTabSlot()) return;

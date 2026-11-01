@@ -46,6 +46,7 @@ class ReverseSqlTableConfig {
   final String? sql;
   final bool? pkAdd;
   final String? ignorePk;
+  final bool? splitFile;
   final Map<String, String> ins;
   final Map<String, String> notIns;
   final Map<String, String> betweens;
@@ -53,6 +54,7 @@ class ReverseSqlTableConfig {
   final String? orderBy;
   final int? limit;
   final Map<String, String> filters;
+  final Map<String, String> setColumns;
 
   const ReverseSqlTableConfig({
     required this.dml,
@@ -61,6 +63,7 @@ class ReverseSqlTableConfig {
     this.sql,
     this.pkAdd = true,
     this.ignorePk,
+    this.splitFile = false,
     this.ins = const {},
     this.notIns = const {},
     this.betweens = const {},
@@ -68,6 +71,7 @@ class ReverseSqlTableConfig {
     this.orderBy,
     this.limit,
     this.filters = const {},
+    this.setColumns = const {},
   });
 
   ReverseSqlTableConfig copyWith({
@@ -77,6 +81,7 @@ class ReverseSqlTableConfig {
     String? sql,
     bool? pkAdd,
     String? ignorePk,
+    bool? splitFile,
     Map<String, String>? ins,
     Map<String, String>? notIns,
     Map<String, String>? betweens,
@@ -84,6 +89,7 @@ class ReverseSqlTableConfig {
     String? orderBy,
     int? limit,
     Map<String, String>? filters,
+    Map<String, String>? setColumns,
   }) {
     return ReverseSqlTableConfig(
       dml: dml ?? this.dml,
@@ -92,6 +98,7 @@ class ReverseSqlTableConfig {
       sql: sql ?? this.sql,
       pkAdd: pkAdd ?? this.pkAdd,
       ignorePk: ignorePk ?? this.ignorePk,
+      splitFile: splitFile ?? this.splitFile,
       ins: ins != null ? Map.from(ins) : this.ins,
       notIns: notIns != null ? Map.from(notIns) : this.notIns,
       betweens: betweens != null ? Map.from(betweens) : this.betweens,
@@ -99,6 +106,7 @@ class ReverseSqlTableConfig {
       orderBy: orderBy ?? this.orderBy,
       limit: limit ?? this.limit,
       filters: filters != null ? Map.from(filters) : this.filters,
+      setColumns: setColumns != null ? Map.from(setColumns) : this.setColumns,
     );
   }
 }
@@ -196,6 +204,11 @@ class ReverseSqlConfig {
         "#        cd_procedimiento: \"= 'SUGIERE_DIRECCION_MATRIZ_TRP'\"",
       );
       sb.writeln("#        campo2: like '%prueba%'");
+      sb.writeln(
+        '#      set_columns: #Modifica columnas al generar INSERT/MERGE/UPDATE (opcional)',
+      );
+      sb.writeln("#        campo1: \"'VALOR'\"");
+      sb.writeln('#        campo2: SYSDATE');
       return sb.toString();
     }
 
@@ -224,6 +237,11 @@ class ReverseSqlConfig {
       if (t.ignorePk != null && t.ignorePk!.trim().isNotEmpty) {
         sb.writeln(
           '      ignore_pk: ${t.ignorePk!.trim()} #Ignora la PrimaryKey (opcional | string)',
+        );
+      }
+      if (t.splitFile != null && t.splitFile == true) {
+        sb.writeln(
+          '      split_file: true #Genera la tabla en un script nuevo (P2, P3...), (opcional | bool)',
         );
       }
 
@@ -337,6 +355,22 @@ class ReverseSqlConfig {
         });
       }
 
+      if (t.setColumns.isNotEmpty) {
+        sb.writeln(
+          '      set_columns: #Modifica columnas al generar INSERT/MERGE/UPDATE',
+        );
+        t.setColumns.forEach((k, v) {
+          final trimmedKey = k.trim();
+          if (trimmedKey.isEmpty) return;
+          final trimmedVal = v.trim();
+          if (trimmedVal.startsWith('"') && trimmedVal.endsWith('"')) {
+            sb.writeln('        $trimmedKey: $trimmedVal');
+          } else {
+            sb.writeln('        $trimmedKey: "$trimmedVal"');
+          }
+        });
+      }
+
       if (i < tables.length - 1) {
         sb.writeln();
       }
@@ -357,6 +391,7 @@ class ReverseSqlConfig {
     String? currentSql;
     bool? currentPkAdd;
     String? currentIgnorePk;
+    bool? currentSplitFile;
     Map<String, String> currentIns = {};
     Map<String, String> currentNotIns = {};
     Map<String, String> currentBetweens = {};
@@ -364,8 +399,9 @@ class ReverseSqlConfig {
     String? currentOrderBy;
     int? currentLimit;
     Map<String, String> currentFilters = {};
+    Map<String, String> currentSetColumns = {};
     String?
-    currentSection; // 'ins' | 'not_ins' | 'betweens' | 'exists' | 'filters'
+    currentSection; // 'ins' | 'not_ins' | 'betweens' | 'exists' | 'filters' | 'set_columns'
     String?
     currentListKey; // Para listas YAML dentro de 'ins' o 'not_ins' (ej. 'campo:\n  - item1')
     final currentListItems = <String>[];
@@ -393,6 +429,7 @@ class ReverseSqlConfig {
             sql: currentSql,
             pkAdd: currentPkAdd,
             ignorePk: currentIgnorePk,
+            splitFile: currentSplitFile ?? false,
             ins: currentIns,
             notIns: currentNotIns,
             betweens: currentBetweens,
@@ -400,6 +437,7 @@ class ReverseSqlConfig {
             orderBy: currentOrderBy,
             limit: currentLimit,
             filters: currentFilters,
+            setColumns: currentSetColumns,
           ),
         );
       }
@@ -409,6 +447,7 @@ class ReverseSqlConfig {
       currentSql = null;
       currentPkAdd = null;
       currentIgnorePk = null;
+      currentSplitFile = null;
       currentIns = {};
       currentNotIns = {};
       currentBetweens = {};
@@ -416,6 +455,7 @@ class ReverseSqlConfig {
       currentOrderBy = null;
       currentLimit = null;
       currentFilters = {};
+      currentSetColumns = {};
       currentSection = null;
     }
 
@@ -509,12 +549,15 @@ class ReverseSqlConfig {
             key == 'sql' ||
             key == 'pk_add' ||
             key == 'ignore_pk' ||
+            key == 'split_file' ||
             key == 'order_by' ||
             key == 'limit' ||
             key == 'ins' ||
             key == 'not_ins' ||
             key == 'betweens' ||
-            key == 'exists') {
+            key == 'exists' ||
+            key == 'filters' ||
+            key == 'set_columns') {
           commitListKey();
           currentSection = null;
         }
@@ -544,6 +587,11 @@ class ReverseSqlConfig {
       if (key == 'filters') {
         commitListKey();
         currentSection = 'filters';
+        continue;
+      }
+      if (key == 'set_columns') {
+        commitListKey();
+        currentSection = 'set_columns';
         continue;
       }
 
@@ -580,6 +628,13 @@ class ReverseSqlConfig {
         } else {
           currentSection = null;
         }
+      } else if (currentSection == 'set_columns') {
+        if (leadingSpaces >= 6) {
+          currentSetColumns[key] = _cleanQuotes(val);
+          continue;
+        } else {
+          currentSection = null;
+        }
       }
 
       // Propiedades de la tabla
@@ -601,6 +656,9 @@ class ReverseSqlConfig {
           break;
         case 'ignore_pk':
           currentIgnorePk = _cleanQuotes(val);
+          break;
+        case 'split_file':
+          currentSplitFile = val.toLowerCase() == 'true';
           break;
         case 'order_by':
           currentOrderBy = _cleanQuotes(val);

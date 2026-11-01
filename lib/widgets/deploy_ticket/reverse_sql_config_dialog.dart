@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import '../../models/reverse_sql_config.dart';
+import '../../providers/procedimientos_provider.dart';
 import '../app_toast.dart';
 import '../constellation_background.dart';
 import '../floating_window.dart';
@@ -27,11 +29,18 @@ class ReverseSqlConfigDialog extends StatefulWidget {
   /// Título de la ventana flotante.
   final String title;
 
+  /// Ambiente Oracle para resolución de metadatos de esquema y columnas ('Desa', 'Prod', etc.).
+  final String? ambiente;
+
   /// Callback para cerrar la ventana modal cuando se muestra como floating window o dialog.
   final VoidCallback? onClose;
 
   /// Callback cuando el usuario guarda los cambios o selecciona guardar como archivo.
-  final void Function(String yamlContent, String? filePath, String scriptName)?
+  final FutureOr<void> Function(
+    String yamlContent,
+    String? filePath,
+    String scriptName,
+  )?
   onSave;
 
   const ReverseSqlConfigDialog({
@@ -40,6 +49,7 @@ class ReverseSqlConfigDialog extends StatefulWidget {
     this.initialFilePath,
     this.scriptName,
     this.title = 'Configuración de Extracción RSQL (YAML)',
+    this.ambiente,
     this.onClose,
     this.onSave,
   });
@@ -51,7 +61,12 @@ class ReverseSqlConfigDialog extends StatefulWidget {
     String? initialFilePath,
     String? scriptName,
     String title = 'Configuración de Extracción RSQL (YAML)',
-    void Function(String yamlContent, String? filePath, String scriptName)?
+    String? ambiente,
+    FutureOr<void> Function(
+      String yamlContent,
+      String? filePath,
+      String scriptName,
+    )?
     onSave,
   }) {
     return showFloatingWindow(
@@ -61,6 +76,7 @@ class ReverseSqlConfigDialog extends StatefulWidget {
         initialFilePath: initialFilePath,
         scriptName: scriptName,
         title: title,
+        ambiente: ambiente,
         onClose: close,
         onSave: onSave,
       ),
@@ -247,7 +263,15 @@ class _ReverseSqlConfigDialogState extends State<ReverseSqlConfigDialog> {
         _yamlContent = contentToSave;
       });
 
-      widget.onSave?.call(contentToSave, savePath, fileName);
+      final res = widget.onSave?.call(contentToSave, savePath, fileName);
+      if (res is Future) {
+        if (mounted) setState(() => _isLoading = true);
+        try {
+          await res;
+        } finally {
+          if (mounted) setState(() => _isLoading = false);
+        }
+      }
       AppToast.success('Archivo guardado correctamente');
     } catch (e) {
       AppToast.error('Error al guardar el archivo YAML: $e');
@@ -304,13 +328,31 @@ class _ReverseSqlConfigDialogState extends State<ReverseSqlConfigDialog> {
     }
   }
 
-  void _onConfirm() {
+  Future<void> _onConfirm() async {
+    if (_isLoading) return;
+
     final finalYaml = _mode == _ConfigMode.visual
         ? _config.toYaml()
         : _yamlContent;
 
-    widget.onSave?.call(finalYaml, _currentFilePath, _currentScriptName);
-    _closeDialog();
+    try {
+      final res = widget.onSave?.call(
+        finalYaml,
+        _currentFilePath,
+        _currentScriptName,
+      );
+      if (res is Future) {
+        setState(() => _isLoading = true);
+        await res;
+        if (!mounted) return;
+        setState(() => _isLoading = false);
+      }
+      _closeDialog();
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   @override
@@ -428,6 +470,9 @@ class _ReverseSqlConfigDialogState extends State<ReverseSqlConfigDialog> {
                                   child: _mode == _ConfigMode.visual
                                       ? ReverseSqlVisualForm(
                                           config: _config,
+                                          ambiente:
+                                              widget.ambiente ??
+                                              procedimientosProvider.ambiente,
                                           onChanged: (updated) {
                                             setState(() {
                                               _config = updated;
@@ -438,6 +483,9 @@ class _ReverseSqlConfigDialogState extends State<ReverseSqlConfigDialog> {
                                         )
                                       : ReverseSqlYamlEditor(
                                           yamlContent: _yamlContent,
+                                          ambiente:
+                                              widget.ambiente ??
+                                              procedimientosProvider.ambiente,
                                           onChanged: (text) {
                                             _yamlContent = text;
                                             _isDirty = true;
@@ -908,7 +956,7 @@ class _ReverseSqlConfigDialogState extends State<ReverseSqlConfigDialog> {
                 borderRadius: BorderRadius.circular(8),
               ),
             ),
-            onPressed: _onConfirm,
+            onPressed: _isLoading ? null : _onConfirm,
           ),
         ],
       ),

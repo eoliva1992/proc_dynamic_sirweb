@@ -81,6 +81,7 @@ class NoteService {
     String? tag,
     String? query,
     bool? isActive = true,
+    String? ticketDespliegueId,
     int top = 50,
     int pagina = 1,
   }) async {
@@ -92,6 +93,8 @@ class NoteService {
         if (tag != null && tag.isNotEmpty) 'tag': tag,
         if (query != null && query.trim().isNotEmpty) 'query': query.trim(),
         if (isActive != null) 'isActive': isActive.toString(),
+        if (ticketDespliegueId != null && ticketDespliegueId.trim().isNotEmpty)
+          'ticketDespliegueId': ticketDespliegueId.trim(),
         'top': '$top',
         'pagina': '$pagina',
       },

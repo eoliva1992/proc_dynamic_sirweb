@@ -11,6 +11,12 @@ class ProcedureList extends StatefulWidget {
   final ValueChanged<Procedimiento>? onSelect;
   final ValueChanged<Procedimiento>? onOpenInNewTab;
   final VoidCallback? onClearFilters;
+  final VoidCallback? onOpenBlank;
+  final VoidCallback? onOpenSqlExecutor;
+  final VoidCallback? onBatchTransfer;
+  final VoidCallback? onDeployTickets;
+  final VoidCallback? onNewNote;
+  final VoidCallback? onCompare;
 
   const ProcedureList({
     super.key,
@@ -18,6 +24,12 @@ class ProcedureList extends StatefulWidget {
     this.onSelect,
     this.onOpenInNewTab,
     this.onClearFilters,
+    this.onOpenBlank,
+    this.onOpenSqlExecutor,
+    this.onBatchTransfer,
+    this.onDeployTickets,
+    this.onNewNote,
+    this.onCompare,
   });
 
   @override
@@ -265,6 +277,8 @@ class _ProcedureListState extends State<ProcedureList>
                     ),
                   ),
                   const SizedBox(height: 16),
+                  _buildQuickActionButtons(context),
+                  const SizedBox(height: 20),
                   if (state.history.isNotEmpty) ...[
                     Row(
                       mainAxisSize: MainAxisSize.min,
@@ -504,6 +518,150 @@ class _ProcedureListState extends State<ProcedureList>
       },
     );
   }
+
+  Widget _buildQuickActionButtons(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final actions = [
+      if (widget.onOpenBlank != null)
+        _QuickActionItem(
+          label: 'Doc. en blanco',
+          tooltip: 'Abrir nuevo documento en blanco (Ctrl+Shift+O)',
+          icon: Icons.note_add_outlined,
+          color: const Color(0xFF0078D4),
+          onTap: widget.onOpenBlank!,
+        ),
+      if (widget.onOpenSqlExecutor != null)
+        _QuickActionItem(
+          label: 'Editor de SQL',
+          tooltip: 'Abrir ejecutor y editor de sentencias SQL / PL-SQL',
+          icon: Icons.dataset_outlined,
+          color: const Color(0xFF107C10),
+          onTap: widget.onOpenSqlExecutor!,
+        ),
+      if (widget.onBatchTransfer != null)
+        _QuickActionItem(
+          label: 'Transferencia',
+          tooltip: 'Transferencia por lote a uno o varios ambientes',
+          icon: Icons.sync_alt_rounded,
+          color: const Color(0xFFD83B01),
+          onTap: widget.onBatchTransfer!,
+        ),
+      if (widget.onDeployTickets != null)
+        _QuickActionItem(
+          label: 'Ticket despliegue',
+          tooltip: 'Mantenimiento de tickets de pase / despliegue',
+          icon: Icons.confirmation_number_outlined,
+          color: const Color(0xFF8E562E),
+          onTap: widget.onDeployTickets!,
+        ),
+      if (widget.onNewNote != null)
+        _QuickActionItem(
+          label: 'Nueva nota',
+          tooltip: 'Crear nota o abrir gestor de notas markdown (Ctrl+Shift+N)',
+          icon: Icons.sticky_note_2_outlined,
+          color: const Color(0xFFD13438),
+          onTap: widget.onNewNote!,
+        ),
+      if (widget.onCompare != null)
+        _QuickActionItem(
+          label: 'Comparar',
+          tooltip: 'Comparar texto de origen y destino (Paste Diff)',
+          icon: Icons.difference_outlined,
+          color: const Color(0xFF5C2D91),
+          onTap: widget.onCompare!,
+        ),
+    ];
+
+    if (actions.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.flash_on_rounded, size: 13, color: cs.primary),
+            const SizedBox(width: 4),
+            Text(
+              'Acceso rápido',
+              style: TextStyle(
+                color: cs.onSurfaceVariant,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.3,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.center,
+          children: actions
+              .map((act) => _buildQuickActionChip(act, cs))
+              .toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuickActionChip(_QuickActionItem item, ColorScheme cs) {
+    return Tooltip(
+      message: item.tooltip,
+      child: Material(
+        color: cs.surfaceContainerHigh.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(6),
+        child: InkWell(
+          onTap: item.onTap,
+          borderRadius: BorderRadius.circular(6),
+          hoverColor: item.color.withValues(alpha: 0.12),
+          splashColor: item.color.withValues(alpha: 0.2),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: cs.outlineVariant.withValues(alpha: 0.5),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(item.icon, size: 15, color: item.color),
+                const SizedBox(width: 6),
+                Text(
+                  item.label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: cs.onSurface,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickActionItem {
+  final String label;
+  final String tooltip;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _QuickActionItem({
+    required this.label,
+    required this.tooltip,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
 }
 
 enum _SortLabel {

@@ -163,7 +163,9 @@ class ConnectionStatusService {
       // levantado y aceptando conexiones. Solo interesa distinguir "responde"
       // de "no responde".
       final currentHost = await getHost();
-      await _client.get(Uri.parse(currentHost)).timeout(const Duration(seconds: 5));
+      await _client
+          .get(Uri.parse(currentHost))
+          .timeout(const Duration(seconds: 5));
       reportSuccess();
     } catch (_) {
       _set(ServerConnectionState.offline);
@@ -192,6 +194,11 @@ class ConnectionStatusService {
     );
     // Cambió la salud de la conexión → ajustar la frecuencia del sondeo.
     if (wasOnline != value.isOnline) _scheduleHeartbeat();
+  }
+
+  void stopHeartbeatForTesting() {
+    _heartbeat?.cancel();
+    _heartbeat = null;
   }
 
   void dispose() {

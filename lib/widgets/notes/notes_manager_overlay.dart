@@ -471,6 +471,44 @@ class NotesBrowserDialogState extends State<NotesBrowserDialog> {
   }
 
   Future<void> _deleteNote(NoteListItem item) async {
+    if (item.note.ticketDespliegueId != null &&
+        item.note.ticketDespliegueId!.trim().isNotEmpty) {
+      await showFloatingDialog<void>(
+        context,
+        (ctx, close) => AlertDialog(
+          titlePadding: EdgeInsets.zero,
+          title: const ConstellationDialogTitle(
+            child: Row(
+              children: [
+                Icon(
+                  Icons.link_off_rounded,
+                  color: Colors.orangeAccent,
+                  size: 20,
+                ),
+                SizedBox(width: 8),
+                Text('Nota Vinculada a Ticket'),
+              ],
+            ),
+          ),
+          content: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'La nota "${item.note.title}" está asociada al ticket de despliegue '
+              '(${item.note.ticketDespliegueId}).\n\n'
+              'Por restricciones de integridad, debes desasociar la nota del ticket antes de poder eliminarla.',
+            ),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => close(),
+              child: const Text('Entendido'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     final confirmed = await showFloatingDialog<bool>(
       context,
       (ctx, close) => AlertDialog(
@@ -2337,6 +2375,47 @@ class NotesBrowserDialogState extends State<NotesBrowserDialog> {
                 padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
                 child: Row(
                   children: [
+                    if (item.note.ticketDespliegueId != null &&
+                        item.note.ticketDespliegueId!.trim().isNotEmpty) ...[
+                      Tooltip(
+                        message:
+                            'Asociada a Ticket ${item.note.ticketDespliegueId}',
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 1.5,
+                          ),
+                          margin: const EdgeInsets.only(right: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withValues(alpha: 0.18),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                              color: Colors.blue.withValues(alpha: 0.35),
+                              width: 0.7,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.confirmation_number_outlined,
+                                size: 9,
+                                color: fg.withValues(alpha: 0.9),
+                              ),
+                              const SizedBox(width: 2),
+                              Text(
+                                'Ticket',
+                                style: TextStyle(
+                                  fontSize: 8.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: fg.withValues(alpha: 0.9),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                     Expanded(
                       child: item.note.tags.isNotEmpty
                           ? Text(

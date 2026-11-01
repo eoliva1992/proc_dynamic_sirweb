@@ -181,7 +181,16 @@ class _EjecutarProcedimientoModalState
       _ctrls[c.key] = TextEditingController();
     }
     _ctrls['cdEntidad']!.text = '30';
+    for (final c in _ctrls.values) {
+      c.addListener(_onParamChanged);
+    }
+    _camposAdicionalesCtrl.addListener(_onParamChanged);
+    _timeoutCtrl.addListener(_onParamChanged);
     unawaited(_restaurarParametros());
+  }
+
+  void _onParamChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -193,9 +202,12 @@ class _EjecutarProcedimientoModalState
     }
     _MinimizedSlots.release(_slot);
     for (final c in _ctrls.values) {
+      c.removeListener(_onParamChanged);
       c.dispose();
     }
+    _camposAdicionalesCtrl.removeListener(_onParamChanged);
     _camposAdicionalesCtrl.dispose();
+    _timeoutCtrl.removeListener(_onParamChanged);
     _timeoutCtrl.dispose();
     _paramsScroll.dispose();
     _resultScroll.dispose();
@@ -295,9 +307,7 @@ class _EjecutarProcedimientoModalState
     return txt.isEmpty ? null : txt;
   }
 
-  Future<void> _ejecutar() async {
-    if (_ejecutando) return;
-
+  EjecucionRequest? _construirRequest({bool reportarErrores = false}) {
     Map<String, dynamic>? extra;
     final extraTxt = _camposAdicionalesCtrl.text.trim();
     if (extraTxt.isNotEmpty) {
@@ -308,11 +318,13 @@ class _EjecutarProcedimientoModalState
         }
         extra = decoded;
       } catch (e) {
-        setState(() {
-          _error = 'Campos adicionales: JSON inválido — $e';
-          _resultado = null;
-        });
-        return;
+        if (reportarErrores) {
+          setState(() {
+            _error = 'Campos adicionales: JSON inválido — $e';
+            _resultado = null;
+          });
+        }
+        return null;
       }
     }
 
@@ -322,11 +334,13 @@ class _EjecutarProcedimientoModalState
       if (!c.numerico) continue;
       final txt = _ctrls[c.key]?.text.trim() ?? '';
       if (txt.isNotEmpty && int.tryParse(txt) == null) {
-        setState(() {
-          _error = '${c.label} debe ser un número entero.';
-          _resultado = null;
-        });
-        return;
+        if (reportarErrores) {
+          setState(() {
+            _error = '${c.label} debe ser un número entero.';
+            _resultado = null;
+          });
+        }
+        return null;
       }
     }
 
@@ -349,7 +363,7 @@ class _EjecutarProcedimientoModalState
 
     final timeout = int.tryParse(_timeoutCtrl.text.trim());
 
-    final request = EjecucionRequest(
+    return EjecucionRequest(
       cdEntidad: _int('cdEntidad'),
       nuCotizacion: _int('nuCotizacion'),
       nuItem: _int('nuItem'),
@@ -370,6 +384,54 @@ class _EjecutarProcedimientoModalState
       ambiente: _ambiente == 'Desa' ? null : _ambiente,
       timeoutSegundos: timeout,
     );
+  }
+
+  SqlHttpTraceEntry _generarPreviewHttpTrace() {
+    final currentHost = ServerConfigService().getBaseUrlSync();
+    final req =
+        _construirRequest(reportarErrores: false) ??
+        EjecucionRequest(
+          cdEntidad: 30,
+          ambiente: _ambiente == 'Desa' ? null : _ambiente,
+        );
+
+    final String url;
+    final Map<String, dynamic> bodyJson;
+
+    if (widget.obtenerTexto != null) {
+      url = '$currentHost/tools/procedimiento-dinamico/ejecutar-borrador';
+      bodyJson = req.toBorradorJson(
+        deTexto: '',
+        inConfiguracion: widget.inConfiguracion,
+      );
+    } else {
+      url =
+          '$currentHost/tools/procedimiento-dinamico/'
+          '${Uri.encodeComponent(widget.cdProcedimiento)}/ejecutar';
+      bodyJson = req.toJson();
+    }
+
+    const encoder = JsonEncoder.withIndent('  ');
+    final formattedBody = encoder.convert(bodyJson);
+
+    return SqlHttpTraceEntry(
+      id: 0,
+      timestamp: DateTime.now(),
+      status: SqlHttpTraceStatus.running,
+      method: 'POST',
+      url: url,
+      endpoint: Uri.parse(url).path,
+      requestHeaders: const {'Content-Type': 'application/json'},
+      requestBody: formattedBody,
+      responseBody: '(Pendiente de ejecución)',
+    );
+  }
+
+  Future<void> _ejecutar() async {
+    if (_ejecutando) return;
+
+    final request = _construirRequest(reportarErrores: true);
+    if (request == null) return;
 
     final client = http.Client();
     _ejecucionClient = client;
@@ -428,6 +490,18 @@ class _EjecutarProcedimientoModalState
       }
     } catch (e) {
       if (!mounted || _cancelado) return;
+      if (e is SirwebExecutionException && e.httpTrace != null) {
+        _lastHttpTrace = e.httpTrace;
+      } else if (_lastHttpTrace == null) {
+        _lastHttpTrace = _generarPreviewHttpTrace()
+          ..status = SqlHttpTraceStatus.error
+          ..error = e.toString();
+      } else {
+        _lastHttpTrace!
+          ..status = SqlHttpTraceStatus.error
+          ..error = e.toString();
+      }
+
       setState(() {
         _error = e.toString().replaceFirst('Exception: ', '');
         _resultado = null;
@@ -662,6 +736,8 @@ class _EjecutarProcedimientoModalState
           ..writeln(
             'Status: ${trace.statusCode ?? "-"} | Duración: ${trace.durationMs ?? 0}ms',
           )
+          ..writeln('\n--- CURL ---')
+          ..writeln(trace.toCurlCommand())
           ..writeln('\n--- HEADERS ---');
         trace.requestHeaders.forEach((k, v) => buf.writeln('$k: $v'));
         buf.writeln('\n--- REQUEST BODY ---');
@@ -1238,78 +1314,57 @@ class _EjecutarProcedimientoModalState
   // ── Panel de resultado ──────────────────────────────────────────────────
 
   Widget _buildResultado(bool isDark, Color borderColor) {
-    if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.error_outline,
-                color: Colors.redAccent,
-                size: 28,
-              ),
-              const SizedBox(height: 8),
-              SelectableText(
-                _error!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.redAccent, fontSize: 12),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                alignment: WrapAlignment.center,
-                children: [
-                  TextButton.icon(
-                    onPressed: _ejecutando
-                        ? null
-                        : () => unawaited(_ejecutar()),
-                    icon: const Icon(Icons.refresh_rounded, size: 16),
-                    label: const Text('Reintentar'),
-                  ),
-                  if (_lastHttpTrace != null)
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _error = null;
-                          _tab = 5;
-                        });
-                      },
-                      icon: const Icon(Icons.lan_outlined, size: 16),
-                      label: const Text('Ver traza HTTP'),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
     final res = _resultado;
-    if (res == null) {
-      return Column(
-        children: [
-          if (_ejecutando) const LinearProgressIndicator(minHeight: 2),
-          Expanded(
-            child: _EmptyState(
-              icon: Icons.play_circle_outline_rounded,
-              message: _ejecutando
-                  ? 'Ejecutando el procedimiento…'
-                  : 'Completá el contexto y ejecutá el procedimiento\n'
-                        'para ver salidas, traza y errores de Oracle.',
-              isDark: isDark,
-            ),
-          ),
-        ],
-      );
-    }
 
     return Column(
       children: [
         if (_ejecutando) const LinearProgressIndicator(minHeight: 2),
-        _buildResumen(res, isDark, borderColor),
+        if (_error != null)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.redAccent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: Colors.redAccent.withValues(alpha: 0.4),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.error_outline,
+                  color: Colors.redAccent,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: SelectableText(
+                    _error!,
+                    style: const TextStyle(
+                      color: Colors.redAccent,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _ejecutando ? null : () => unawaited(_ejecutar()),
+                  icon: const Icon(Icons.refresh_rounded, size: 15),
+                  label: const Text(
+                    'Reintentar',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (res != null) _buildResumen(res, isDark, borderColor),
         _buildTabs(res, isDark, borderColor),
         Expanded(child: _buildTabContent(res, isDark)),
       ],
@@ -1376,91 +1431,116 @@ class _EjecutarProcedimientoModalState
     );
   }
 
-  Widget _buildTabs(EjecucionResultado res, bool isDark, Color borderColor) {
+  Widget _buildTabs(EjecucionResultado? res, bool isDark, Color borderColor) {
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: borderColor)),
       ),
-      child: Row(
-        children: [
-          _TabChip(
-            label: 'Salidas',
-            count: res.salidas.length,
-            active: _tab == 0,
-            accent: _accent,
-            isDark: isDark,
-            onTap: () => setState(() => _tab = 0),
-          ),
-          const SizedBox(width: 6),
-          _TabChip(
-            label: 'Traza',
-            count: res.traza.length + (res.tieneError ? 1 : 0),
-            active: _tab == 1,
-            accent: res.tieneError ? Colors.redAccent : const Color(0xFF0078D4),
-            isDark: isDark,
-            onTap: () => setState(() => _tab = 1),
-          ),
-          const SizedBox(width: 6),
-          _TabChip(
-            label: 'Contexto',
-            count:
-                res.contexto.camposDesdeBd.length +
-                res.contexto.camposSobreescritos.length +
-                res.contexto.camposSinResolver.length,
-            active: _tab == 2,
-            accent: const Color(0xFF8E44AD),
-            isDark: isDark,
-            onTap: () => setState(() => _tab = 2),
-          ),
-          const SizedBox(width: 6),
-          _TabChip(
-            label: 'Variables',
-            count: res.variablesDinamicasUsadas.length,
-            active: _tab == 3,
-            accent: Colors.orange,
-            isDark: isDark,
-            onTap: () => setState(() => _tab = 3),
-          ),
-          const SizedBox(width: 6),
-          _TabChip(
-            label: 'Declaradas',
-            count: res.variablesDeclaradas.length,
-            active: _tab == 4,
-            accent: const Color(0xFF2E9E6B),
-            isDark: isDark,
-            onTap: () => setState(() => _tab = 4),
-          ),
-          const SizedBox(width: 6),
-          _TabChip(
-            label: 'HTTP',
-            count: (res.httpTrace ?? _lastHttpTrace) != null ? 1 : 0,
-            active: _tab == 5,
-            accent: const Color(0xFF0284C7),
-            isDark: isDark,
-            onTap: () => setState(() => _tab = 5),
-          ),
-          const Spacer(),
-          IconButton(
-            icon: const Icon(Icons.file_download_outlined, size: 16),
-            tooltip: 'Exportar $_nombreTab',
-            onPressed: () => unawaited(_exportarTab(res)),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
-          ),
-          IconButton(
-            icon: const Icon(Icons.copy_all_rounded, size: 16),
-            tooltip: 'Copiar resultado (JSON)',
-            onPressed: () => unawaited(_copiarJson()),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
-          ),
-        ],
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _TabChip(
+              label: 'Salidas',
+              count: res?.salidas.length ?? 0,
+              active: _tab == 0,
+              accent: _accent,
+              isDark: isDark,
+              onTap: () => setState(() => _tab = 0),
+            ),
+            const SizedBox(width: 6),
+            _TabChip(
+              label: 'Traza',
+              count:
+                  (res?.traza.length ?? 0) +
+                  ((res?.tieneError ?? false) ? 1 : 0),
+              active: _tab == 1,
+              accent: (res?.tieneError ?? false)
+                  ? Colors.redAccent
+                  : const Color(0xFF0078D4),
+              isDark: isDark,
+              onTap: () => setState(() => _tab = 1),
+            ),
+            const SizedBox(width: 6),
+            _TabChip(
+              label: 'Contexto',
+              count: res == null
+                  ? 0
+                  : (res.contexto.camposDesdeBd.length +
+                        res.contexto.camposSobreescritos.length +
+                        res.contexto.camposSinResolver.length),
+              active: _tab == 2,
+              accent: const Color(0xFF8E44AD),
+              isDark: isDark,
+              onTap: () => setState(() => _tab = 2),
+            ),
+            const SizedBox(width: 6),
+            _TabChip(
+              label: 'Variables',
+              count: res?.variablesDinamicasUsadas.length ?? 0,
+              active: _tab == 3,
+              accent: Colors.orange,
+              isDark: isDark,
+              onTap: () => setState(() => _tab = 3),
+            ),
+            const SizedBox(width: 6),
+            _TabChip(
+              label: 'Declaradas',
+              count: res?.variablesDeclaradas.length ?? 0,
+              active: _tab == 4,
+              accent: const Color(0xFF2E9E6B),
+              isDark: isDark,
+              onTap: () => setState(() => _tab = 4),
+            ),
+            const SizedBox(width: 6),
+            _TabChip(
+              label: 'HTTP',
+              count: 1,
+              active: _tab == 5,
+              accent: const Color(0xFF0284C7),
+              isDark: isDark,
+              onTap: () => setState(() => _tab = 5),
+            ),
+            if (res != null) ...[
+              const SizedBox(width: 12),
+              IconButton(
+                icon: const Icon(Icons.file_download_outlined, size: 16),
+                tooltip: 'Exportar $_nombreTab',
+                onPressed: () => unawaited(_exportarTab(res)),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+              ),
+              IconButton(
+                icon: const Icon(Icons.copy_all_rounded, size: 16),
+                tooltip: 'Copiar resultado (JSON)',
+                onPressed: () => unawaited(_copiarJson()),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildTabContent(EjecucionResultado res, bool isDark) {
+  Widget _buildTabContent(EjecucionResultado? res, bool isDark) {
+    if (_tab == 5) {
+      return _buildHttpTrace(res, isDark);
+    }
+    if (res == null) {
+      return _EmptyState(
+        icon: Icons.play_circle_outline_rounded,
+        message: _ejecutando
+            ? 'Ejecutando el procedimiento…'
+            : 'Completá el contexto y ejecutá el procedimiento\n'
+                  'para ver salidas, traza y errores de Oracle.\n'
+                  'O podés abrir la pestaña HTTP para previsualizar el request.',
+        isDark: isDark,
+      );
+    }
     return switch (_tab) {
       0 => _buildSalidas(res, isDark),
       1 => _buildTraza(res, isDark),
@@ -1694,16 +1774,22 @@ class _EjecutarProcedimientoModalState
   /// Pestaña HTTP: Muestra la consola con la petición y respuesta HTTP detalladas,
   /// incluyendo URL, método, código de estado, tiempo transcurrido, encabezados,
   /// payloads JSON formateados y opción para copiar comando cURL.
-  Widget _buildHttpTrace(EjecucionResultado res, bool isDark) {
-    final trace = res.httpTrace ?? _lastHttpTrace;
+  /// Si aún no se ejecutó nada, genera una previsualización en vivo del request.
+  Widget _buildHttpTrace(EjecucionResultado? res, bool isDark) {
+    final trace = res?.httpTrace ?? _lastHttpTrace;
     if (trace == null) {
-      return _EmptyState(
-        icon: Icons.lan_outlined,
-        message: 'No hay traza HTTP disponible para esta ejecución.',
-        isDark: isDark,
-      );
+      final previewTrace = _generarPreviewHttpTrace();
+      return _buildHttpTraceDetalle(previewTrace, isDark, esPreview: true);
     }
 
+    return _buildHttpTraceDetalle(trace, isDark, esPreview: false);
+  }
+
+  Widget _buildHttpTraceDetalle(
+    SqlHttpTraceEntry trace,
+    bool isDark, {
+    required bool esPreview,
+  }) {
     final borderColor = isDark
         ? const Color(0xFF2F2F2F)
         : const Color(0xFFEDF0F5);
@@ -1712,9 +1798,15 @@ class _EjecutarProcedimientoModalState
         trace.statusCode != null &&
         trace.statusCode! >= 200 &&
         trace.statusCode! < 300;
-    final statusColor = isSuccess
-        ? const Color(0xFF16A34A)
-        : (trace.statusCode != null ? Colors.redAccent : Colors.orange);
+    final statusColor = esPreview
+        ? const Color(0xFF0284C7)
+        : (isSuccess
+              ? const Color(0xFF16A34A)
+              : (trace.statusCode != null ? Colors.redAccent : Colors.orange));
+
+    final statusText = esPreview
+        ? 'PREVIEW'
+        : (trace.statusCode != null ? '${trace.statusCode}' : 'ERR');
 
     final reqText = trace.prettyRequestBody.isNotEmpty
         ? trace.prettyRequestBody
@@ -1726,6 +1818,39 @@ class _EjecutarProcedimientoModalState
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
+        if (esPreview) ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0284C7).withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: const Color(0xFF0284C7).withValues(alpha: 0.3),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.info_outline_rounded,
+                  size: 16,
+                  color: Color(0xFF0284C7),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Previsualización de la petición HTTP antes de ejecutar. Se actualiza automáticamente con los cambios en los campos.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark ? Colors.white70 : Colors.black87,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+
         // ── Header de estado HTTP y acciones ──
         Container(
           padding: const EdgeInsets.all(12),
@@ -1744,7 +1869,7 @@ class _EjecutarProcedimientoModalState
                   border: Border.all(color: statusColor.withValues(alpha: 0.5)),
                 ),
                 child: Text(
-                  trace.statusCode != null ? '${trace.statusCode}' : 'ERR',
+                  statusText,
                   style: TextStyle(
                     fontSize: 12,
                     fontFamily: 'Consolas',
@@ -1838,6 +1963,78 @@ class _EjecutarProcedimientoModalState
             ),
           ),
         ],
+
+        const SizedBox(height: 14),
+
+        // ── Comando cURL ──
+        _SeccionLabel(
+          label: 'Comando cURL (Listo para terminal o Postman)',
+          isDark: isDark,
+        ),
+        const SizedBox(height: 6),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: borderColor),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.terminal_rounded,
+                        size: 14,
+                        color: isDark ? Colors.white70 : Colors.black87,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'curl',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontFamily: 'Consolas',
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? Colors.white70 : Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.content_copy_rounded, size: 14),
+                    tooltip: 'Copiar cURL',
+                    onPressed: () {
+                      Clipboard.setData(
+                        ClipboardData(text: trace.toCurlCommand()),
+                      );
+                      AppToast.info('Comando cURL copiado');
+                    },
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 26,
+                      minHeight: 26,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              SelectableText(
+                trace.toCurlCommand(),
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontFamily: 'Consolas',
+                  height: 1.35,
+                  color: Color(0xFF0284C7),
+                ),
+              ),
+            ],
+          ),
+        ),
 
         const SizedBox(height: 14),
 

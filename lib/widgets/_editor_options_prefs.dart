@@ -4,7 +4,7 @@ part of 'code_editor_panel.dart';
 
 extension _EditorOptionsMethods on _CodeEditorPanelState {
   void _resetAllOptions() {
-    setState(() {
+    updateState(() {
       _minimap = true;
       _lineNumbers = true;
       _folding = true;
@@ -31,7 +31,7 @@ extension _EditorOptionsMethods on _CodeEditorPanelState {
   Future<void> _loadPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
-    setState(() {
+    updateState(() {
       _minimap = prefs.getBool('editor_minimap') ?? true;
       _lineNumbers = prefs.getBool('editor_line_numbers') ?? true;
       _folding = prefs.getBool('editor_folding') ?? true;
@@ -152,7 +152,7 @@ extension _EditorOptionsMethods on _CodeEditorPanelState {
   }
 
   void _toggle(VoidCallback fn) {
-    setState(fn);
+    updateState(fn);
     _applyEditorOptions();
     _savePrefs();
   }

@@ -483,6 +483,84 @@ void main() {
       );
     });
 
+    test('INSERT, MERGE y UPDATE respetan set_columns modificando columnas', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'deploy_export_set_columns_test_',
+      );
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+
+      final ticket = DeployTicket(
+        version: 1,
+        autoriza: 'USER',
+        tipoSolicitud: 'Sysid',
+        numeroSolicitud: '999',
+        usuarioCrea: 'DEV',
+        database: 'DESA',
+        databaseDestino: 'PROD',
+        reverseSql: [
+          DeployTicketScript(
+            nombre: 'config_reverse_set_cols.yaml',
+            contenido: '''dbconfig:
+  tables:
+    - name: PRODUCTO
+      dml: insert
+      filters:
+        CD_PRODUCTO: "= 10"
+      set_columns:
+        DE_PRODUCTO: "'PRODUCTO OVERRIDDEN'"
+    - name: PRODUCTO
+      dml: merge
+      filters:
+        CD_PRODUCTO: "= 10"
+      set_columns:
+        DE_PRODUCTO: "'PRODUCTO MERGE OVERRIDDEN'"
+    - name: PRODUCTO
+      dml: update
+      filters:
+        CD_PRODUCTO: "= 10"
+      set_columns:
+        DE_PRODUCTO: "'PRODUCTO UPD OVERRIDDEN'"
+''',
+          ),
+        ],
+      );
+
+      final exporter = DeployTicketExporterService(
+        sqlExecutorService: _FakeSqlExecutorService(),
+      );
+      final files = await exporter.exportarTicket(
+        ticket: ticket,
+        targetDirectoryPath: tempDir.path,
+      );
+
+      final rsqlExported = files.firstWhere((f) => f.categoria == 'RSQL');
+      final rsqlContent = await File(rsqlExported.rutaCompleta).readAsString();
+
+      // 1. En INSERT debe haber reemplazado el valor de DE_PRODUCTO
+      expect(
+        rsqlContent.contains(
+          "INSERT INTO PRODUCTO (CD_PRODUCTO, DE_PRODUCTO) VALUES (10, 'PRODUCTO OVERRIDDEN');",
+        ),
+        isTrue,
+      );
+
+      // 2. En MERGE debe usar el valor modificado en la proyección SELECT de DUAL
+      expect(
+        rsqlContent.contains(
+          "SELECT 10 AS CD_PRODUCTO, 'PRODUCTO MERGE OVERRIDDEN' AS DE_PRODUCTO FROM DUAL",
+        ),
+        isTrue,
+      );
+
+      // 3. En UPDATE debe usar el valor modificado en el SET
+      expect(
+        rsqlContent.contains(
+          "UPDATE PRODUCTO SET DE_PRODUCTO = 'PRODUCTO UPD OVERRIDDEN' WHERE CD_PRODUCTO = 10;",
+        ),
+        isTrue,
+      );
+    });
+
     test('UPDATE no debe actualizar Primary Keys en SET', () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'deploy_export_update_pk_test_',
@@ -783,6 +861,109 @@ void main() {
 
         expect(files.any((f) => f.nombreArchivo == 'config.yaml'), isTrue);
         expect(files.any((f) => f.nombreArchivo == 'config.yaml.sql'), isFalse);
+      },
+    );
+
+    test(
+      'exportarTicket separa tablas con split_file: true en archivos P2, P3 e incrementa posicion',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'deploy_export_split_test_',
+        );
+        addTearDown(() => tempDir.delete(recursive: true));
+
+        final now = DateTime.now();
+        final fechaDdmmyyyy = DeployTicketExporterService.formatDateDdmmyyyy(
+          now,
+        );
+        final fechaYmd = DeployTicketExporterService.formatDateYmd(now);
+
+        const yamlContent = '''
+dbconfig:
+  tables:
+    - dml: merge
+      name: TABLA_UNO
+      pk_add: true
+      filters:
+        id: "= 1"
+    - dml: insert
+      name: TABLA_DOS
+      split_file: true
+      filters:
+        id: "= 2"
+    - dml: update
+      name: TABLA_TRES
+      split_file: true
+      filters:
+        id: "= 3"
+''';
+
+        final ticket = DeployTicket(
+          id: 'ticket-split-rsql',
+          version: 1,
+          autoriza: 'TESTUSER',
+          tipoSolicitud: 'Normal',
+          numeroSolicitud: '1234',
+          usuarioCrea: 'EOLIVA',
+          reverseSql: [
+            const DeployTicketScript(
+              nombre: 'configReverse.yaml',
+              contenido: yamlContent,
+            ),
+          ],
+        );
+
+        final exporter = DeployTicketExporterService();
+        final files = await exporter.exportarTicket(
+          ticket: ticket,
+          targetDirectoryPath: tempDir.path,
+        );
+
+        final fileNames = files.map((f) => f.nombreArchivo).toList();
+
+        // 1. Archivo base con TABLA_UNO (sin split_file): posición 01
+        final baseFile = fileNames.firstWhere(
+          (n) => n.contains('configReverseReverse$fechaDdmmyyyy-'),
+        );
+        expect(
+          baseFile,
+          '01-eoliva-configReverseReverse$fechaDdmmyyyy-$fechaYmd-V1.sql',
+        );
+
+        // 2. Archivo para TABLA_DOS (split_file P2): posición 02
+        final p2File = fileNames.firstWhere(
+          (n) => n.contains('configReverseReverse${fechaDdmmyyyy}P2-'),
+        );
+        expect(
+          p2File,
+          '02-eoliva-configReverseReverse${fechaDdmmyyyy}P2-$fechaYmd-V1.sql',
+        );
+
+        // 3. Archivo para TABLA_TRES (split_file P3): posición 03
+        final p3File = fileNames.firstWhere(
+          (n) => n.contains('configReverseReverse${fechaDdmmyyyy}P3-'),
+        );
+        expect(
+          p3File,
+          '03-eoliva-configReverseReverse${fechaDdmmyyyy}P3-$fechaYmd-V1.sql',
+        );
+
+        // Comprobar contenido generado en cada uno desde disco
+        final baseObj = files.firstWhere((f) => f.nombreArchivo == baseFile);
+        final baseContent = await File(baseObj.rutaCompleta).readAsString();
+        expect(baseContent.contains('TABLA_UNO'), isTrue);
+        expect(baseContent.contains('TABLA_DOS'), isFalse);
+        expect(baseContent.contains('TABLA_TRES'), isFalse);
+
+        final p2Obj = files.firstWhere((f) => f.nombreArchivo == p2File);
+        final p2Content = await File(p2Obj.rutaCompleta).readAsString();
+        expect(p2Content.contains('TABLA_DOS'), isTrue);
+        expect(p2Content.contains('TABLA_UNO'), isFalse);
+
+        final p3Obj = files.firstWhere((f) => f.nombreArchivo == p3File);
+        final p3Content = await File(p3Obj.rutaCompleta).readAsString();
+        expect(p3Content.contains('TABLA_TRES'), isTrue);
+        expect(p3Content.contains('TABLA_UNO'), isFalse);
       },
     );
 

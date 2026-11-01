@@ -995,7 +995,7 @@ class SirwebService {
           ? SqlHttpTraceStatus.cancelled
           : SqlHttpTraceStatus.error;
       trace.error = e.toString();
-      rethrow;
+      throw SirwebExecutionException(e.toString(), httpTrace: trace);
     }
 
     final elapsed = reloj.elapsedMilliseconds;
@@ -1020,7 +1020,7 @@ class SirwebService {
         argumentos: body,
         respuesta: rawResp,
       );
-      throw Exception(msg);
+      throw SirwebExecutionException(msg, httpTrace: trace);
     }
 
     final envelope =
@@ -1050,7 +1050,7 @@ class SirwebService {
       if (dataMap != null) {
         return EjecucionResultado.fromJson(dataMap, httpTrace: trace);
       }
-      throw Exception(msg);
+      throw SirwebExecutionException(msg, httpTrace: trace);
     }
 
     trace.status = SqlHttpTraceStatus.success;
@@ -1097,7 +1097,20 @@ class SirwebService {
   }
 }
 
-/// Error de conectividad con el backend (timeout, socket caÃ­do, TLS, etc.).
+/// Error arrojado durante la ejecución de un procedimiento dinámico en SirWeb.
+/// Contiene el [httpTrace] con el endpoint, headers, payload enviado y la respuesta
+/// o error producido, garantizando que el usuario siempre pueda inspeccionar la petición.
+class SirwebExecutionException implements Exception {
+  SirwebExecutionException(this.message, {this.httpTrace});
+
+  final String message;
+  final SqlHttpTraceEntry? httpTrace;
+
+  @override
+  String toString() => message;
+}
+
+/// Error de conectividad con el backend (timeout, socket caído, TLS, etc.).
 /// Se expone como tipo propio para que la UI pueda distinguirlo de los
 /// errores funcionales devueltos por Oracle y mostrar un mensaje adecuado.
 class SirwebConnectionException implements Exception {

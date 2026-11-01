@@ -41,6 +41,7 @@ void showNoteEditorWindow(
 void showNewNoteWindow(
   BuildContext context, {
   String? tag,
+  String? ticketDespliegueId,
   void Function({bool silent})? onSaved,
   VoidCallback? onDeleted,
 }) {
@@ -50,6 +51,7 @@ void showNewNoteWindow(
     content: '',
     ownerUser: NoteService.currentUser,
     tags: tag != null && tag.isNotEmpty ? [tag] : const [],
+    ticketDespliegueId: ticketDespliegueId,
   );
   showNoteEditorWindow(
     context,
@@ -302,6 +304,35 @@ class _NoteEditorWindowState extends State<_NoteEditorWindow> {
 
   Future<void> _delete() async {
     if (!_item.note.isPersisted) return;
+
+    if (_item.note.ticketDespliegueId != null &&
+        _item.note.ticketDespliegueId!.trim().isNotEmpty) {
+      await showFloatingDialog<void>(
+        context,
+        (ctx, close) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.link_off_rounded, color: Colors.orangeAccent),
+              SizedBox(width: 8),
+              Text('Nota Vinculada a Ticket'),
+            ],
+          ),
+          content: Text(
+            'La nota "${_item.note.title}" está asociada al ticket de despliegue '
+            '(${_item.note.ticketDespliegueId}).\n\n'
+            'Por restricciones de integridad, debes desasociar la nota del ticket antes de poder eliminarla.',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => close(),
+              child: const Text('Entendido'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     final confirmed = await showFloatingDialog<bool>(
       context,
       (ctx, close) => AlertDialog(
@@ -1046,6 +1077,46 @@ class _NoteEditorWindowState extends State<_NoteEditorWindow> {
                   },
                 ),
               ),
+              if (_item.note.ticketDespliegueId != null &&
+                  _item.note.ticketDespliegueId!.trim().isNotEmpty)
+                Tooltip(
+                  message:
+                      'Vinculada al ticket #${_item.note.ticketDespliegueId}',
+                  child: Container(
+                    margin: const EdgeInsets.only(right: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.blueAccent.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: Colors.blueAccent.withValues(alpha: 0.45),
+                        width: 0.7,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.confirmation_number_outlined,
+                          size: 11,
+                          color: Colors.blueAccent,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          '#Ticket',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: onBg,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               if (access.canDelete && _item.note.isPersisted)
                 _HeaderIconButton(
                   icon: Icons.delete_outline_rounded,

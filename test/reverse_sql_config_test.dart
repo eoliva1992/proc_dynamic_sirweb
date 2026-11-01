@@ -251,6 +251,10 @@ dbconfig:
       limit: 50
       filters:
         in_activo: "= 1"
+      set_columns:
+        cd_ambiente: "'PROD'"
+        fe_modificacion: SYSDATE
+        in_activo: 1
 ''';
         final parsed = ReverseSqlConfig.parseYaml(fullYaml);
         expect(parsed.tables.length, 1);
@@ -265,6 +269,9 @@ dbconfig:
         expect(t.orderBy, 'fe_alta DESC, cd_procedimiento ASC');
         expect(t.limit, 50);
         expect(t.filters['in_activo'], '= 1');
+        expect(t.setColumns['cd_ambiente'], "'PROD'");
+        expect(t.setColumns['fe_modificacion'], 'SYSDATE');
+        expect(t.setColumns['in_activo'], '1');
 
         // Roundtrip
         final regenerated = parsed.toYaml();
@@ -277,8 +284,38 @@ dbconfig:
         expect(rt.exists.length, 1);
         expect(rt.orderBy, 'fe_alta DESC, cd_procedimiento ASC');
         expect(rt.limit, 50);
+        expect(rt.setColumns['cd_ambiente'], "'PROD'");
+        expect(rt.setColumns['fe_modificacion'], 'SYSDATE');
+        expect(rt.setColumns['in_activo'], '1');
       },
     );
+
+    test('toYaml y parseYaml soportan split_file: true correctamente', () {
+      const config = ReverseSqlConfig(
+        tables: [
+          ReverseSqlTableConfig(
+            dml: ReverseSqlDml.merge,
+            name: 'tabla_principal',
+            splitFile: false,
+          ),
+          ReverseSqlTableConfig(
+            dml: ReverseSqlDml.insert,
+            name: 'tabla_separada',
+            splitFile: true,
+          ),
+        ],
+      );
+
+      final yaml = config.toYaml();
+      expect(yaml.contains('split_file: true'), isTrue);
+
+      final parsed = ReverseSqlConfig.parseYaml(yaml);
+      expect(parsed.tables.length, 2);
+      expect(parsed.tables[0].name, 'tabla_principal');
+      expect(parsed.tables[0].splitFile, isFalse);
+      expect(parsed.tables[1].name, 'tabla_separada');
+      expect(parsed.tables[1].splitFile, isTrue);
+    });
 
     group('Reordenamiento de tablas', () {
       const reorderYaml = '''

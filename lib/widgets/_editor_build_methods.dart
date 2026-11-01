@@ -75,7 +75,7 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
       double? newLeft,
       double? newTop,
     }) {
-      setState(() {
+      updateState(() {
         _problemsAnim = Duration.zero;
         if (newW != null) _problemsPanelWidth = newW;
         if (newH != null) _problemsPanelHeight = newH;
@@ -152,7 +152,7 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
                       ? Icons.open_in_browser_rounded
                       : Icons.remove_rounded,
                   onTap: () {
-                    setState(() {
+                    updateState(() {
                       _problemsAnim = const Duration(milliseconds: 200);
                       _problemsMinimized = !_problemsMinimized;
                       if (_problemsMinimized) _problemsMaximized = false;
@@ -169,7 +169,7 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
                         ? Icons.close_fullscreen_rounded
                         : Icons.open_in_full_rounded,
                     onTap: () {
-                      setState(() {
+                      updateState(() {
                         _problemsAnim = const Duration(milliseconds: 200);
                         _problemsMaximized = !_problemsMaximized;
                         if (_problemsMaximized) _problemsMinimized = false;
@@ -180,7 +180,7 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
                 _ProblemsHeaderButton(
                   tooltip: 'Cerrar',
                   icon: Icons.close,
-                  onTap: () => setState(() => _showProblemsPanel = false),
+                  onTap: () => updateState(() => _showProblemsPanel = false),
                 ),
               ],
             ),
@@ -1002,7 +1002,7 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
       child: GestureDetector(
         key: _varsButtonKey,
         onSecondaryTap: () {
-          setState(() => _varsDocked = !_varsDocked);
+          updateState(() => _varsDocked = !_varsDocked);
           _savePrefs();
         },
         onTap: _varsDocked ? null : () => _showVarsOverlay(vars),
@@ -1220,7 +1220,8 @@ extension _EditorBuildMethods on _CodeEditorPanelState {
       decoration: _kTooltipDecoration,
       textStyle: _kTooltipTextStyle,
       child: InkWell(
-        onTap: () => setState(() => _showProblemsPanel = !_showProblemsPanel),
+        onTap: () =>
+            updateState(() => _showProblemsPanel = !_showProblemsPanel),
         borderRadius: BorderRadius.circular(10),
         child: badge,
       ),
