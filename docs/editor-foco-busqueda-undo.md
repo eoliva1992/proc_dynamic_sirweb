@@ -44,9 +44,11 @@ En `lib/widgets/code_editor_panel.dart`:
   (defensa en profundidad).
 - `window.__fmOpenFind()` abre `actions.find` y **persigue** el foco del input
   durante ~600 ms, porque Monaco lo crea de forma asíncrona.
-- Acciones Monaco explícitas: `custom.undo` (Ctrl+Z), `custom.redo`
-  (Ctrl+Y y Ctrl+Shift+Z) y `custom.find` (Ctrl+F). Se ejecutan contra el
-  editor (`editor.trigger`), no contra `document.activeElement`.
+- En el código, Monaco gestiona internamente `Ctrl+Z` (undo) y `Ctrl+Y` /
+  `Ctrl+Shift+Z` (redo) en un solo paso de historial. En inputs auxiliares
+  (búsqueda/reemplazo), el listener global de `keydown` desvía a
+  `document.execCommand` para que deshaga solo en el input sin duplicar el paso
+  en el editor.
 - Se completó el menú contextual Flutter (`showMenu`), que estaba a medias:
   `_CtxMenuAction` y `_editorAreaKey` no se usaban y el JS hace
   `preventDefault()` en `contextmenu`, así que el clic derecho no abría nada.

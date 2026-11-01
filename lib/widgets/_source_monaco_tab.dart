@@ -841,37 +841,6 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     actionFutures.add(
       ctrl.addAction(
         const fm.MonacoActionDescriptor(
-          id: fm.MonacoAction('custom.undo'),
-          label: 'Deshacer',
-          keybindings: [
-            fm.MonacoKeybinding(ctrlCmd: true, key: fm.MonacoKey.keyZ),
-          ],
-        ),
-        () async => _undo(),
-      ),
-    );
-
-    actionFutures.add(
-      ctrl.addAction(
-        const fm.MonacoActionDescriptor(
-          id: fm.MonacoAction('custom.redo'),
-          label: 'Rehacer',
-          keybindings: [
-            fm.MonacoKeybinding(ctrlCmd: true, key: fm.MonacoKey.keyY),
-            fm.MonacoKeybinding(
-              ctrlCmd: true,
-              shift: true,
-              key: fm.MonacoKey.keyZ,
-            ),
-          ],
-        ),
-        () async => _redo(),
-      ),
-    );
-
-    actionFutures.add(
-      ctrl.addAction(
-        const fm.MonacoActionDescriptor(
           id: fm.MonacoAction('custom.find'),
           label: 'Buscar en el documento',
           keybindings: [

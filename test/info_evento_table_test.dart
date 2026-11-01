@@ -105,5 +105,8 @@ void main() {
     // After scrolling, row 100 should be visible and row 0 should be recycled/culled
     expect(find.text('Indice 100'), findsOneWidget);
     expect(find.text('Indice 0'), findsNothing);
+
+    // Verify horizontal scrollbar is present and interactive
+    expect(find.byType(Scrollbar), findsNWidgets(2));
   });
 }

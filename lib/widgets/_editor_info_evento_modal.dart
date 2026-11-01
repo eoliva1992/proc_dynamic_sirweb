@@ -421,13 +421,13 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
             if (!_maximized && !_minimized)
               Positioned(
                 left: left + 16,
-                top: top + h - 5,
-                width: w - 32,
-                height: 10,
+                top: top + h - 2,
+                width: w - 36,
+                height: 6,
                 child: MouseRegion(
                   cursor: SystemMouseCursors.resizeUpDown,
                   child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
+                    behavior: HitTestBehavior.translucent,
                     onPanUpdate: (d) => setState(() {
                       _anim = Duration.zero;
                       _modalH = (_modalH! + d.delta.dy).clamp(
@@ -1266,8 +1266,8 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
     'CD_USUARIO',
   ];
 
-  /// Detect which columns to show. Combina las columnas del diccionario de datos
-  /// de EVENTOVALOR con las devueltas en raw para que se visualicen todos los campos.
+  /// Detect which columns to show. Devuelve única y exclusivamente las columnas
+  /// de la tabla física EVENTOVALOR (obtenidas desde la BD o la lista canónica).
   List<String> _detectColumns(
     List<EventoValor> valores, {
     List<({String name, String dataType})> dbCols = const [],
@@ -1290,25 +1290,6 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
     } else {
       for (final c in _kDefaultEventoValorColumns) {
         addCol(c);
-      }
-    }
-
-    // Agregar cualquier otra propiedad adicional que venga en raw
-    for (final v in valores.take(10)) {
-      for (final k in v.raw.keys) {
-        final kUpper = k.toUpperCase();
-        final kClean = k.replaceAll('_', '').toUpperCase();
-        final alias =
-            _kKnownDbColumnAliases[kClean] ?? _kKnownDbColumnAliases[kUpper];
-        if (alias != null) {
-          final aliasUpper = alias.toUpperCase();
-          final aliasClean = aliasUpper.replaceAll('_', '');
-          if (!seen.contains(aliasUpper) && !seen.contains(aliasClean)) {
-            addCol(alias);
-          }
-        } else if (!seen.contains(kUpper) && !seen.contains(kClean)) {
-          addCol(k);
-        }
       }
     }
 
@@ -2203,37 +2184,41 @@ class _InfoEventoVirtualTableState extends State<InfoEventoVirtualTable> {
       width: 0.5,
     );
 
-    return Scrollbar(
-      controller: widget.vertCtrl,
-      thumbVisibility: true,
-      trackVisibility: true,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
       child: Scrollbar(
-        controller: widget.horizCtrl,
+        controller: widget.vertCtrl,
         thumbVisibility: true,
         trackVisibility: true,
-        notificationPredicate: (notif) =>
-            notif.depth == 1 || notif.metrics.axis == Axis.horizontal,
-        child: TableView.builder(
-          verticalDetails: ScrollableDetails.vertical(
-            controller: widget.vertCtrl,
-          ),
-          horizontalDetails: ScrollableDetails.horizontal(
-            controller: widget.horizCtrl,
-          ),
-          pinnedRowCount: 1,
-          pinnedColumnCount: 1,
-          rowCount: rowCount + 1,
-          columnCount: colCount + 1,
-          rowBuilder: (int row) {
-            return TableSpan(
-              extent: FixedTableSpanExtent(
-                row == 0 ? _headerHeight : _rowHeight,
-              ),
-              backgroundDecoration: row == 0
-                  ? TableSpanDecoration(color: headerBg)
-                  : null,
-            );
-          },
+        interactive: true,
+        child: Scrollbar(
+          controller: widget.horizCtrl,
+          thumbVisibility: true,
+          trackVisibility: true,
+          interactive: true,
+          notificationPredicate: (notif) =>
+              notif.depth == 1 || notif.metrics.axis == Axis.horizontal,
+          child: TableView.builder(
+            verticalDetails: ScrollableDetails.vertical(
+              controller: widget.vertCtrl,
+            ),
+            horizontalDetails: ScrollableDetails.horizontal(
+              controller: widget.horizCtrl,
+            ),
+            pinnedRowCount: 1,
+            pinnedColumnCount: 1,
+            rowCount: rowCount + 1,
+            columnCount: colCount + 1,
+            rowBuilder: (int row) {
+              return TableSpan(
+                extent: FixedTableSpanExtent(
+                  row == 0 ? _headerHeight : _rowHeight,
+                ),
+                backgroundDecoration: row == 0
+                    ? TableSpanDecoration(color: headerBg)
+                    : null,
+              );
+            },
           columnBuilder: (int col) {
             return TableSpan(
               extent: FixedTableSpanExtent(
@@ -2371,6 +2356,7 @@ class _InfoEventoVirtualTableState extends State<InfoEventoVirtualTable> {
           },
         ),
       ),
-    );
+    ),
+  );
   }
 }

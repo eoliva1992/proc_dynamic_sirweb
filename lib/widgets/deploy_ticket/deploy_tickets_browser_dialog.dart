@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/deploy_ticket.dart';
+import '../../providers/procedimientos_provider.dart';
 import '../../services/deploy_ticket_service.dart';
 import '../ambiente_selector.dart';
 import '../app_toast.dart';
@@ -44,6 +45,7 @@ class _DeployTicketsBrowserDialogState
   final TextEditingController _searchCtrl = TextEditingController();
   final TextEditingController _autorizaCtrl = TextEditingController();
   final TextEditingController _tipoSolicitudCtrl = TextEditingController();
+  final TextEditingController _usuarioCreaCtrl = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
   Timer? _debounceTimer;
 
@@ -88,16 +90,24 @@ class _DeployTicketsBrowserDialogState
 
   DeployTicket? _selectedTicket;
 
+  String _resolveDefaultUser() {
+    final providerUser = procedimientosProvider.cdUsuario.trim();
+    if (providerUser.isNotEmpty) return providerUser.toUpperCase();
+    return DeployTicketService.currentUser;
+  }
+
   bool get _hasActiveFilters =>
       _searchCtrl.text.trim().isNotEmpty ||
       _autorizaCtrl.text.trim().isNotEmpty ||
       _tipoSolicitudCtrl.text.trim().isNotEmpty ||
+      _usuarioCreaCtrl.text.trim().isNotEmpty ||
       _selectedDb != null ||
       _selectedDbd != null;
 
   @override
   void initState() {
     super.initState();
+    _usuarioCreaCtrl.text = _resolveDefaultUser();
     _loadPreferences();
     _fetchTickets();
   }
@@ -137,6 +147,7 @@ class _DeployTicketsBrowserDialogState
     _searchCtrl.dispose();
     _autorizaCtrl.dispose();
     _tipoSolicitudCtrl.dispose();
+    _usuarioCreaCtrl.dispose();
     _searchFocus.dispose();
     _debounceTimer?.cancel();
     super.dispose();
@@ -186,6 +197,7 @@ class _DeployTicketsBrowserDialogState
       _searchCtrl.clear();
       _autorizaCtrl.clear();
       _tipoSolicitudCtrl.clear();
+      _usuarioCreaCtrl.clear();
       _selectedDb = null;
       _selectedDbd = null;
     });
@@ -204,11 +216,13 @@ class _DeployTicketsBrowserDialogState
       final queryText = _searchCtrl.text.trim();
       final autorizaText = _autorizaCtrl.text.trim();
       final tipoSolText = _tipoSolicitudCtrl.text.trim();
+      final usuarioCreaText = _usuarioCreaCtrl.text.trim();
 
       final result = await DeployTicketService.instance.search(
         numeroSolicitud: queryText.isEmpty ? null : queryText,
         autoriza: autorizaText.isEmpty ? null : autorizaText,
         tipoSolicitud: tipoSolText.isEmpty ? null : tipoSolText,
+        usuarioCrea: usuarioCreaText.isEmpty ? null : usuarioCreaText,
         database: _selectedDb,
         databaseDestino: _selectedDbd,
         top: _pageSize,
@@ -838,6 +852,72 @@ class _DeployTicketsBrowserDialogState
                           tooltip: 'Limpiar autorizador',
                           onPressed: () {
                             _autorizaCtrl.clear();
+                            _fetchTickets(resetPage: true);
+                          },
+                        )
+                      : null,
+                  suffixIconConstraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 28,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 0,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(6),
+                    borderSide: BorderSide(color: inputBorderColor, width: 0.8),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(6),
+                    borderSide: BorderSide(color: inputBorderColor, width: 0.8),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(6),
+                    borderSide: BorderSide(color: cs.primary, width: 1.3),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+
+          // Campo de Creador (Usuario de Creación)
+          Expanded(
+            flex: 2,
+            child: SizedBox(
+              height: 32,
+              child: TextField(
+                controller: _usuarioCreaCtrl,
+                onChanged: (_) => _onFilterChanged(),
+                style: const TextStyle(fontSize: 12, height: 1.2),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: inputBg,
+                  hintText: 'Creado por (USR)...',
+                  hintStyle: TextStyle(
+                    fontSize: 11.5,
+                    color: isDark ? Colors.white38 : Colors.black38,
+                  ),
+                  prefixIcon: Icon(
+                    Icons.person_outline_rounded,
+                    size: 15,
+                    color: isDark
+                        ? Colors.blueAccent.shade100
+                        : Colors.blue.shade700,
+                  ),
+                  prefixIconConstraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                  suffixIcon: _usuarioCreaCtrl.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 14),
+                          splashRadius: 12,
+                          padding: EdgeInsets.zero,
+                          tooltip: 'Limpiar usuario de creación',
+                          onPressed: () {
+                            _usuarioCreaCtrl.clear();
                             _fetchTickets(resetPage: true);
                           },
                         )
@@ -2267,15 +2347,11 @@ class _DeployTicketsBrowserDialogState
           Icons.code_rounded,
           Colors.teal,
           onItemTap: (item) {
-            final script = t.sql.firstWhere(
-              (s) => s.nombre == item,
-              orElse: () => DeployTicketScript(nombre: item),
-            );
             ScriptCodeEditorDialog.show(
               context,
-              title: 'Script SQL: $item',
-              initialCode: script.contenido,
-              scriptName: script.nombre,
+              title: 'Visor de Scripts SQL',
+              scripts: t.sql,
+              initialSelectedName: item,
               language: 'plsql',
               themeColor: Colors.teal.shade600,
               icon: Icons.code_rounded,
@@ -2318,15 +2394,11 @@ class _DeployTicketsBrowserDialogState
           Icons.widgets_outlined,
           Colors.cyan,
           onItemTap: (item) {
-            final script = t.bloqueLogico.firstWhere(
-              (s) => s.nombre == item,
-              orElse: () => DeployTicketScript(nombre: item),
-            );
             ScriptCodeEditorDialog.show(
               context,
-              title: 'Bloque Lógico: $item',
-              initialCode: script.contenido,
-              scriptName: script.nombre,
+              title: 'Visor de Bloques Lógicos (BLK)',
+              scripts: t.bloqueLogico,
+              initialSelectedName: item,
               language: 'plsql',
               themeColor: Colors.cyan.shade700,
               icon: Icons.widgets_outlined,

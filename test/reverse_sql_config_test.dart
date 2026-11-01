@@ -330,31 +330,37 @@ dbconfig:
         ]);
       });
 
-      test('moveTableUp y moveTableDown en los extremos no alteran la lista', () {
-        final config = ReverseSqlConfig.parseYaml(reorderYaml);
-        expect(config.moveTableUp(0).tables, config.tables);
-        expect(config.moveTableDown(2).tables, config.tables);
-      });
+      test(
+        'moveTableUp y moveTableDown en los extremos no alteran la lista',
+        () {
+          final config = ReverseSqlConfig.parseYaml(reorderYaml);
+          expect(config.moveTableUp(0).tables, config.tables);
+          expect(config.moveTableDown(2).tables, config.tables);
+        },
+      );
 
-      test('reorderTable reubica tablas según el protocolo ReorderableListView', () {
-        final config = ReverseSqlConfig.parseYaml(reorderYaml);
+      test(
+        'reorderTable reubica tablas según el protocolo ReorderableListView',
+        () {
+          final config = ReverseSqlConfig.parseYaml(reorderYaml);
 
-        // Mover tabla_padre (0) al final (índice destino 3 según ReorderableListView)
-        final movedEnd = config.reorderTable(0, 3);
-        expect(movedEnd.tables.map((t) => t.name).toList(), [
-          'tabla_hijo',
-          'tabla_nieto',
-          'tabla_padre',
-        ]);
+          // Mover tabla_padre (0) al final (índice destino 3 según ReorderableListView)
+          final movedEnd = config.reorderTable(0, 3);
+          expect(movedEnd.tables.map((t) => t.name).toList(), [
+            'tabla_hijo',
+            'tabla_nieto',
+            'tabla_padre',
+          ]);
 
-        // Mover tabla_nieto (1 en movedEnd) a la primera posición (0)
-        final movedFront = movedEnd.reorderTable(1, 0);
-        expect(movedFront.tables.map((t) => t.name).toList(), [
-          'tabla_nieto',
-          'tabla_hijo',
-          'tabla_padre',
-        ]);
-      });
+          // Mover tabla_nieto (1 en movedEnd) a la primera posición (0)
+          final movedFront = movedEnd.reorderTable(1, 0);
+          expect(movedFront.tables.map((t) => t.name).toList(), [
+            'tabla_nieto',
+            'tabla_hijo',
+            'tabla_padre',
+          ]);
+        },
+      );
     });
   });
 }

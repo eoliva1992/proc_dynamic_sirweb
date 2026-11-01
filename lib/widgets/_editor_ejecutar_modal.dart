@@ -659,7 +659,9 @@ class _EjecutarProcedimientoModalState
         }
         final buf = StringBuffer()
           ..writeln('${trace.method} ${trace.url}')
-          ..writeln('Status: ${trace.statusCode ?? "-"} | Duración: ${trace.durationMs ?? 0}ms')
+          ..writeln(
+            'Status: ${trace.statusCode ?? "-"} | Duración: ${trace.durationMs ?? 0}ms',
+          )
           ..writeln('\n--- HEADERS ---');
         trace.requestHeaders.forEach((k, v) => buf.writeln('$k: $v'));
         buf.writeln('\n--- REQUEST BODY ---');
@@ -1260,7 +1262,9 @@ class _EjecutarProcedimientoModalState
                 alignment: WrapAlignment.center,
                 children: [
                   TextButton.icon(
-                    onPressed: _ejecutando ? null : () => unawaited(_ejecutar()),
+                    onPressed: _ejecutando
+                        ? null
+                        : () => unawaited(_ejecutar()),
                     icon: const Icon(Icons.refresh_rounded, size: 16),
                     label: const Text('Reintentar'),
                   ),
@@ -1703,10 +1707,9 @@ class _EjecutarProcedimientoModalState
     final borderColor = isDark
         ? const Color(0xFF2F2F2F)
         : const Color(0xFFEDF0F5);
-    final cardBg = isDark
-        ? const Color(0xFF1E1E1E)
-        : const Color(0xFFFAFAFA);
-    final isSuccess = trace.statusCode != null &&
+    final cardBg = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFFAFAFA);
+    final isSuccess =
+        trace.statusCode != null &&
         trace.statusCode! >= 200 &&
         trace.statusCode! < 300;
     final statusColor = isSuccess
@@ -1738,9 +1741,7 @@ class _EjecutarProcedimientoModalState
                 decoration: BoxDecoration(
                   color: statusColor.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(4),
-                  border: Border.all(
-                    color: statusColor.withValues(alpha: 0.5),
-                  ),
+                  border: Border.all(color: statusColor.withValues(alpha: 0.5)),
                 ),
                 child: Text(
                   trace.statusCode != null ? '${trace.statusCode}' : 'ERR',
@@ -1817,7 +1818,11 @@ class _EjecutarProcedimientoModalState
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.error_outline, size: 16, color: Colors.redAccent),
+                const Icon(
+                  Icons.error_outline,
+                  size: 16,
+                  color: Colors.redAccent,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: SelectableText(
@@ -1864,7 +1869,10 @@ class _EjecutarProcedimientoModalState
                       AppToast.info('Request JSON copiado');
                     },
                     padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                    constraints: const BoxConstraints(
+                      minWidth: 26,
+                      minHeight: 26,
+                    ),
                   ),
                 ],
               ),
@@ -1910,7 +1918,10 @@ class _EjecutarProcedimientoModalState
                       AppToast.info('Response JSON copiado');
                     },
                     padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                    constraints: const BoxConstraints(
+                      minWidth: 26,
+                      minHeight: 26,
+                    ),
                   ),
                 ],
               ),

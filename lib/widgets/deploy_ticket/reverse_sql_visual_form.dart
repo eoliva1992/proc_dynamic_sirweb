@@ -401,7 +401,8 @@ class _ReverseSqlVisualFormState extends State<ReverseSqlVisualForm> {
                       final originalOld = matchingIndices[oldIdx];
                       var effectiveNew = newIdx;
                       if (effectiveNew > oldIdx) effectiveNew -= 1;
-                      final originalTarget = effectiveNew < matchingIndices.length
+                      final originalTarget =
+                          effectiveNew < matchingIndices.length
                           ? matchingIndices[effectiveNew]
                           : widget.config.tables.length - 1;
                       _onReorder(
@@ -441,7 +442,8 @@ class _ReverseSqlVisualFormState extends State<ReverseSqlVisualForm> {
                         onMoveUp: originalIdx > 0
                             ? () => _moveTableUp(originalIdx)
                             : null,
-                        onMoveDown: originalIdx < widget.config.tables.length - 1
+                        onMoveDown:
+                            originalIdx < widget.config.tables.length - 1
                             ? () => _moveTableDown(originalIdx)
                             : null,
                       ),

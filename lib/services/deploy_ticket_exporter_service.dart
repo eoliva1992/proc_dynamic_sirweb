@@ -1094,7 +1094,9 @@ class DeployTicketExporterService {
         return true;
       }
     } catch (e) {
-      final msg = e.toString().toLowerCase()
+      final msg = e
+          .toString()
+          .toLowerCase()
           .replaceAll('ó', 'o')
           .replaceAll('í', 'i')
           .replaceAll('á', 'a')
@@ -1117,8 +1119,10 @@ class DeployTicketExporterService {
       if (info.isNotEmpty) {
         final hasOwnerOrStatus = info.any(
           (item) =>
-              (item.name.toUpperCase() == 'OWNER' && item.value.trim().isNotEmpty) ||
-              (item.name.toUpperCase() == 'STATUS' && item.value.trim().isNotEmpty),
+              (item.name.toUpperCase() == 'OWNER' &&
+                  item.value.trim().isNotEmpty) ||
+              (item.name.toUpperCase() == 'STATUS' &&
+                  item.value.trim().isNotEmpty),
         );
         if (hasOwnerOrStatus) return true;
       }

@@ -9,6 +9,9 @@ import '../widgets/schema_object_details_sheet.dart';
 import '../widgets/source_float_window.dart';
 import '../widgets/source_tab_controller.dart';
 import '../screens/schema_object_diff_page.dart';
+import 'table_metadata/table_constraints_view.dart';
+import 'table_metadata/table_indexes_view.dart';
+import 'table_metadata/table_triggers_view.dart';
 
 /// Abre el explorador de esquema con fondo semi-transparente.
 Future<void> showSchemaBrowser(
@@ -117,6 +120,8 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
   final _childSearch = <String, String>{};
   final _childSearchCtrls = <String, TextEditingController>{};
   final _childSearchDebounces = <String, Timer>{};
+  // Pestaña activa por tabla en el panel de detalle: 0: Columnas, 1: Restricciones, 2: Triggers, 3: Índices
+  final _tableSelectedTab = <String, int>{};
   String _filter = '';
   _Node? _selectedNode;
   String? _hoveredNodeId;
@@ -1357,6 +1362,48 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
             const SizedBox(width: 6),
             _ownerBadge(node.owner!, subColor),
           ],
+          if (node.kind == _NK.table) ...[
+            const SizedBox(width: 8),
+            Tooltip(
+              message: 'Ver código fuente / DDL (${node.label})',
+              child: InkWell(
+                onTap: () => _openSource(
+                  node.label,
+                  node.detail == 'view' ? 'VIEW' : 'TABLE',
+                ),
+                borderRadius: BorderRadius.circular(4),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: node.color.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: node.color.withValues(alpha: 0.35),
+                      width: 0.8,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.code_rounded, size: 13, color: node.color),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Fuente',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: node.color,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -1409,34 +1456,181 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
 
   Widget _buildTableDetail(_Node node, bool isDark) {
     final subColor = isDark ? const Color(0xFF888888) : Colors.black45;
-    if (!_columns.containsKey(node.label) &&
+    final selectedTab = _tableSelectedTab[node.label] ?? 0;
+
+    // Solo pedimos las columnas si está en la pestaña 0 (Columnas)
+    if (selectedTab == 0 &&
+        !_columns.containsKey(node.label) &&
         !_loadingCols.contains(node.label)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _loadColumns(node.label);
       });
     }
+
+    Widget content;
+    switch (selectedTab) {
+      case 1:
+        content = TableConstraintsView(
+          tableName: node.label,
+          ambiente: _currentAmbiente,
+          owner: node.owner,
+        );
+        break;
+      case 2:
+        content = TableTriggersView(
+          tableName: node.label,
+          ambiente: _currentAmbiente,
+          owner: node.owner,
+        );
+        break;
+      case 3:
+        content = TableIndexesView(
+          tableName: node.label,
+          ambiente: _currentAmbiente,
+          owner: node.owner,
+        );
+        break;
+      case 0:
+      default:
+        content = _loadingCols.contains(node.label)
+            ? const Center(
+                child: CircularProgressIndicator(
+                  color: Color(0xFF0078D4),
+                  strokeWidth: 2,
+                ),
+              )
+            : _columns[node.label] == null
+            ? Center(
+                child: Text(
+                  'Sin columnas disponibles',
+                  style: TextStyle(color: subColor, fontSize: 12),
+                ),
+              )
+            : _buildColumnsTable(_columns[node.label]!, isDark);
+        break;
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _detailHeader(node, isDark),
-        Expanded(
-          child: _loadingCols.contains(node.label)
-              ? const Center(
-                  child: CircularProgressIndicator(
-                    color: Color(0xFF0078D4),
-                    strokeWidth: 2,
-                  ),
-                )
-              : _columns[node.label] == null
-              ? Center(
-                  child: Text(
-                    'Sin columnas disponibles',
-                    style: TextStyle(color: subColor, fontSize: 12),
-                  ),
-                )
-              : _buildColumnsTable(_columns[node.label]!, isDark),
+        // Sub-barra de pestañas interna (Columnas, Restricciones, Triggers, Índices) - Segmented Control estilizado
+        Container(
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E1E22) : const Color(0xFFF3F5F9),
+            border: Border(
+              bottom: BorderSide(
+                color: isDark
+                    ? const Color(0xFF333338)
+                    : const Color(0xFFE2E6EE),
+                width: 1.0,
+              ),
+            ),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Container(
+            padding: const EdgeInsets.all(2.5),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF161619) : const Color(0xFFE5E9F0),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: isDark ? Colors.white10 : Colors.black12,
+                width: 0.6,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _tableTabButton(
+                  title: 'Columnas',
+                  icon: Icons.list_alt_rounded,
+                  selected: selectedTab == 0,
+                  isDark: isDark,
+                  onTap: () => setState(() => _tableSelectedTab[node.label] = 0),
+                ),
+                const SizedBox(width: 3),
+                _tableTabButton(
+                  title: 'Restricciones',
+                  icon: Icons.rule_folder_outlined,
+                  selected: selectedTab == 1,
+                  isDark: isDark,
+                  onTap: () => setState(() => _tableSelectedTab[node.label] = 1),
+                ),
+                const SizedBox(width: 3),
+                _tableTabButton(
+                  title: 'Triggers',
+                  icon: Icons.bolt_rounded,
+                  selected: selectedTab == 2,
+                  isDark: isDark,
+                  onTap: () => setState(() => _tableSelectedTab[node.label] = 2),
+                ),
+                const SizedBox(width: 3),
+                _tableTabButton(
+                  title: 'Índices',
+                  icon: Icons.key_rounded,
+                  selected: selectedTab == 3,
+                  isDark: isDark,
+                  onTap: () => setState(() => _tableSelectedTab[node.label] = 3),
+                ),
+              ],
+            ),
+          ),
         ),
+        Expanded(child: content),
       ],
+    );
+  }
+
+  Widget _tableTabButton({
+    required String title,
+    required IconData icon,
+    required bool selected,
+    required bool isDark,
+    required VoidCallback onTap,
+  }) {
+    const activeColor = Color(0xFF0078D4);
+    final fg = selected
+        ? Colors.white
+        : (isDark ? Colors.white60 : Colors.black87);
+    final bg = selected ? activeColor : Colors.transparent;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(6),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: activeColor.withValues(alpha: isDark ? 0.45 : 0.25),
+                    blurRadius: 6,
+                    offset: const Offset(0, 1.5),
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: fg),
+            const SizedBox(width: 5),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color: fg,
+                letterSpacing: 0.15,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -2118,9 +2312,12 @@ class _SchemaBrowserModalState extends State<_SchemaBrowserModal> {
                             ),
                           ),
                         ),
-                        if (node.detail == 'view')
+                        if (node.detail == 'view' || node.kind == _NK.table)
                           InkWell(
-                            onTap: () => _openSource(node.label, 'VIEW'),
+                            onTap: () => _openSource(
+                              node.label,
+                              node.detail == 'view' ? 'VIEW' : 'TABLE',
+                            ),
                             borderRadius: BorderRadius.circular(4),
                             child: Padding(
                               padding: const EdgeInsets.all(4),

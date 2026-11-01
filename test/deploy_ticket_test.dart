@@ -167,6 +167,32 @@ DBD:PROD
     );
 
     test(
+      'toIndexTxt remueve extensiones .sql y .pls de las líneas SQL y BLK',
+      () {
+        const ticket = DeployTicket(
+          version: 2,
+          autoriza: 'JP',
+          sql: [
+            DeployTicketScript(nombre: 'fix_poliza.sql'),
+            DeployTicketScript(nombre: 'ajuste_cartera.PLS'),
+            DeployTicketScript(nombre: 'script_sin_ext'),
+          ],
+          bloqueLogico: [
+            DeployTicketScript(nombre: 'BLK1.sql'),
+            DeployTicketScript(nombre: 'BLK2'),
+          ],
+        );
+
+        final text = ticket.toIndexTxt();
+        expect(text.contains('SQL:fix_poliza,ajuste_cartera,script_sin_ext'), isTrue);
+        expect(text.contains('BLK:BLK1,BLK2'), isTrue);
+        // Garantizar que no quedó ningún .sql en SQL: ni en BLK:
+        expect(text.contains('.sql'), isFalse);
+        expect(text.contains('.pls'), isFalse);
+      },
+    );
+
+    test(
       'suggestedFolderName extrae número de ticket de URL de Azure DevOps o tipo de solicitud',
       () {
         // 1. URL con workitems/edit/331974

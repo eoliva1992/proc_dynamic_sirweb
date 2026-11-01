@@ -382,8 +382,6 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   MonacoActionRegistration? _ejecutarAction;
   MonacoActionRegistration? _llamadaAction;
   MonacoActionRegistration? _findAction;
-  MonacoActionRegistration? _undoAction;
-  MonacoActionRegistration? _redoAction;
   MonacoActionRegistration? _copyAction;
   MonacoActionRegistration? _cutAction;
   MonacoActionRegistration? _pasteAction;
@@ -548,8 +546,6 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _disposeQuietly(() => _ejecutarAction?.dispose());
     _disposeQuietly(() => _llamadaAction?.dispose());
     _disposeQuietly(() => _findAction?.dispose());
-    _disposeQuietly(() => _undoAction?.dispose());
-    _disposeQuietly(() => _redoAction?.dispose());
     _disposeQuietly(() => _copyAction?.dispose());
     _disposeQuietly(() => _cutAction?.dispose());
     _disposeQuietly(() => _pasteAction?.dispose());
@@ -875,11 +871,17 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       '      e.preventDefault();'
       '      try { window.__fmCutNow(); } catch(_) {}'
       '    } else if (key === "z" && !e.shiftKey) {'
-      '      e.preventDefault();'
-      '      window.__fmUndo();'
+      '      var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+      '      if (aux) {'
+      '        e.preventDefault();'
+      '        window.__fmUndo();'
+      '      }'
       '    } else if ((key === "y" && !e.shiftKey) || (key === "z" && e.shiftKey)) {'
-      '      e.preventDefault();'
-      '      window.__fmRedo();'
+      '      var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+      '      if (aux) {'
+      '        e.preventDefault();'
+      '        window.__fmRedo();'
+      '      }'
       '    }'
       '  },true);'
       '})()',
@@ -1188,35 +1190,6 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           .then((a) => _findAction = a),
       // Clipboard bridge: navigator.clipboard is blocked on file:// (WebView2).
       // These actions override Ctrl+C/X/V so Flutter's native clipboard is used.
-      ctrl
-          .addAction(
-            MonacoActionDescriptor(
-              id: MonacoAction('custom.undo'),
-              label: 'Deshacer',
-              keybindings: [
-                MonacoKeybinding(ctrlCmd: true, key: MonacoKey.keyZ),
-              ],
-            ),
-            () async => _undo(),
-          )
-          .then((a) => _undoAction = a),
-      ctrl
-          .addAction(
-            MonacoActionDescriptor(
-              id: MonacoAction('custom.redo'),
-              label: 'Rehacer',
-              keybindings: [
-                MonacoKeybinding(ctrlCmd: true, key: MonacoKey.keyY),
-                MonacoKeybinding(
-                  ctrlCmd: true,
-                  shift: true,
-                  key: MonacoKey.keyZ,
-                ),
-              ],
-            ),
-            () async => _redo(),
-          )
-          .then((a) => _redoAction = a),
       ctrl
           .addAction(
             MonacoActionDescriptor(

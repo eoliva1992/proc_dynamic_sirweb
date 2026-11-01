@@ -47,6 +47,7 @@ class DeployTicketService {
     String? tipoSolicitud,
     String? numeroSolicitud,
     String? autoriza,
+    String? usuarioCrea,
     String? database,
     String? databaseDestino,
     int top = 50,
@@ -67,6 +68,9 @@ class DeployTicketService {
       }
       if (autoriza != null && autoriza.trim().isNotEmpty) {
         params['autoriza'] = autoriza.trim();
+      }
+      if (usuarioCrea != null && usuarioCrea.trim().isNotEmpty) {
+        params['usuarioCrea'] = usuarioCrea.trim();
       }
       if (database != null && database.trim().isNotEmpty) {
         params['database'] = database.trim();

@@ -15,6 +15,9 @@ import 'constellation_background.dart';
 import 'code_editor_panel.dart' show showEjecutarLlamadaWindow;
 import 'minimized_object_dock.dart';
 import 'source_float_window.dart';
+import 'table_metadata/table_constraints_view.dart';
+import 'table_metadata/table_indexes_view.dart';
+import 'table_metadata/table_triggers_view.dart';
 
 Future<void> showObjectDetails(
   BuildContext context, {
@@ -438,7 +441,7 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(14),
                 child: DefaultTabController(
-                  length: 4,
+                  length: (type == 'TABLE' || type == 'VIEW') ? 7 : 4,
                   child: Column(
                     children: [
                       // La cabecera actúa como barra de título: arrastrando
@@ -470,6 +473,20 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
                                 type: type,
                                 ambiente: ambiente,
                               ),
+                              if (type == 'TABLE' || type == 'VIEW') ...[
+                                TableConstraintsView(
+                                  tableName: name,
+                                  ambiente: ambiente,
+                                ),
+                                TableTriggersView(
+                                  tableName: name,
+                                  ambiente: ambiente,
+                                ),
+                                TableIndexesView(
+                                  tableName: name,
+                                  ambiente: ambiente,
+                                ),
+                              ],
                               _PermisosTab(name: name, ambiente: ambiente),
                               _ReferenciasTab(name: name, ambiente: ambiente),
                             ],
@@ -488,7 +505,7 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
   }
 
   Widget _buildHeader(BuildContext context, bool isDark, Color color) {
-    final hasSource = type != 'TABLE';
+    const hasSource = true;
     return ConstellationHeader(
       padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
       lineColor: color.withValues(alpha: 0.35),
@@ -667,66 +684,150 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
     );
   }
 
-  Widget _buildTabBar(bool isDark, Color color) => Container(
-    decoration: BoxDecoration(
-      color: isDark ? const Color(0xFF252526) : const Color(0xFFF5F7FA),
-      border: Border(
-        bottom: BorderSide(
-          color: isDark ? const Color(0xFF3A3A3A) : const Color(0xFFDDE2EA),
-        ),
-      ),
-    ),
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-    child: TabBar(
-      labelColor: Colors.white,
-      unselectedLabelColor: isDark ? Colors.white54 : Colors.black45,
-      indicatorSize: TabBarIndicatorSize.tab,
-      indicatorAnimation: TabIndicatorAnimation.elastic,
-      indicatorColor: Colors.transparent,
-      dividerColor: Colors.transparent,
-      splashBorderRadius: BorderRadius.circular(8),
-      indicator: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.35),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
+  Widget _buildTabBar(bool isDark, Color color) {
+    final bgColor = isDark ? const Color(0xFF1E1E22) : const Color(0xFFF3F5F9);
+    final borderColor = isDark ? const Color(0xFF333338) : const Color(0xFFE2E6EE);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: bgColor,
+        border: Border(
+          bottom: BorderSide(
+            color: borderColor,
+            width: 1.0,
           ),
-        ],
+        ),
       ),
-      labelPadding: const EdgeInsets.symmetric(horizontal: 4),
-      labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-      unselectedLabelStyle: const TextStyle(fontSize: 12),
-      tabs: const [
-        Tab(
-          height: 34,
-          icon: Icon(Icons.list_alt_rounded, size: 15),
-          iconMargin: EdgeInsets.only(bottom: 2),
-          text: 'Detalles',
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      child: Container(
+        height: 38,
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF161619) : const Color(0xFFE8ECF2),
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(
+            color: borderColor.withValues(alpha: isDark ? 0.35 : 0.6),
+            width: 0.8,
+          ),
         ),
-        Tab(
-          height: 34,
-          icon: Icon(Icons.info_outline_rounded, size: 15),
-          iconMargin: EdgeInsets.only(bottom: 2),
-          text: 'Info',
+        child: TabBar(
+          labelColor: Colors.white,
+          unselectedLabelColor: isDark ? Colors.white60 : Colors.black54,
+          indicatorSize: TabBarIndicatorSize.tab,
+          indicatorAnimation: TabIndicatorAnimation.elastic,
+          indicatorColor: Colors.transparent,
+          dividerColor: Colors.transparent,
+          splashBorderRadius: BorderRadius.circular(7),
+          indicator: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(7),
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: isDark ? 0.45 : 0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 1.5),
+              ),
+            ],
+          ),
+          labelPadding: const EdgeInsets.symmetric(horizontal: 10),
+          labelStyle: const TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.2,
+          ),
+          unselectedLabelStyle: const TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w500,
+          ),
+          isScrollable: type == 'TABLE' || type == 'VIEW',
+          tabAlignment: (type == 'TABLE' || type == 'VIEW')
+              ? TabAlignment.start
+              : TabAlignment.fill,
+          tabs: [
+            const Tab(
+              height: 32,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.list_alt_rounded, size: 14),
+                  SizedBox(width: 6),
+                  Text('Detalles'),
+                ],
+              ),
+            ),
+            const Tab(
+              height: 32,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.info_outline_rounded, size: 14),
+                  SizedBox(width: 6),
+                  Text('Info'),
+                ],
+              ),
+            ),
+            if (type == 'TABLE' || type == 'VIEW') ...[
+              const Tab(
+                height: 32,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.rule_folder_outlined, size: 14),
+                    SizedBox(width: 6),
+                    Text('Restricciones'),
+                  ],
+                ),
+              ),
+              const Tab(
+                height: 32,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.bolt_rounded, size: 14),
+                    SizedBox(width: 6),
+                    Text('Triggers'),
+                  ],
+                ),
+              ),
+              const Tab(
+                height: 32,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.key_rounded, size: 14),
+                    SizedBox(width: 6),
+                    Text('Índices'),
+                  ],
+                ),
+              ),
+            ],
+            const Tab(
+              height: 32,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.lock_outline_rounded, size: 14),
+                  SizedBox(width: 6),
+                  Text('Permisos'),
+                ],
+              ),
+            ),
+            const Tab(
+              height: 32,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.account_tree_outlined, size: 14),
+                  SizedBox(width: 6),
+                  Text('Referencias'),
+                ],
+              ),
+            ),
+          ],
         ),
-        Tab(
-          height: 34,
-          icon: Icon(Icons.lock_outline_rounded, size: 15),
-          iconMargin: EdgeInsets.only(bottom: 2),
-          text: 'Permisos',
-        ),
-        Tab(
-          height: 34,
-          icon: Icon(Icons.account_tree_outlined, size: 15),
-          iconMargin: EdgeInsets.only(bottom: 2),
-          text: 'Referencias',
-        ),
-      ],
-    ),
-  );
+      ),
+    );
+  }
 
   static Widget _badge(String label, Color color) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),

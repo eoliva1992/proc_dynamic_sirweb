@@ -756,9 +756,8 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
         ? _kFallbackConfigs
         : configs.map((c) => (c.cdModulo, c.deArgumento)).toList();
 
-    final selectedItem = items
-            .where((item) => item.$1 == _selectedConfig)
-            .firstOrNull ??
+    final selectedItem =
+        items.where((item) => item.$1 == _selectedConfig).firstOrNull ??
         items.first;
 
     return Column(

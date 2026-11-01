@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:proc_dynamic_sirweb/app_navigator.dart';
+import 'package:proc_dynamic_sirweb/providers/procedimientos_provider.dart';
 import 'package:proc_dynamic_sirweb/widgets/deploy_ticket/deploy_tickets_browser_dialog.dart';
 import 'package:proc_dynamic_sirweb/widgets/deploy_ticket/deploy_ticket_editor_dialog.dart';
 
@@ -128,6 +129,39 @@ void main() {
       // El campo debe contener 'Matriz'
       final textFormFieldWidget = tester.widget<TextFormField>(tipoSolField);
       expect(textFormFieldWidget.controller?.text, 'Matriz');
+    },
+  );
+
+  testWidgets(
+    'DeployTicketsBrowserDialog inicializa el filtro Creado por con cdUsuario del provider',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      procedimientosProvider.setCdUsuario('USR_TEST');
+
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: rootNavigatorKey,
+          home: Scaffold(body: DeployTicketsBrowserDialog(onClose: () {})),
+        ),
+      );
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final userCreaField = find.widgetWithText(
+        TextField,
+        'Creado por (USR)...',
+      );
+      expect(userCreaField, findsOneWidget);
+
+      final textFieldWidget = tester.widget<TextField>(userCreaField);
+      expect(textFieldWidget.controller?.text, 'USR_TEST');
     },
   );
 }

@@ -292,7 +292,7 @@ void main() {
       expect(find.byType(CircularProgressIndicator), findsNothing);
 
       // Probar botón cerrar
-      final closeBtn = find.byTooltip('Cerrar');
+      final closeBtn = find.byTooltip('Cerrar (Esc)');
       expect(closeBtn, findsOneWidget);
       await tester.tap(closeBtn);
       await tester.pump();

@@ -131,11 +131,17 @@ const String _kFindAndFocusGuardJs =
     '      e.preventDefault();'
     '      window.FlutterMonaco.emit("fmClipboardCut", {});'
     '    } else if (key === "z" && !e.shiftKey) {'
-    '      e.preventDefault();'
-    '      window.__fmUndo();'
+    '      var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+    '      if (aux) {'
+    '        e.preventDefault();'
+    '        window.__fmUndo();'
+    '      }'
     '    } else if ((key === "y" && !e.shiftKey) || (key === "z" && e.shiftKey)) {'
-    '      e.preventDefault();'
-    '      window.__fmRedo();'
+    '      var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+    '      if (aux) {'
+    '        e.preventDefault();'
+    '        window.__fmRedo();'
+    '      }'
     '    }'
     '  },true);'
     '})()';
@@ -1777,41 +1783,6 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
             () async {
               unawaited(_openAutorizacionesWindow());
             },
-          )
-          .then((action) => _registeredActions.add(action)),
-    );
-
-    // Deshacer / Rehacer (Ctrl+Z, Ctrl+Y)
-    unawaited(
-      ctrl
-          .addAction(
-            const fm.MonacoActionDescriptor(
-              id: fm.MonacoAction('custom.undo'),
-              label: 'Deshacer',
-              keybindings: [
-                fm.MonacoKeybinding(ctrlCmd: true, key: fm.MonacoKey.keyZ),
-              ],
-            ),
-            () async => _undo(),
-          )
-          .then((action) => _registeredActions.add(action)),
-    );
-    unawaited(
-      ctrl
-          .addAction(
-            const fm.MonacoActionDescriptor(
-              id: fm.MonacoAction('custom.redo'),
-              label: 'Rehacer',
-              keybindings: [
-                fm.MonacoKeybinding(ctrlCmd: true, key: fm.MonacoKey.keyY),
-                fm.MonacoKeybinding(
-                  ctrlCmd: true,
-                  shift: true,
-                  key: fm.MonacoKey.keyZ,
-                ),
-              ],
-            ),
-            () async => _redo(),
           )
           .then((action) => _registeredActions.add(action)),
     );

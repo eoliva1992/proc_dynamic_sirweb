@@ -16,10 +16,7 @@ class _FakeSchemaService implements SchemaService {
   final Map<String, ({String spec, String? body})> sources;
   final Map<String, List<({String name, String value})>> infos;
 
-  _FakeSchemaService({
-    this.sources = const {},
-    this.infos = const {},
-  });
+  _FakeSchemaService({this.sources = const {}, this.infos = const {}});
 
   @override
   Future<({String spec, String? body})> getObjectSource(
@@ -824,9 +821,7 @@ void main() {
           procedimientos: ['PR_NUEVO'],
         );
 
-        final exporter = DeployTicketExporterService(
-          schemaService: fakeSchema,
-        );
+        final exporter = DeployTicketExporterService(schemaService: fakeSchema);
         final files = await exporter.exportarTicket(
           ticket: ticket,
           targetDirectoryPath: tempDir.path,
@@ -835,10 +830,18 @@ void main() {
         final procFile = files.firstWhere((f) => f.categoria == 'PROC');
         final content = await File(procFile.rutaCompleta).readAsString();
 
-        expect(content.contains('CREATE OR REPLACE PROCEDURE PR_NUEVO'), isTrue);
-        expect(content.contains('GRANT EXECUTE ON SIR.PR_NUEVO TO PUBLIC;'), isTrue);
         expect(
-          content.contains('CREATE OR REPLACE PUBLIC SYNONYM PR_NUEVO FOR SIR.PR_NUEVO;'),
+          content.contains('CREATE OR REPLACE PROCEDURE PR_NUEVO'),
+          isTrue,
+        );
+        expect(
+          content.contains('GRANT EXECUTE ON SIR.PR_NUEVO TO PUBLIC;'),
+          isTrue,
+        );
+        expect(
+          content.contains(
+            'CREATE OR REPLACE PUBLIC SYNONYM PR_NUEVO FOR SIR.PR_NUEVO;',
+          ),
           isTrue,
         );
       },
@@ -855,12 +858,14 @@ void main() {
         final fakeSchema = _FakeSchemaService(
           sources: {
             'DESA|PROCEDURE|PR_EXISTENTE': (
-              spec: 'CREATE OR REPLACE PROCEDURE PR_EXISTENTE AS BEGIN NULL; END;',
+              spec:
+                  'CREATE OR REPLACE PROCEDURE PR_EXISTENTE AS BEGIN NULL; END;',
               body: null,
             ),
             // Existe en PROD
             'PROD|PROCEDURE|PR_EXISTENTE': (
-              spec: 'CREATE OR REPLACE PROCEDURE PR_EXISTENTE AS BEGIN NULL; END;',
+              spec:
+                  'CREATE OR REPLACE PROCEDURE PR_EXISTENTE AS BEGIN NULL; END;',
               body: null,
             ),
           },
@@ -887,9 +892,7 @@ void main() {
           procedimientos: ['PR_EXISTENTE'],
         );
 
-        final exporter = DeployTicketExporterService(
-          schemaService: fakeSchema,
-        );
+        final exporter = DeployTicketExporterService(schemaService: fakeSchema);
         final files = await exporter.exportarTicket(
           ticket: ticket,
           targetDirectoryPath: tempDir.path,
@@ -898,7 +901,10 @@ void main() {
         final procFile = files.firstWhere((f) => f.categoria == 'PROC');
         final content = await File(procFile.rutaCompleta).readAsString();
 
-        expect(content.contains('CREATE OR REPLACE PROCEDURE PR_EXISTENTE'), isTrue);
+        expect(
+          content.contains('CREATE OR REPLACE PROCEDURE PR_EXISTENTE'),
+          isTrue,
+        );
         expect(content.contains('GRANT EXECUTE'), isFalse);
         expect(content.contains('PUBLIC SYNONYM'), isFalse);
       },

@@ -984,11 +984,7 @@ class SirwebService {
     http.Response response;
     try {
       response = await guardRequest(
-        () => httpClient.post(
-          uri,
-          headers: headers,
-          body: requestBodyStr,
-        ),
+        () => httpClient.post(uri, headers: headers, body: requestBodyStr),
         timeout: Duration(seconds: segundos + 15),
         contexto: 'el servidor SirWeb',
         cancelado: cancelado,

@@ -1316,6 +1316,7 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
           hintText: 'Ej. script22102026, alter_table_poliza',
           icon: Icons.code_rounded,
           color: Colors.teal.shade600,
+          itemPrefix: '[SQL]',
           items: _sql.map((e) => e.nombre).toList(),
           onChanged: (newNames) {
             setState(() {
@@ -1341,54 +1342,31 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
             onPressed: () {
               ScriptCodeEditorDialog.show(
                 context,
-                title: 'Editor de Script SQL',
+                title: 'Editor de Scripts SQL',
+                scripts: _sql,
                 language: 'plsql',
                 themeColor: Colors.teal.shade600,
                 icon: Icons.code_rounded,
-                onSave: (code, filePath, scriptName) {
-                  final fileName = scriptName.isNotEmpty
-                      ? scriptName
-                      : (filePath != null
-                            ? filePath.split(Platform.pathSeparator).last
-                            : 'custom_script.sql');
+                onSaveScripts: (updatedScripts) {
                   setState(() {
-                    final idx = _sql.indexWhere((s) => s.nombre == fileName);
-                    if (idx >= 0) {
-                      _sql[idx] = _sql[idx].copyWith(contenido: code);
-                    } else {
-                      _sql.add(
-                        DeployTicketScript(nombre: fileName, contenido: code),
-                      );
-                    }
+                    _sql = updatedScripts;
                   });
                 },
               );
             },
           ),
           onItemTap: (item) {
-            final script = _sql.firstWhere(
-              (s) => s.nombre == item,
-              orElse: () => DeployTicketScript(nombre: item),
-            );
             ScriptCodeEditorDialog.show(
               context,
-              title: 'Script SQL: $item',
-              initialCode: script.contenido,
-              scriptName: script.nombre,
+              title: 'Editor de Scripts SQL',
+              scripts: _sql,
+              initialSelectedName: item,
               language: 'plsql',
               themeColor: Colors.teal.shade600,
               icon: Icons.code_rounded,
-              onSave: (code, filePath, scriptName) {
-                final targetName = scriptName.isNotEmpty ? scriptName : item;
+              onSaveScripts: (updatedScripts) {
                 setState(() {
-                  final idx = _sql.indexWhere((s) => s.nombre == targetName);
-                  if (idx >= 0) {
-                    _sql[idx] = _sql[idx].copyWith(contenido: code);
-                  } else {
-                    _sql.add(
-                      DeployTicketScript(nombre: targetName, contenido: code),
-                    );
-                  }
+                  _sql = updatedScripts;
                 });
               },
             );
@@ -1482,9 +1460,10 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
         const SizedBox(height: 14),
         ArtifactListEditor(
           title: 'Bloques Lógicos (BLK)',
-          hintText: 'Ej. BLK_REGLAS_EXTRA, BLK_VALIDACION_EMISION',
+          hintText: 'Ej. BLK1, BLK2, BLK_REGLAS',
           icon: Icons.widgets_outlined,
           color: Colors.cyan.shade700,
+          itemPrefix: '[BLK]',
           items: _bloqueLogico.map((e) => e.nombre).toList(),
           onChanged: (newNames) {
             setState(() {
@@ -1509,62 +1488,31 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
             onPressed: () {
               ScriptCodeEditorDialog.show(
                 context,
-                title: 'Editor de Bloque Lógico (BLK)',
+                title: 'Editor de Bloques Lógicos (BLK)',
+                scripts: _bloqueLogico,
                 language: 'plsql',
                 themeColor: Colors.cyan.shade700,
                 icon: Icons.widgets_outlined,
-                onSave: (code, filePath, scriptName) {
-                  final fileName = scriptName.isNotEmpty
-                      ? scriptName
-                      : (filePath != null
-                            ? filePath.split(Platform.pathSeparator).last
-                            : 'bloque_logico.sql');
+                onSaveScripts: (updatedScripts) {
                   setState(() {
-                    final idx = _bloqueLogico.indexWhere(
-                      (s) => s.nombre == fileName,
-                    );
-                    if (idx >= 0) {
-                      _bloqueLogico[idx] = _bloqueLogico[idx].copyWith(
-                        contenido: code,
-                      );
-                    } else {
-                      _bloqueLogico.add(
-                        DeployTicketScript(nombre: fileName, contenido: code),
-                      );
-                    }
+                    _bloqueLogico = updatedScripts;
                   });
                 },
               );
             },
           ),
           onItemTap: (item) {
-            final script = _bloqueLogico.firstWhere(
-              (s) => s.nombre == item,
-              orElse: () => DeployTicketScript(nombre: item),
-            );
             ScriptCodeEditorDialog.show(
               context,
-              title: 'Bloque Lógico: $item',
-              initialCode: script.contenido,
-              scriptName: script.nombre,
+              title: 'Editor de Bloques Lógicos (BLK)',
+              scripts: _bloqueLogico,
+              initialSelectedName: item,
               language: 'plsql',
               themeColor: Colors.cyan.shade700,
               icon: Icons.widgets_outlined,
-              onSave: (code, filePath, scriptName) {
-                final targetName = scriptName.isNotEmpty ? scriptName : item;
+              onSaveScripts: (updatedScripts) {
                 setState(() {
-                  final idx = _bloqueLogico.indexWhere(
-                    (s) => s.nombre == targetName,
-                  );
-                  if (idx >= 0) {
-                    _bloqueLogico[idx] = _bloqueLogico[idx].copyWith(
-                      contenido: code,
-                    );
-                  } else {
-                    _bloqueLogico.add(
-                      DeployTicketScript(nombre: targetName, contenido: code),
-                    );
-                  }
+                  _bloqueLogico = updatedScripts;
                 });
               },
             );

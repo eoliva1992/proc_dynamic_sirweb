@@ -119,7 +119,9 @@ class ReverseSqlConfig {
     if (targetIndex > oldIndex) {
       targetIndex -= 1;
     }
-    if (targetIndex < 0 || targetIndex >= tables.length || targetIndex == oldIndex) {
+    if (targetIndex < 0 ||
+        targetIndex >= tables.length ||
+        targetIndex == oldIndex) {
       return this;
     }
     final updated = List<ReverseSqlTableConfig>.from(tables);

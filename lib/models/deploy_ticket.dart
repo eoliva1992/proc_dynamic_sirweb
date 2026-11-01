@@ -539,12 +539,32 @@ class DeployTicket {
     }
     if (paquetes.isNotEmpty) sb.writeln('PCK:${paquetes.join(',')}');
     if (funciones.isNotEmpty) sb.writeln('FUN:${funciones.join(',')}');
-    if (sql.isNotEmpty) sb.writeln('SQL:${sqlNames.join(',')}');
+
+    // En el archivo index.txt no se coloca la extensión (.sql o .pls), solo el nombre base
+    String _cleanIndexScriptName(String name) {
+      return name.replaceAll(RegExp(r'\.(sql|pls)$', caseSensitive: false), '');
+    }
+
+    if (sql.isNotEmpty) {
+      final cleanSqlNames = sql
+          .map((s) => _cleanIndexScriptName(s.nombre))
+          .where((n) => n.trim().isNotEmpty)
+          .toList();
+      if (cleanSqlNames.isNotEmpty) {
+        sb.writeln('SQL:${cleanSqlNames.join(',')}');
+      }
+    }
     if (reverseSql.isNotEmpty) sb.writeln('RSQL:${reverseSqlNames.join(',')}');
     if (objetos.isNotEmpty) sb.writeln('OBJ:${objetos.join(',')}');
     if (triggers.isNotEmpty) sb.writeln('TRG:${triggers.join(',')}');
     if (bloqueLogico.isNotEmpty) {
-      sb.writeln('BLK:${bloqueLogicoNames.join(',')}');
+      final cleanBlkNames = bloqueLogico
+          .map((s) => _cleanIndexScriptName(s.nombre))
+          .where((n) => n.trim().isNotEmpty)
+          .toList();
+      if (cleanBlkNames.isNotEmpty) {
+        sb.writeln('BLK:${cleanBlkNames.join(',')}');
+      }
     }
 
     return sb.toString();

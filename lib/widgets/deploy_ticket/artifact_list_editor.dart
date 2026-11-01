@@ -19,6 +19,9 @@ class ArtifactListEditor extends StatefulWidget {
   final bool? initiallyExpanded;
   final bool collapsible;
 
+  /// Prefijo visual opcional para cada elemento en la lista (ej. '[SQL]', '[BLK]').
+  final String? itemPrefix;
+
   const ArtifactListEditor({
     super.key,
     required this.title,
@@ -32,6 +35,7 @@ class ArtifactListEditor extends StatefulWidget {
     this.trailingHeaderAction,
     this.initiallyExpanded,
     this.collapsible = true,
+    this.itemPrefix,
   });
 
   @override
@@ -370,6 +374,36 @@ class _ArtifactListEditorState extends State<ArtifactListEditor> {
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  if (widget.itemPrefix != null) ...[
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                        vertical: 1,
+                                      ),
+                                      margin: const EdgeInsets.only(right: 4),
+                                      decoration: BoxDecoration(
+                                        color: widget.color.withValues(
+                                          alpha: 0.15,
+                                        ),
+                                        borderRadius: BorderRadius.circular(3),
+                                        border: Border.all(
+                                          color: widget.color.withValues(
+                                            alpha: 0.4,
+                                          ),
+                                          width: 0.6,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        widget.itemPrefix!,
+                                        style: TextStyle(
+                                          fontSize: 9.5,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Consolas, monospace',
+                                          color: widget.color,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                   InkWell(
                                     borderRadius: BorderRadius.circular(4),
                                     onTap: widget.onItemTap != null
