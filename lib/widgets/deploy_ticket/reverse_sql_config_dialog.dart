@@ -898,18 +898,12 @@ class _ReverseSqlConfigDialogState extends State<ReverseSqlConfigDialog> {
             icon: const Icon(Icons.check_rounded, size: 16),
             label: const Text(
               'Aplicar a Ticket',
-              style: TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w600,
-              ),
+              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
             ),
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFF0F766E),
               foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 10,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
               ),

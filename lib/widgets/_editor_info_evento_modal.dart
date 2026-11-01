@@ -1628,10 +1628,7 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
               },
               child: const Text('Deseleccionar todas'),
             ),
-            FilledButton(
-              onPressed: () => close(),
-              child: const Text('Listo'),
-            ),
+            FilledButton(onPressed: () => close(), child: const Text('Listo')),
           ],
         ),
       ),
@@ -2219,90 +2216,114 @@ class _InfoEventoVirtualTableState extends State<InfoEventoVirtualTable> {
                     : null,
               );
             },
-          columnBuilder: (int col) {
-            return TableSpan(
-              extent: FixedTableSpanExtent(
-                col == 0 ? _checkboxColWidth : _colWidths[col - 1],
-              ),
-            );
-          },
-          cellBuilder: (BuildContext context, TableVicinity vicinity) {
-            final row = vicinity.row;
-            final col = vicinity.column;
-
-            // 1. Esquina superior izquierda: Checkbox para seleccionar todo
-            if (row == 0 && col == 0) {
-              return TableViewCell(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: headerBg,
-                    border: Border(
-                      right: cellRightBorder,
-                      bottom: cellBottomBorder,
-                    ),
-                  ),
-                  alignment: Alignment.center,
-                  child: Checkbox(
-                    value: allSelected ? true : (hasSelection ? null : false),
-                    tristate: true,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    onChanged: widget.onToggleSelectAll,
-                  ),
+            columnBuilder: (int col) {
+              return TableSpan(
+                extent: FixedTableSpanExtent(
+                  col == 0 ? _checkboxColWidth : _colWidths[col - 1],
                 ),
               );
-            }
+            },
+            cellBuilder: (BuildContext context, TableVicinity vicinity) {
+              final row = vicinity.row;
+              final col = vicinity.column;
 
-            // 2. Encabezado de columnas (row == 0, col > 0)
-            if (row == 0) {
+              // 1. Esquina superior izquierda: Checkbox para seleccionar todo
+              if (row == 0 && col == 0) {
+                return TableViewCell(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: headerBg,
+                      border: Border(
+                        right: cellRightBorder,
+                        bottom: cellBottomBorder,
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: Checkbox(
+                      value: allSelected ? true : (hasSelection ? null : false),
+                      tristate: true,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      onChanged: widget.onToggleSelectAll,
+                    ),
+                  ),
+                );
+              }
+
+              // 2. Encabezado de columnas (row == 0, col > 0)
+              if (row == 0) {
+                final c = col - 1;
+                final colName = widget.cols[c];
+                final label = _colLabel(colName);
+                final isNumeric = _colIsNumeric[c];
+
+                return TableViewCell(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: headerBg,
+                      border: Border(
+                        right: cellRightBorder,
+                        bottom: cellBottomBorder,
+                      ),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    alignment: isNumeric
+                        ? Alignment.centerRight
+                        : Alignment.centerLeft,
+                    child: Tooltip(
+                      message: colName,
+                      waitDuration: const Duration(milliseconds: 600),
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? Colors.white54 : Colors.black45,
+                          letterSpacing: 0.3,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              // 3. Columna de checkbox de fila (row > 0, col == 0)
+              final r = row - 1;
+              final isRowSelected = widget.selectedRowIndices.contains(r);
+              final rowBg = isRowSelected
+                  ? (isDark ? const Color(0xFF1E3A5F) : const Color(0xFFD6E4FF))
+                  : (r.isOdd
+                        ? (isDark
+                              ? const Color(0xFF181818)
+                              : const Color(0xFFF9FAFB))
+                        : (isDark ? const Color(0xFF1F1F1F) : Colors.white));
+
+              if (col == 0) {
+                return TableViewCell(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: rowBg,
+                      border: Border(
+                        right: cellRightBorder,
+                        bottom: cellBottomBorder,
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: Checkbox(
+                      value: isRowSelected,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      onChanged: (val) => widget.onToggleRow(r, val),
+                    ),
+                  ),
+                );
+              }
+
+              // 4. Celda de datos (row > 0, col > 0)
               final c = col - 1;
-              final colName = widget.cols[c];
-              final label = _colLabel(colName);
+              final text = _cellMatrix[r][c];
               final isNumeric = _colIsNumeric[c];
 
-              return TableViewCell(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: headerBg,
-                    border: Border(
-                      right: cellRightBorder,
-                      bottom: cellBottomBorder,
-                    ),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  alignment: isNumeric
-                      ? Alignment.centerRight
-                      : Alignment.centerLeft,
-                  child: Tooltip(
-                    message: colName,
-                    waitDuration: const Duration(milliseconds: 600),
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: isDark ? Colors.white54 : Colors.black45,
-                        letterSpacing: 0.3,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
-                    ),
-                  ),
-                ),
-              );
-            }
-
-            // 3. Columna de checkbox de fila (row > 0, col == 0)
-            final r = row - 1;
-            final isRowSelected = widget.selectedRowIndices.contains(r);
-            final rowBg = isRowSelected
-                ? (isDark ? const Color(0xFF1E3A5F) : const Color(0xFFD6E4FF))
-                : (r.isOdd
-                      ? (isDark
-                            ? const Color(0xFF181818)
-                            : const Color(0xFFF9FAFB))
-                      : (isDark ? const Color(0xFF1F1F1F) : Colors.white));
-
-            if (col == 0) {
               return TableViewCell(
                 child: Container(
                   decoration: BoxDecoration(
@@ -2312,51 +2333,27 @@ class _InfoEventoVirtualTableState extends State<InfoEventoVirtualTable> {
                       bottom: cellBottomBorder,
                     ),
                   ),
-                  alignment: Alignment.center,
-                  child: Checkbox(
-                    value: isRowSelected,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    onChanged: (val) => widget.onToggleRow(r, val),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  alignment: isNumeric
+                      ? Alignment.centerRight
+                      : Alignment.centerLeft,
+                  child: SelectableText(
+                    text,
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontFamily: isNumeric ? 'Consolas' : null,
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.87)
+                          : Colors.black87,
+                    ),
                   ),
                 ),
               );
-            }
-
-            // 4. Celda de datos (row > 0, col > 0)
-            final c = col - 1;
-            final text = _cellMatrix[r][c];
-            final isNumeric = _colIsNumeric[c];
-
-            return TableViewCell(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: rowBg,
-                  border: Border(
-                    right: cellRightBorder,
-                    bottom: cellBottomBorder,
-                  ),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                alignment: isNumeric
-                    ? Alignment.centerRight
-                    : Alignment.centerLeft,
-                child: SelectableText(
-                  text,
-                  maxLines: 1,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontFamily: isNumeric ? 'Consolas' : null,
-                    color: isDark
-                        ? Colors.white.withValues(alpha: 0.87)
-                        : Colors.black87,
-                  ),
-                ),
-              ),
-            );
-          },
+            },
+          ),
         ),
       ),
-    ),
-  );
+    );
   }
 }

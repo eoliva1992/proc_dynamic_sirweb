@@ -450,7 +450,9 @@ dbconfig:
         expect(find.text('#3'), findsOneWidget);
 
         // Mover TABLA_UNO hacia abajo con su botón de flecha abajo
-        final moveDownButtons = find.byTooltip('Mover hacia abajo (ejecutar después)');
+        final moveDownButtons = find.byTooltip(
+          'Mover hacia abajo (ejecutar después)',
+        );
         expect(moveDownButtons, findsWidgets);
 
         // El primer botón habilitado corresponde a TABLA_UNO (#1)

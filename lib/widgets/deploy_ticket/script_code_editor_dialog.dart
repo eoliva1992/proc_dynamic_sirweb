@@ -758,11 +758,7 @@ class _ScriptCodeEditorDialogState extends State<ScriptCodeEditorDialog> {
                       width: 1.2,
                     ),
                   ),
-                  child: Icon(
-                    widget.icon,
-                    color: Colors.white,
-                    size: 18,
-                  ),
+                  child: Icon(widget.icon, color: Colors.white, size: 18),
                 ),
               ),
               const SizedBox(width: 10),
@@ -808,10 +804,7 @@ class _ScriptCodeEditorDialogState extends State<ScriptCodeEditorDialog> {
               ),
               const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 7,
-                  vertical: 2,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(10),
@@ -884,12 +877,7 @@ class _ScriptCodeEditorDialogState extends State<ScriptCodeEditorDialog> {
           child: Container(
             decoration: BoxDecoration(
               color: isDark ? const Color(0xFF181A20) : const Color(0xFFF7F8FA),
-              border: Border(
-                right: BorderSide(
-                  color: borderColor,
-                  width: 0.8,
-                ),
-              ),
+              border: Border(right: BorderSide(color: borderColor, width: 0.8)),
             ),
             child: Column(
               children: [
@@ -897,432 +885,326 @@ class _ScriptCodeEditorDialogState extends State<ScriptCodeEditorDialog> {
                 Padding(
                   padding: const EdgeInsets.all(10),
                   child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: SizedBox(
-                                              height: 32,
-                                              child: TextField(
-                                                controller: _searchCtrl,
-                                                style: const TextStyle(
-                                                  fontSize: 12,
-                                                ),
-                                                decoration: InputDecoration(
-                                                  hintText:
-                                                      'Filtrar scripts...',
-                                                  hintStyle: TextStyle(
-                                                    fontSize: 11,
-                                                    color: isDark
-                                                        ? Colors.white38
-                                                        : Colors.black38,
-                                                  ),
-                                                  prefixIcon: const Icon(
-                                                    Icons.search_rounded,
-                                                    size: 15,
-                                                  ),
-                                                  prefixIconConstraints:
-                                                      const BoxConstraints(
-                                                        minWidth: 28,
-                                                        minHeight: 32,
-                                                      ),
-                                                  contentPadding:
-                                                      const EdgeInsets.symmetric(
-                                                        horizontal: 8,
-                                                        vertical: 0,
-                                                      ),
-                                                  filled: true,
-                                                  fillColor: isDark
-                                                      ? const Color(0xFF22242B)
-                                                      : Colors.white,
-                                                  border: OutlineInputBorder(
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          6,
-                                                        ),
-                                                    borderSide: BorderSide(
-                                                      color: borderColor,
-                                                    ),
-                                                  ),
-                                                  enabledBorder:
-                                                      OutlineInputBorder(
-                                                        borderRadius:
-                                                            BorderRadius.circular(
-                                                              6,
-                                                            ),
-                                                        borderSide: BorderSide(
-                                                          color: borderColor,
-                                                        ),
-                                                      ),
-                                                  focusedBorder:
-                                                      OutlineInputBorder(
-                                                        borderRadius:
-                                                            BorderRadius.circular(
-                                                              6,
-                                                            ),
-                                                        borderSide: BorderSide(
-                                                          color:
-                                                              widget.themeColor,
-                                                          width: 1.2,
-                                                        ),
-                                                      ),
-                                                  suffixIcon:
-                                                      _searchQuery.isNotEmpty
-                                                      ? IconButton(
-                                                          icon: const Icon(
-                                                            Icons.clear,
-                                                            size: 13,
-                                                          ),
-                                                          onPressed: () {
-                                                            _searchCtrl.clear();
-                                                            setState(() {
-                                                              _searchQuery = '';
-                                                            });
-                                                          },
-                                                        )
-                                                      : null,
-                                                ),
-                                                onChanged: (val) {
-                                                  setState(() {
-                                                    _searchQuery = val;
-                                                  });
-                                                },
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 8),
-                                      FilledButton.tonalIcon(
-                                        style: FilledButton.styleFrom(
-                                          visualDensity: VisualDensity.compact,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 10,
-                                            vertical: 6,
-                                          ),
-                                          backgroundColor: widget.themeColor
-                                              .withValues(alpha: 0.15),
-                                        ),
-                                        icon: Icon(
-                                          Icons.add_rounded,
-                                          size: 16,
-                                          color: widget.themeColor,
-                                        ),
-                                        label: Text(
-                                          'Nuevo Script',
-                                          style: TextStyle(
-                                            fontSize: 11.5,
-                                            fontWeight: FontWeight.w700,
-                                            color: widget.themeColor,
-                                          ),
-                                        ),
-                                        onPressed: _addNewScript,
-                                      ),
-                                    ],
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SizedBox(
+                              height: 32,
+                              child: TextField(
+                                controller: _searchCtrl,
+                                style: const TextStyle(fontSize: 12),
+                                decoration: InputDecoration(
+                                  hintText: 'Filtrar scripts...',
+                                  hintStyle: TextStyle(
+                                    fontSize: 11,
+                                    color: isDark
+                                        ? Colors.white38
+                                        : Colors.black38,
                                   ),
-                                ),
-                                const Divider(height: 1, thickness: 0.8),
-
-                                // Lista de scripts
-                                Expanded(
-                                  child: filteredIndices.isEmpty
-                                      ? Center(
-                                          child: Text(
-                                            'Sin coincidencias',
-                                            style: TextStyle(
-                                              fontSize: 11.5,
-                                              color: isDark
-                                                  ? Colors.white38
-                                                  : Colors.black38,
-                                              fontStyle: FontStyle.italic,
-                                            ),
+                                  prefixIcon: const Icon(
+                                    Icons.search_rounded,
+                                    size: 15,
+                                  ),
+                                  prefixIconConstraints: const BoxConstraints(
+                                    minWidth: 28,
+                                    minHeight: 32,
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 0,
+                                  ),
+                                  filled: true,
+                                  fillColor: isDark
+                                      ? const Color(0xFF22242B)
+                                      : Colors.white,
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(6),
+                                    borderSide: BorderSide(color: borderColor),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(6),
+                                    borderSide: BorderSide(color: borderColor),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(6),
+                                    borderSide: BorderSide(
+                                      color: widget.themeColor,
+                                      width: 1.2,
+                                    ),
+                                  ),
+                                  suffixIcon: _searchQuery.isNotEmpty
+                                      ? IconButton(
+                                          icon: const Icon(
+                                            Icons.clear,
+                                            size: 13,
                                           ),
-                                        )
-                                      : ListView.builder(
-                                          itemCount: filteredIndices.length,
-                                          itemBuilder: (context, i) {
-                                            final originalIdx =
-                                                filteredIndices[i];
-                                            final script =
-                                                _scriptsList[originalIdx];
-                                            final isSelected =
-                                                originalIdx == _selectedIndex;
-
-                                            return Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 6,
-                                                    vertical: 2,
-                                                  ),
-                                              child: Material(
-                                                color: isSelected
-                                                    ? widget.themeColor
-                                                          .withValues(
-                                                            alpha: isDark
-                                                                ? 0.25
-                                                                : 0.15,
-                                                          )
-                                                    : Colors.transparent,
-                                                borderRadius:
-                                                    BorderRadius.circular(6),
-                                                child: InkWell(
-                                                  borderRadius:
-                                                      BorderRadius.circular(6),
-                                                  onTap: () =>
-                                                      _selectScriptIndex(
-                                                        originalIdx,
-                                                      ),
-                                                  child: Container(
-                                                    decoration: BoxDecoration(
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            6,
-                                                          ),
-                                                      border: Border.all(
-                                                        color: isSelected
-                                                            ? widget.themeColor
-                                                                  .withValues(
-                                                                    alpha: 0.5,
-                                                                  )
-                                                            : Colors
-                                                                  .transparent,
-                                                        width: 0.8,
-                                                      ),
-                                                    ),
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          horizontal: 8,
-                                                          vertical: 6,
-                                                        ),
-                                                    child: Row(
-                                                      children: [
-                                                        // Prefijo visual para distinguir BLK y SQL
-                                                        Container(
-                                                          padding:
-                                                              const EdgeInsets
-                                                                  .symmetric(
-                                                            horizontal: 5,
-                                                            vertical: 1.5,
-                                                          ),
-                                                          decoration:
-                                                              BoxDecoration(
-                                                            color: (widget.title
-                                                                        .toLowerCase()
-                                                                        .contains(
-                                                                          'blk',
-                                                                        ) ||
-                                                                    widget.title
-                                                                        .toLowerCase()
-                                                                        .contains(
-                                                                          'bloque',
-                                                                        ) ||
-                                                                    script.nombre
-                                                                        .toUpperCase()
-                                                                        .startsWith(
-                                                                          'BLK',
-                                                                        ))
-                                                                ? Colors.cyan
-                                                                    .withValues(
-                                                                      alpha:
-                                                                          0.2,
-                                                                    )
-                                                                : Colors.teal
-                                                                    .withValues(
-                                                                      alpha:
-                                                                          0.2,
-                                                                    ),
-                                                            borderRadius:
-                                                                BorderRadius
-                                                                    .circular(
-                                                                      4,
-                                                                    ),
-                                                            border: Border.all(
-                                                              color: (widget
-                                                                          .title
-                                                                          .toLowerCase()
-                                                                          .contains(
-                                                                            'blk',
-                                                                          ) ||
-                                                                      widget
-                                                                          .title
-                                                                          .toLowerCase()
-                                                                          .contains(
-                                                                            'bloque',
-                                                                          ) ||
-                                                                      script
-                                                                          .nombre
-                                                                          .toUpperCase()
-                                                                          .startsWith(
-                                                                            'BLK',
-                                                                          ))
-                                                                  ? Colors.cyan
-                                                                  : Colors.teal,
-                                                              width: 0.6,
-                                                            ),
-                                                          ),
-                                                          child: Text(
-                                                            (widget.title
-                                                                        .toLowerCase()
-                                                                        .contains(
-                                                                          'blk',
-                                                                        ) ||
-                                                                    widget.title
-                                                                        .toLowerCase()
-                                                                        .contains(
-                                                                          'bloque',
-                                                                        ) ||
-                                                                    script.nombre
-                                                                        .toUpperCase()
-                                                                        .startsWith(
-                                                                          'BLK',
-                                                                        ))
-                                                                ? 'BLK'
-                                                                : 'SQL',
-                                                            style: TextStyle(
-                                                              fontSize: 9.5,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .bold,
-                                                              fontFamily:
-                                                                  'Consolas, monospace',
-                                                              color: (widget
-                                                                          .title
-                                                                          .toLowerCase()
-                                                                          .contains(
-                                                                            'blk',
-                                                                          ) ||
-                                                                      widget
-                                                                          .title
-                                                                          .toLowerCase()
-                                                                          .contains(
-                                                                            'bloque',
-                                                                          ) ||
-                                                                      script
-                                                                          .nombre
-                                                                          .toUpperCase()
-                                                                          .startsWith(
-                                                                            'BLK',
-                                                                          ))
-                                                                  ? (isDark
-                                                                      ? Colors
-                                                                          .cyanAccent
-                                                                      : Colors
-                                                                          .cyan
-                                                                          .shade800)
-                                                                  : (isDark
-                                                                      ? Colors
-                                                                          .tealAccent
-                                                                      : Colors
-                                                                          .teal
-                                                                          .shade800),
-                                                            ),
-                                                          ),
-                                                        ),
-                                                        const SizedBox(
-                                                          width: 8,
-                                                        ),
-                                                        Expanded(
-                                                          child: Text(
-                                                            script.nombre,
-                                                            maxLines: 1,
-                                                            overflow:
-                                                                TextOverflow
-                                                                    .ellipsis,
-                                                            style: TextStyle(
-                                                              fontSize: 11.5,
-                                                              fontWeight:
-                                                                  isSelected
-                                                                  ? FontWeight
-                                                                        .bold
-                                                                  : FontWeight
-                                                                        .w500,
-                                                              fontFamily:
-                                                                  'Consolas, monospace',
-                                                              color: isSelected
-                                                                  ? (isDark
-                                                                        ? Colors
-                                                                              .white
-                                                                        : Colors
-                                                                              .black87)
-                                                                  : (isDark
-                                                                        ? Colors
-                                                                              .grey
-                                                                              .shade300
-                                                                        : Colors
-                                                                              .grey
-                                                                              .shade800),
-                                                            ),
-                                                          ),
-                                                        ),
-                                                        IconButton(
-                                                          tooltip:
-                                                              'Eliminar script',
-                                                          icon: const Icon(
-                                                            Icons.close_rounded,
-                                                            size: 14,
-                                                          ),
-                                                          splashRadius: 14,
-                                                          padding:
-                                                              EdgeInsets.zero,
-                                                          constraints:
-                                                              const BoxConstraints(
-                                                                minWidth: 24,
-                                                                minHeight: 24,
-                                                              ),
-                                                          onPressed: () =>
-                                                              _removeScript(
-                                                                originalIdx,
-                                                              ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            );
+                                          onPressed: () {
+                                            _searchCtrl.clear();
+                                            setState(() {
+                                              _searchQuery = '';
+                                            });
                                           },
-                                        ),
+                                        )
+                                      : null,
                                 ),
-                              ],
+                                onChanged: (val) {
+                                  setState(() {
+                                    _searchQuery = val;
+                                  });
+                                },
+                              ),
                             ),
                           ),
-                        ),
-
-                        // Columna Derecha: Barra de Herramientas y Editor Monaco
-                        Expanded(
-                          child: Column(
-                            children: [
-                              // Barra de herramientas del script activo
-                              _buildActiveScriptToolbar(borderColor, isDark),
-
-                              // Área del editor Monaco
-                              Expanded(
-                                child: MonacoEditorWidget(
-                                  controller: _monacoCtrl,
-                                  initialCode: active?.contenido ?? '',
-                                  language: widget.language,
-                                  darkTheme: isDark,
-                                  onChanged: (text) {
-                                    if (_selectedIndex >= 0 &&
-                                        _selectedIndex < _scriptsList.length) {
-                                      _scriptsList[_selectedIndex] =
-                                          _scriptsList[_selectedIndex].copyWith(
-                                            contenido: text,
-                                          );
-                                    }
-                                    if (!_isDirty) {
-                                      setState(() => _isDirty = true);
-                                    }
-                                  },
-                                ),
-                              ),
-                            ],
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      FilledButton.tonalIcon(
+                        style: FilledButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          backgroundColor: widget.themeColor.withValues(
+                            alpha: 0.15,
                           ),
                         ),
-                      ],
-                    );
+                        icon: Icon(
+                          Icons.add_rounded,
+                          size: 16,
+                          color: widget.themeColor,
+                        ),
+                        label: Text(
+                          'Nuevo Script',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: widget.themeColor,
+                          ),
+                        ),
+                        onPressed: _addNewScript,
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1, thickness: 0.8),
+
+                // Lista de scripts
+                Expanded(
+                  child: filteredIndices.isEmpty
+                      ? Center(
+                          child: Text(
+                            'Sin coincidencias',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: isDark ? Colors.white38 : Colors.black38,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          itemCount: filteredIndices.length,
+                          itemBuilder: (context, i) {
+                            final originalIdx = filteredIndices[i];
+                            final script = _scriptsList[originalIdx];
+                            final isSelected = originalIdx == _selectedIndex;
+
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              child: Material(
+                                color: isSelected
+                                    ? widget.themeColor.withValues(
+                                        alpha: isDark ? 0.25 : 0.15,
+                                      )
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(6),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(6),
+                                  onTap: () => _selectScriptIndex(originalIdx),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: isSelected
+                                            ? widget.themeColor.withValues(
+                                                alpha: 0.5,
+                                              )
+                                            : Colors.transparent,
+                                        width: 0.8,
+                                      ),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 6,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        // Prefijo visual para distinguir BLK y SQL
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 5,
+                                            vertical: 1.5,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color:
+                                                (widget.title
+                                                        .toLowerCase()
+                                                        .contains('blk') ||
+                                                    widget.title
+                                                        .toLowerCase()
+                                                        .contains('bloque') ||
+                                                    script.nombre
+                                                        .toUpperCase()
+                                                        .startsWith('BLK'))
+                                                ? Colors.cyan.withValues(
+                                                    alpha: 0.2,
+                                                  )
+                                                : Colors.teal.withValues(
+                                                    alpha: 0.2,
+                                                  ),
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                            border: Border.all(
+                                              color:
+                                                  (widget.title
+                                                          .toLowerCase()
+                                                          .contains('blk') ||
+                                                      widget.title
+                                                          .toLowerCase()
+                                                          .contains('bloque') ||
+                                                      script.nombre
+                                                          .toUpperCase()
+                                                          .startsWith('BLK'))
+                                                  ? Colors.cyan
+                                                  : Colors.teal,
+                                              width: 0.6,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            (widget.title
+                                                        .toLowerCase()
+                                                        .contains('blk') ||
+                                                    widget.title
+                                                        .toLowerCase()
+                                                        .contains('bloque') ||
+                                                    script.nombre
+                                                        .toUpperCase()
+                                                        .startsWith('BLK'))
+                                                ? 'BLK'
+                                                : 'SQL',
+                                            style: TextStyle(
+                                              fontSize: 9.5,
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'Consolas, monospace',
+                                              color:
+                                                  (widget.title
+                                                          .toLowerCase()
+                                                          .contains('blk') ||
+                                                      widget.title
+                                                          .toLowerCase()
+                                                          .contains('bloque') ||
+                                                      script.nombre
+                                                          .toUpperCase()
+                                                          .startsWith('BLK'))
+                                                  ? (isDark
+                                                        ? Colors.cyanAccent
+                                                        : Colors.cyan.shade800)
+                                                  : (isDark
+                                                        ? Colors.tealAccent
+                                                        : Colors.teal.shade800),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            script.nombre,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 11.5,
+                                              fontWeight: isSelected
+                                                  ? FontWeight.bold
+                                                  : FontWeight.w500,
+                                              fontFamily: 'Consolas, monospace',
+                                              color: isSelected
+                                                  ? (isDark
+                                                        ? Colors.white
+                                                        : Colors.black87)
+                                                  : (isDark
+                                                        ? Colors.grey.shade300
+                                                        : Colors.grey.shade800),
+                                            ),
+                                          ),
+                                        ),
+                                        IconButton(
+                                          tooltip: 'Eliminar script',
+                                          icon: const Icon(
+                                            Icons.close_rounded,
+                                            size: 14,
+                                          ),
+                                          splashRadius: 14,
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(
+                                            minWidth: 24,
+                                            minHeight: 24,
+                                          ),
+                                          onPressed: () =>
+                                              _removeScript(originalIdx),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // Columna Derecha: Barra de Herramientas y Editor Monaco
+        Expanded(
+          child: Column(
+            children: [
+              // Barra de herramientas del script activo
+              _buildActiveScriptToolbar(borderColor, isDark),
+
+              // Área del editor Monaco
+              Expanded(
+                child: MonacoEditorWidget(
+                  controller: _monacoCtrl,
+                  initialCode: active?.contenido ?? '',
+                  language: widget.language,
+                  darkTheme: isDark,
+                  onChanged: (text) {
+                    if (_selectedIndex >= 0 &&
+                        _selectedIndex < _scriptsList.length) {
+                      _scriptsList[_selectedIndex] =
+                          _scriptsList[_selectedIndex].copyWith(
+                            contenido: text,
+                          );
+                    }
+                    if (!_isDirty) {
+                      setState(() => _isDirty = true);
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildActiveScriptToolbar(Color borderColor, bool isDark) {
@@ -1433,10 +1315,7 @@ class _ScriptCodeEditorDialogState extends State<ScriptCodeEditorDialog> {
             Padding(
               padding: const EdgeInsets.only(left: 8),
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 6,
-                  vertical: 2,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: Colors.amber.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(4),
@@ -1489,10 +1368,7 @@ class _ScriptCodeEditorDialogState extends State<ScriptCodeEditorDialog> {
                 SizedBox(width: 6),
                 Text(
                   'Cambios pendientes en scripts',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey,
-                  ),
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
                 ),
               ],
             )
@@ -1502,9 +1378,7 @@ class _ScriptCodeEditorDialogState extends State<ScriptCodeEditorDialog> {
                 'Ruta: $_currentFilePath',
                 style: TextStyle(
                   fontSize: 11,
-                  color: isDark
-                      ? Colors.grey.shade400
-                      : Colors.grey.shade600,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -1516,9 +1390,7 @@ class _ScriptCodeEditorDialogState extends State<ScriptCodeEditorDialog> {
                 style: TextStyle(
                   fontSize: 11,
                   fontStyle: FontStyle.italic,
-                  color: isDark
-                      ? Colors.grey.shade400
-                      : Colors.grey.shade600,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -1527,41 +1399,27 @@ class _ScriptCodeEditorDialogState extends State<ScriptCodeEditorDialog> {
           OutlinedButton(
             onPressed: () => _closeDialog(),
             style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 10,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               side: BorderSide(
-                color: cs.outlineVariant.withValues(
-                  alpha: isDark ? 0.5 : 0.8,
-                ),
+                color: cs.outlineVariant.withValues(alpha: isDark ? 0.5 : 0.8),
               ),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
               ),
             ),
-            child: const Text(
-              'Cancelar',
-              style: TextStyle(fontSize: 12.5),
-            ),
+            child: const Text('Cancelar', style: TextStyle(fontSize: 12.5)),
           ),
           const SizedBox(width: 10),
           FilledButton.icon(
             icon: const Icon(Icons.check_rounded, size: 16),
             label: const Text(
               'Aplicar a Ticket',
-              style: TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w600,
-              ),
+              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
             ),
             style: FilledButton.styleFrom(
               backgroundColor: widget.themeColor,
               foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 10,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
               ),
