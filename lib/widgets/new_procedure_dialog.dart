@@ -5,6 +5,7 @@ import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_monaco/flutter_monaco.dart';
 import '../providers/procedimientos_provider.dart';
+import '../services/editor_cursor_store.dart';
 import 'ambiente_selector.dart';
 import 'config_badge.dart';
 import 'constellation_background.dart';
@@ -201,6 +202,7 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
     _selectedAmbiente = widget.ambiente;
     _codigoCtrl.addListener(_syncFunctionName);
     editorThemeStore.addListener(_onEditorThemeChanged);
+    editorCursorStore.addListener(_onEditorCursorChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final u = procedimientosProvider.cdUsuario;
       if (u.isNotEmpty) _usuarioCtrl.text = u;
@@ -218,11 +220,18 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
     _codigoCtrl.dispose();
     _usuarioCtrl.dispose();
     editorThemeStore.removeListener(_onEditorThemeChanged);
+    editorCursorStore.removeListener(_onEditorCursorChanged);
     super.dispose();
   }
 
   void _onEditorThemeChanged() {
     _editorCtrl?.setTheme(editorThemeStore.monacoTheme);
+  }
+
+  void _onEditorCursorChanged() {
+    _editorCtrl?.updateOptions(
+      EditorOptions(cursorStyle: editorCursorStore.cursorStyle),
+    );
   }
 
   void _onConfigChanged(String cfg) {
@@ -941,6 +950,7 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
                         : MonacoLanguage.sql,
                     theme: editorThemeStore.monacoTheme,
                     fontSize: 13,
+                    cursorStyle: editorCursorStore.cursorStyle,
                     lineNumbers: MonacoLineNumbers.on,
                     minimap: const MonacoMinimapOptions(enabled: false),
                     wordWrap: MonacoWordWrap.off,

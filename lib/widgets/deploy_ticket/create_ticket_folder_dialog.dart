@@ -50,6 +50,7 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
 
   bool _loading = true;
   bool _creating = false;
+  String? _progressMessage;
   String? _createdFolderPath;
   List<ExportedDeployFile>? _createdFiles;
   String? _errorMessage;
@@ -168,6 +169,7 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
 
     setState(() {
       _creating = true;
+      _progressMessage = 'Iniciando creación...';
       _errorMessage = null;
     });
 
@@ -177,6 +179,13 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
         ticket: widget.ticket,
         rootDirectoryPath: rootDir,
         folderName: folderName,
+        onProgress: (msg) {
+          if (mounted) {
+            setState(() {
+              _progressMessage = msg;
+            });
+          }
+        },
       );
 
       await _saveLastRootDir(rootDir);
@@ -785,7 +794,7 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
                                     : const Icon(Icons.check_rounded, size: 16),
                                 label: Text(
                                   _creating
-                                      ? 'Creando...'
+                                      ? (_progressMessage ?? 'Creando...')
                                       : 'Crear Directorio y Archivos',
                                   style: const TextStyle(
                                     fontSize: 12.5,

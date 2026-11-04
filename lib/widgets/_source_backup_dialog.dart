@@ -206,15 +206,21 @@ extension _ObjectSourceBackup on _ObjectSourcePageState {
     );
   }
 
-  // Resolves the schema owner for this object from the cached metadata or table DDL.
+  // Resolves the schema owner for this object from the cached metadata, table DDL or source DDL.
   String _objectOwner() {
     if (_tableDdlOwner.isNotEmpty) return _tableDdlOwner;
     final cached = SchemaService.instance.getCached(ambiente: widget.ambiente);
-    return cached?.objects
-            .where((o) => o.name == widget.name.toUpperCase())
-            .firstOrNull
-            ?.owner ??
-        '';
+    final ownerFromCached = cached?.objects
+        .where((o) => o.name == widget.name.toUpperCase())
+        .firstOrNull
+        ?.owner;
+    if (ownerFromCached != null && ownerFromCached.isNotEmpty) {
+      return ownerFromCached;
+    }
+    final ownerFromDdl = BackupService.extractOwnerFromDdl(_specText);
+    if (ownerFromDdl.isNotEmpty) return ownerFromDdl;
+    if (cached != null && cached.owner.isNotEmpty) return cached.owner;
+    return '';
   }
 
   Future<void> _saveBackup({

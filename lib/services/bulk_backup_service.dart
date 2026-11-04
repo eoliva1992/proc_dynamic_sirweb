@@ -99,17 +99,24 @@ abstract final class BulkBackupService {
       if (tableGrants != null && tableGrants.trim().isNotEmpty) {
         parts.add('${tableGrants.trim()}\n/');
       } else {
+        var owner = item.owner;
+        if (owner.isEmpty) {
+          owner = BackupService.extractOwnerFromDdl(spec);
+        }
         for (final grant in grants) {
           final grantable = grant.grantable ? ' WITH GRANT OPTION' : '';
           parts.add(
-            'GRANT ${grant.privilege} ON ${item.owner.isEmpty ? '' : '${item.owner}.'}${item.name} TO ${grant.grantee}$grantable;\n/',
+            'GRANT ${grant.privilege} ON ${owner.isEmpty ? '' : '$owner.'}${item.name} TO ${grant.grantee}$grantable;\n/',
           );
         }
       }
     }
     if (config.includeSynonyms) {
       for (final synonym in synonyms.where((s) => s.isPublic)) {
-        final owner = synonym.owner.isEmpty ? item.owner : synonym.owner;
+        var owner = synonym.owner.isEmpty ? item.owner : synonym.owner;
+        if (owner.isEmpty) {
+          owner = BackupService.extractOwnerFromDdl(spec);
+        }
         final ref = owner.isEmpty ? item.name : '$owner.${item.name}';
         parts.add(
           'CREATE OR REPLACE PUBLIC SYNONYM ${synonym.synonymName} FOR $ref;\n/',

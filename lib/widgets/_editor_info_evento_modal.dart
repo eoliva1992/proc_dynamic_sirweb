@@ -49,6 +49,9 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
   late String _ambiente;
   late Future<EventoInfo>? _headerFuture;
   Future<List<EventoValor>>? _valoresFuture;
+  bool _buscandoValores = false;
+  http.Client? _valoresClient;
+  bool _canceladoValores = false;
   final _indexCtrl = TextEditingController();
   final _topCtrl = TextEditingController(text: '50');
   bool _hasText = false;
@@ -104,6 +107,7 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
   }
 
   void _cerrar() {
+    _cancelarBusqueda();
     _MinimizedSlots.release(_slot);
     _slot = null;
     widget.onClose();
@@ -153,6 +157,7 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
 
   @override
   void dispose() {
+    _cancelarBusqueda();
     _MinimizedSlots.release(_slot);
     _indexCtrl.dispose();
     _topCtrl.dispose();
@@ -206,6 +211,7 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
   void _cargarEvento(String cdEvento) {
     final nuevo = cdEvento.trim();
     if (nuevo.isEmpty) return;
+    _cancelarBusqueda(notificar: false);
     setState(() {
       if (nuevo != _cdEvento && _cdEvento.isNotEmpty) {
         _historial.remove(_cdEvento);
@@ -228,23 +234,71 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
   void _buscarValores() {
     final texto = _indexCtrl.text.trim();
     if (texto.isEmpty || _cdEvento.isEmpty) return;
+    if (_buscandoValores) return;
+
     final topLimit = int.tryParse(_topCtrl.text.trim()) ?? 50;
     final effectiveTop = topLimit > 0 ? topLimit : 50;
     _guardarTop(effectiveTop);
+
+    final client = http.Client();
+    _valoresClient?.close();
+    _valoresClient = client;
+    _canceladoValores = false;
+
+    Future<List<EventoValor>> fetch() async {
+      try {
+        final res = await SirwebService().valoresEvento(
+          _cdEvento,
+          deIndiceEvento: texto,
+          ambiente: _ambiente,
+          top: effectiveTop,
+          client: client,
+          cancelado: () => _canceladoValores,
+        );
+        return res;
+      } finally {
+        client.close();
+        if (identical(_valoresClient, client)) {
+          _valoresClient = null;
+          if (mounted) {
+            setState(() {
+              _buscandoValores = false;
+            });
+          }
+        }
+      }
+    }
+
     setState(() {
-      _valoresFuture = SirwebService().valoresEvento(
-        _cdEvento,
-        deIndiceEvento: texto,
-        ambiente: _ambiente,
-        top: effectiveTop,
-      );
+      _buscandoValores = true;
+      _valoresFuture = fetch();
       _hiddenCols = {};
       _selectedRowIndices.clear();
     });
   }
 
+  /// Cancela la búsqueda de valores en curso.
+  void _cancelarBusqueda({bool notificar = true}) {
+    if (!_buscandoValores && _valoresClient == null) return;
+    _canceladoValores = true;
+    _valoresClient?.close();
+    _valoresClient = null;
+    if (mounted) {
+      setState(() {
+        _buscandoValores = false;
+        _valoresFuture = null;
+        _hiddenCols = {};
+        _selectedRowIndices.clear();
+      });
+    }
+    if (notificar) {
+      AppToast.info('Búsqueda de valores cancelada');
+    }
+  }
+
   void _cambiarAmbiente(String nuevo) {
     if (nuevo == _ambiente) return;
+    _cancelarBusqueda(notificar: false);
     setState(() {
       _ambiente = nuevo;
       _selectedRowIndices.clear();
@@ -253,14 +307,12 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
           _cdEvento,
           ambiente: _ambiente,
         );
-        if (_valoresFuture != null) {
-          _buscarValores();
-        }
       }
     });
   }
 
   void _limpiarBusqueda() {
+    _cancelarBusqueda(notificar: false);
     _indexCtrl.clear();
     setState(() {
       _valoresFuture = null;
@@ -1006,6 +1058,7 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
               height: 34,
               child: TextField(
                 controller: _indexCtrl,
+                enabled: !_buscandoValores,
                 style: const TextStyle(fontSize: 13),
                 onSubmitted: (_) => _buscarValores(),
                 decoration: InputDecoration(
@@ -1019,7 +1072,7 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
                     size: 16,
                     color: isDark ? Colors.white38 : Colors.black38,
                   ),
-                  suffixIcon: _hasText
+                  suffixIcon: _hasText && !_buscandoValores
                       ? IconButton(
                           icon: const Icon(Icons.clear, size: 14),
                           onPressed: _limpiarBusqueda,
@@ -1059,6 +1112,7 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
             height: 34,
             child: TextField(
               controller: _topCtrl,
+              enabled: !_buscandoValores,
               keyboardType: TextInputType.number,
               style: const TextStyle(fontSize: 13),
               onChanged: (val) {
@@ -1103,15 +1157,31 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
           const SizedBox(width: 8),
           SizedBox(
             height: 34,
-            child: FilledButton.icon(
-              onPressed: _buscarValores,
-              icon: const Icon(Icons.search, size: 15),
-              label: const Text('Buscar', style: TextStyle(fontSize: 13)),
-              style: FilledButton.styleFrom(
-                backgroundColor: accent,
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-              ),
-            ),
+            child: _buscandoValores
+                ? OutlinedButton.icon(
+                    onPressed: _cancelarBusqueda,
+                    icon: const Icon(Icons.stop_rounded, size: 16),
+                    label: const Text(
+                      'Cancelar',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.redAccent,
+                      side: BorderSide(
+                        color: Colors.redAccent.withValues(alpha: 0.8),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                  )
+                : FilledButton.icon(
+                    onPressed: _buscarValores,
+                    icon: const Icon(Icons.search, size: 15),
+                    label: const Text('Buscar', style: TextStyle(fontSize: 13)),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: accent,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                    ),
+                  ),
           ),
         ],
       ),
@@ -1152,9 +1222,63 @@ class _InfoEventoModalState extends State<_InfoEventoModal> {
       future: vf,
       builder: (ctx, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 32,
+                  height: 32,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'Consultando valores del evento…',
+                  style: TextStyle(fontSize: 13, color: labelColor),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: _cancelarBusqueda,
+                  icon: const Icon(Icons.stop_rounded, size: 15),
+                  label: const Text(
+                    'Cancelar búsqueda',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    side: BorderSide(
+                      color: Colors.redAccent.withValues(alpha: 0.6),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 6,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
         }
         if (snap.hasError) {
+          if (_canceladoValores || snap.error is SirwebCancelledException) {
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 36,
+                    color: isDark ? Colors.white38 : Colors.black38,
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Búsqueda cancelada por el usuario',
+                    style: TextStyle(fontSize: 13, color: labelColor),
+                  ),
+                ],
+              ),
+            );
+          }
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(24),

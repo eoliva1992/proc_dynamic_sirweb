@@ -16,6 +16,7 @@ import 'services/file_association_service.dart';
 import 'services/schema_service.dart';
 import 'services/server_config_service.dart';
 import 'services/single_instance_service.dart';
+import 'services/editor_cursor_store.dart';
 import 'widgets/_editor_themes.dart';
 import 'widgets/code_editor_panel.dart';
 import 'widgets/object_source_page.dart';
@@ -58,6 +59,7 @@ Future<void> main(List<String> args) async {
 
     try {
       await editorThemeStore.loadFromPrefs();
+      await editorCursorStore.loadFromPrefs();
     } catch (e) {
       debugPrint('[sub-window] loadFromPrefs error: $e');
     }
@@ -107,6 +109,7 @@ Future<void> main(List<String> args) async {
       await windowManager.ensureInitialized();
       await themeStore.loadFromPrefs();
       await editorThemeStore.loadFromPrefs();
+      await editorCursorStore.loadFromPrefs();
       await FavoritesService.load();
       unawaited(ServerConfigService().getBaseUrl());
       unawaited(SchemaService.instance.loadMetadata());

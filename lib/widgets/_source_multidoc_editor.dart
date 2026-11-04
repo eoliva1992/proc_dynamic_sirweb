@@ -89,6 +89,7 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
     _isBody = widget.tabCtrl.index == 1;
     widget.tabCtrl.addListener(_onTabChanged);
     snippetsRevision.addListener(_onSnippetsRevisionChanged);
+    editorCursorStore.addListener(_onEditorCursorChanged2);
   }
 
   @override
@@ -108,6 +109,7 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
     }
     _extraActions.clear();
     editorThemeStore.removeListener(_onEditorThemeChanged2);
+    editorCursorStore.removeListener(_onEditorCursorChanged2);
     _ctrl = null;
     _specDoc = null;
     _bodyDoc = null;
@@ -151,6 +153,19 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
 
   void _onEditorThemeChanged2() {
     unawaited(_withCtrl((ctrl) => ctrl.setTheme(editorThemeStore.monacoTheme)));
+  }
+
+  void _onEditorCursorChanged2() {
+    unawaited(
+      _withCtrl((ctrl) async {
+        await ctrl.updateOptions(
+          fm.EditorOptions(cursorStyle: editorCursorStore.cursorStyle),
+        );
+        await ctrl.evaluateJavaScript<dynamic>(
+          'if (window.editor) { window.editor.updateOptions({ cursorStyle: "${editorCursorStore.cursorStyleId}" }); }',
+        );
+      }),
+    );
   }
 
   void _onSnippetsRevisionChanged() {
@@ -1215,6 +1230,7 @@ class _MultiDocSourceEditorState extends State<_MultiDocSourceEditor> {
               language: fm.MonacoLanguage.sql,
               theme: editorThemeStore.monacoTheme,
               fontSize: widget.fontSize,
+              cursorStyle: editorCursorStore.cursorStyle,
               minimap: fm.MonacoMinimapOptions(enabled: widget.minimap),
               lineNumbers: fm.MonacoLineNumbers.on,
               wordWrap: widget.wordWrap

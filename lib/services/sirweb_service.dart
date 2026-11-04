@@ -118,10 +118,13 @@ class SirwebService {
     String toolName,
     Map<String, dynamic> arguments, {
     Duration? timeout,
+    http.Client? client,
+    bool Function()? cancelado,
   }) async {
     final effectiveTimeout = timeout ?? defaultTimeout;
     final reloj = Stopwatch()..start();
     final baseUrl = await getBaseUrl();
+    final httpClient = client ?? _client;
 
     // Se usa `send` (y no `post`) porque el servidor responde vía SSE y deja el
     // stream abierto: `post` esperaría el EOF del cuerpo y el Future quedaría
@@ -140,7 +143,7 @@ class SirwebService {
 
     final dataStr = await guardRequest(
       () async {
-        final streamed = await _client.send(request);
+        final streamed = await httpClient.send(request);
         return readFirstSseData(
           streamed,
           toolName: toolName,
@@ -149,6 +152,7 @@ class SirwebService {
       },
       timeout: effectiveTimeout,
       contexto: 'el servidor SirWeb',
+      cancelado: cancelado,
     );
 
     final envelope = jsonDecode(dataStr) as Map<String, dynamic>;
@@ -718,7 +722,7 @@ class SirwebService {
     );
   }
 
-  /// Consulta los valores del evento filtrando por Ã­ndice (servidor).
+  /// Consulta los valores del evento filtrando por índice (servidor).
   Future<List<EventoValor>> valoresEvento(
     String cdEvento, {
     required String deIndiceEvento,
@@ -727,16 +731,23 @@ class SirwebService {
     String? fechaHasta,
     int top = 50,
     int pagina = 1,
+    http.Client? client,
+    bool Function()? cancelado,
   }) async {
-    final result = await _call('valores_evento', {
-      'cdEvento': cdEvento,
-      'deIndiceEvento': deIndiceEvento,
-      if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
-      ?fechaDesde: fechaDesde,
-      ?fechaHasta: fechaHasta,
-      'top': top,
-      'pagina': pagina,
-    });
+    final result = await _call(
+      'valores_evento',
+      {
+        'cdEvento': cdEvento,
+        'deIndiceEvento': deIndiceEvento,
+        if (ambiente != null && ambiente != 'Desa') 'ambiente': ambiente,
+        ?fechaDesde: fechaDesde,
+        ?fechaHasta: fechaHasta,
+        'top': top,
+        'pagina': pagina,
+      },
+      client: client,
+      cancelado: cancelado,
+    );
     final data = result['data'];
     final rawList = data is List<dynamic>
         ? data

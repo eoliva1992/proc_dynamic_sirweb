@@ -18,6 +18,7 @@ import '../notes/note_editor_window.dart';
 import 'artifact_list_editor.dart';
 import 'create_ticket_folder_dialog.dart';
 import 'deploy_ticket_export_progress_dialog.dart';
+import 'link_existing_notes_dialog.dart';
 import 'reverse_sql_config_dialog.dart';
 import 'script_code_editor_dialog.dart';
 
@@ -1880,146 +1881,25 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
     final ticketId = widget.initialTicket?.id;
     if (ticketId == null) return;
 
-    final user = NoteService.currentUser;
-    final res = await NoteService.instance.search(
-      requestingUser: user,
-      top: 100,
-    );
-    // Filtrar las notas que no estén ya vinculadas a este ticket
-    final availableNotes = res.items
-        .where((n) => !_noteIds.contains(n.note.id))
-        .toList();
-
-    if (!mounted) return;
-
-    await showFloatingDialog<void>(
+    final newlyLinked = await showLinkExistingNotesDialog(
       context,
-      (ctx, close) => StatefulBuilder(
-        builder: (dialogCtx, setDialogState) {
-          String searchFilter = '';
-          final filtered = availableNotes.where((n) {
-            if (searchFilter.isEmpty) return true;
-            final q = searchFilter.toLowerCase();
-            return n.note.title.toLowerCase().contains(q) ||
-                n.note.content.toLowerCase().contains(q);
-          }).toList();
-
-          return AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.link_rounded, color: Colors.blueAccent),
-                SizedBox(width: 8),
-                Text('Vincular Nota Existente'),
-              ],
-            ),
-            content: SizedBox(
-              width: 450,
-              height: 350,
-              child: Column(
-                children: [
-                  TextField(
-                    decoration: const InputDecoration(
-                      hintText: 'Buscar notas...',
-                      prefixIcon: Icon(Icons.search, size: 18),
-                      isDense: true,
-                    ),
-                    onChanged: (val) =>
-                        setDialogState(() => searchFilter = val),
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: filtered.isEmpty
-                        ? const Center(
-                            child: Text(
-                              'No se encontraron notas disponibles.',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          )
-                        : ListView.separated(
-                            itemCount: filtered.length,
-                            separatorBuilder: (_, _) =>
-                                const Divider(height: 1),
-                            itemBuilder: (ctx, i) {
-                              final item = filtered[i];
-                              final hasOtherTicket =
-                                  item.note.ticketDespliegueId != null &&
-                                  item.note.ticketDespliegueId!.isNotEmpty &&
-                                  item.note.ticketDespliegueId != ticketId;
-
-                              return ListTile(
-                                dense: true,
-                                title: Text(
-                                  item.note.title.isEmpty
-                                      ? 'Sin título'
-                                      : item.note.title,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  hasOtherTicket
-                                      ? 'Reasignará desde Ticket #${item.note.ticketDespliegueId}'
-                                      : (item.note.content.isEmpty
-                                            ? 'Sin contenido'
-                                            : item.note.content.replaceAll(
-                                                '\n',
-                                                ' ',
-                                              )),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: hasOtherTicket
-                                        ? Colors.orange
-                                        : Colors.grey,
-                                  ),
-                                ),
-                                trailing: const Icon(
-                                  Icons.add_circle_outline,
-                                  size: 18,
-                                ),
-                                onTap: () async {
-                                  try {
-                                    await DeployTicketService.instance
-                                        .asociarNota(
-                                          ticketId,
-                                          item.note.id,
-                                          usuarioActualiza:
-                                              _resolveActiveUser(),
-                                        );
-                                    AppToast.success(
-                                      'Nota vinculada exitosamente',
-                                    );
-                                    close();
-                                    if (mounted) {
-                                      setState(() {
-                                        if (!_noteIds.contains(item.note.id)) {
-                                          _noteIds.add(item.note.id);
-                                        }
-                                      });
-                                    }
-                                  } catch (e) {
-                                    AppToast.error(
-                                      'Error al vincular nota: $e',
-                                    );
-                                  }
-                                },
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(onPressed: () => close(), child: const Text('Cerrar')),
-            ],
-          );
-        },
-      ),
+      ticketId: ticketId,
+      ticketDisplayNumber: _numeroSolCtrl.text.trim().isNotEmpty
+          ? _numeroSolCtrl.text.trim()
+          : null,
+      alreadyLinkedNoteIds: _noteIds,
+      activeUser: _resolveActiveUser(),
     );
+
+    if (newlyLinked != null && newlyLinked.isNotEmpty && mounted) {
+      setState(() {
+        for (final id in newlyLinked) {
+          if (!_noteIds.contains(id)) {
+            _noteIds.add(id);
+          }
+        }
+      });
+    }
   }
 
   Widget _buildPreviewTab(ColorScheme cs, Color divColor, bool isDark) {

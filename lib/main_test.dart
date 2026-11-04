@@ -48,6 +48,7 @@ class _EditorPageState extends State<_EditorPage> {
               options: const fm.EditorOptions(
                 language: fm.MonacoLanguage.sql,
                 theme: fm.MonacoTheme.vsDark,
+                cursorStyle: fm.CursorStyle.underlineThin,
               ),
               onReady: (_) => setState(() => _status = 'Monaco listo ✓'),
               onError: (err, stack) => setState(() {

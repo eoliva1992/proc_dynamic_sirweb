@@ -461,8 +461,21 @@ class _BulkBackupPageState extends State<BulkBackupPage>
             ambiente: _ambiente,
           )
         : const <({String synonymName, bool isPublic, String owner})>[];
+    final resolvedOwner = item.owner.isNotEmpty
+        ? item.owner
+        : BackupService.extractOwnerFromDdl(source.spec);
+    final effectiveItem =
+        resolvedOwner.isNotEmpty && resolvedOwner != item.owner
+        ? BulkBackupItem(
+            name: item.name,
+            type: item.type,
+            source: item.source,
+            owner: resolvedOwner,
+            procedimiento: item.procedimiento,
+          )
+        : item;
     return BulkBackupService.buildSchemaScript(
-      item: item,
+      item: effectiveItem,
       ambiente: _ambiente,
       spec: source.spec,
       body: source.body,

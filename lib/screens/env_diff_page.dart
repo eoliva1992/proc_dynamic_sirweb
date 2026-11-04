@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_monaco/flutter_monaco.dart';
 import '../models/procedimiento.dart';
+import '../services/editor_cursor_store.dart';
 import '../services/sirweb_service.dart';
 import '../services/transfer_service.dart';
 import '../widgets/_editor_themes.dart';
@@ -945,6 +946,7 @@ class _InlineDiffState extends State<_InlineDiff> {
                     options: EditorOptions(
                       theme: editorThemeStore.monacoTheme,
                       fontSize: 13,
+                      cursorStyle: editorCursorStore.cursorStyle,
                       minimap: const MonacoMinimapOptions(enabled: false),
                       lineNumbers: MonacoLineNumbers.on,
                       wordWrap: MonacoWordWrap.off,

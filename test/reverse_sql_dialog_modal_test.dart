@@ -504,13 +504,10 @@ dbconfig:
         await tester.pump();
 
         // 1. Activar checkbox split_file
-        final splitFileFinder = find.byTooltip(
-          'Generar esta tabla en un script nuevo independiente (P2, P3...)',
-        );
-        expect(splitFileFinder, findsOneWidget);
-        await tester.ensureVisible(splitFileFinder);
+        final splitCheckbox = find.byType(Checkbox).last;
+        await tester.ensureVisible(splitCheckbox);
         await tester.pump();
-        await tester.tap(splitFileFinder);
+        await tester.tap(splitCheckbox);
         await tester.pump();
 
         // 2. Agregar un set_columns
@@ -598,6 +595,9 @@ dbconfig:
         expect(find.text('#1'), findsOneWidget);
         expect(find.text('#2'), findsOneWidget);
 
+        // Verificar badges distintivos de Agrupada / Lote
+        expect(find.text('Agrupada / Lote'), findsNWidgets(2));
+
         // En la primera tabla (#1 PRODUCTO), mover hacia abajo
         final moveDownButtons = find.byIcon(Icons.arrow_downward_rounded);
         expect(moveDownButtons, findsWidgets);
@@ -618,6 +618,95 @@ dbconfig:
         expect(cotizacionPos, isNot(-1));
         expect(productoPos, isNot(-1));
         expect(cotizacionPos, lessThan(productoPos));
+      },
+    );
+
+    testWidgets(
+      'desmarcar split_file reubica la tabla automáticamente agrupándola con las tablas no-split',
+      (tester) async {
+        tester.view.physicalSize = const Size(1280, 1000);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        ReverseSqlConfig currentConfig = const ReverseSqlConfig(
+          tables: [
+            ReverseSqlTableConfig(
+              dml: ReverseSqlDml.merge,
+              name: 'TABLA_NO_SPLIT',
+              splitFile: false,
+            ),
+            ReverseSqlTableConfig(
+              dml: ReverseSqlDml.merge,
+              name: 'TABLA_SPLIT_1',
+              splitFile: true,
+            ),
+            ReverseSqlTableConfig(
+              dml: ReverseSqlDml.merge,
+              name: 'TABLA_SPLIT_2',
+              splitFile: true,
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (context, setState) {
+                  return ReverseSqlVisualForm(
+                    config: currentConfig,
+                    onChanged: (updated) {
+                      setState(() => currentConfig = updated);
+                    },
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+
+        await tester.pump();
+
+        // En la cabecera cerrada se muestran los nombres y los badges
+        expect(find.text('TABLA_NO_SPLIT'), findsOneWidget);
+        expect(find.text('TABLA_SPLIT_1'), findsOneWidget);
+        expect(find.text('TABLA_SPLIT_2'), findsOneWidget);
+        expect(find.text('Agrupada / Lote'), findsOneWidget);
+        expect(find.text('Individual (split_file)'), findsNWidgets(2));
+
+        // En lugar de expandir todo y que la última tarjeta quede fuera de pantalla por el alto de 3 tarjetas expandidas,
+        // expandimos solamente la tarjeta TABLA_SPLIT_2 tocando en su nombre
+        await tester.tap(find.text('TABLA_SPLIT_2'));
+        await tester.pump();
+
+        // Buscamos la etiqueta de 'split_file (Archivo individual)'
+        final splitLabel = find.text('split_file (Archivo individual)');
+        expect(splitLabel, findsOneWidget);
+
+        // Al tocar sobre el botón de split_file, se desmarca split_file.
+        // Por la auto-reubicación:
+        // Debe reagruparse junto al bloque no-split existente (después de TABLA_NO_SPLIT, en posición 1)
+        // desplazando a TABLA_SPLIT_1 a la posición 2.
+        await tester.tap(splitLabel);
+        await tester.pump();
+
+        // Verificar el nuevo orden de tablas en currentConfig
+        expect(currentConfig.tables.length, 3);
+        expect(currentConfig.tables[0].name, 'TABLA_NO_SPLIT');
+        expect(currentConfig.tables[0].splitFile, isNot(true));
+
+        expect(currentConfig.tables[1].name, 'TABLA_SPLIT_2');
+        expect(currentConfig.tables[1].splitFile, isNot(true));
+
+        expect(currentConfig.tables[2].name, 'TABLA_SPLIT_1');
+        expect(currentConfig.tables[2].splitFile, isTrue);
+
+        // Visualmente ahora hay 2 tablas con badge Agrupada / Lote y 1 con Individual (split_file)
+        expect(find.text('Agrupada / Lote'), findsNWidgets(2));
+        expect(find.text('Individual (split_file)'), findsOneWidget);
       },
     );
   });

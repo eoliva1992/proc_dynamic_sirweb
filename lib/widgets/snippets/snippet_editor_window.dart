@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_monaco/flutter_monaco.dart' as fm;
 
 import '../../models/snippet.dart';
+import '../../services/editor_cursor_store.dart';
 import '../../services/snippet_service.dart';
 import '../app_toast.dart';
 import '../constellation_background.dart';
@@ -1057,6 +1058,7 @@ class _SnippetEditorWindowState extends State<_SnippetEditorWindow> {
                       ? fm.MonacoTheme.vsDark
                       : fm.MonacoTheme.vs,
                   fontSize: 12,
+                  cursorStyle: editorCursorStore.cursorStyle,
                   minimap: const fm.MonacoMinimapOptions(enabled: false),
                   lineNumbers: fm.MonacoLineNumbers.on,
                   tabSize: 2,

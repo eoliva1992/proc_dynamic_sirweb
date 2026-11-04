@@ -865,6 +865,47 @@ void main() {
     );
 
     test(
+      'crearDirectorioYArchivos genera archivos de procedimientos con fallback de comentario si no hay conexion',
+      () async {
+        final tempBase = await Directory.systemTemp.createTemp(
+          'deploy_proc_folder_test_',
+        );
+        addTearDown(() => tempBase.delete(recursive: true));
+
+        const ticket = DeployTicket(
+          id: 'ticket-test-proc-folder',
+          version: 1,
+          autoriza: 'TESTUSER',
+          tipoSolicitud: 'Matriz',
+          numeroSolicitud: '1206',
+          procedimientos: ['PROC_VALOR_MT_MAX_ACTIVIDAD'],
+        );
+
+        final exporter = DeployTicketExporterService.instance;
+        final files = await exporter.crearDirectorioYArchivos(
+          ticket: ticket,
+          rootDirectoryPath: tempBase.path,
+          folderName: 'ticket_proc_test',
+        );
+
+        final targetFolder = Directory(
+          '${tempBase.path}${Platform.pathSeparator}ticket_proc_test',
+        );
+        expect(await targetFolder.exists(), isTrue);
+
+        final procFile = files.firstWhere((f) => f.categoria == 'PROC');
+        expect(
+          procFile.nombreArchivo.contains('PROC_VALOR_MT_MAX_ACTIVIDAD'),
+          isTrue,
+        );
+        final fileOnDisk = File(procFile.rutaCompleta);
+        expect(await fileOnDisk.exists(), isTrue);
+        final content = await fileOnDisk.readAsString();
+        expect(content.contains('PROC_VALOR_MT_MAX_ACTIVIDAD'), isTrue);
+      },
+    );
+
+    test(
       'exportarTicket separa tablas con split_file: true en archivos P2, P3 e incrementa posicion',
       () async {
         final tempDir = await Directory.systemTemp.createTemp(
@@ -964,6 +1005,96 @@ dbconfig:
         final p3Content = await File(p3Obj.rutaCompleta).readAsString();
         expect(p3Content.contains('TABLA_TRES'), isTrue);
         expect(p3Content.contains('TABLA_UNO'), isFalse);
+      },
+    );
+
+    test(
+      'exportarTicket respeta el orden estricto de YAML cuando split_file esta en primer lugar y tablas agrupadas despues',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'deploy_export_split_order_test_',
+        );
+        addTearDown(() => tempDir.delete(recursive: true));
+
+        final now = DateTime.now();
+        final fechaDdmmyyyy = DeployTicketExporterService.formatDateDdmmyyyy(
+          now,
+        );
+        final fechaYmd = DeployTicketExporterService.formatDateYmd(now);
+
+        // PROCEDIMIENTODINAMICO con split_file en posición 1, luego tablas sin split agrupadas
+        const yamlContent = '''
+dbconfig:
+  tables:
+    - dml: merge
+      name: PROCEDIMIENTODINAMICO
+      split_file: true
+      filters:
+        cd_procedimiento: "= 'PR_TEST'"
+    - dml: insert
+      name: TABLA_AGRUPADA_A
+      filters:
+        id: "= 1"
+    - dml: insert
+      name: TABLA_AGRUPADA_B
+      filters:
+        id: "= 2"
+''';
+
+        final ticket = DeployTicket(
+          id: 'ticket-split-first-rsql',
+          version: 1,
+          autoriza: 'TESTUSER',
+          tipoSolicitud: 'Normal',
+          numeroSolicitud: '9999',
+          usuarioCrea: 'EOLIVA',
+          reverseSql: [
+            const DeployTicketScript(
+              nombre: 'configReverse.yaml',
+              contenido: yamlContent,
+            ),
+          ],
+        );
+
+        final exporter = DeployTicketExporterService();
+        final files = await exporter.exportarTicket(
+          ticket: ticket,
+          targetDirectoryPath: tempDir.path,
+        );
+
+        final fileNames = files.map((f) => f.nombreArchivo).toList();
+
+        // 1. Archivo para PROCEDIMIENTODINAMICO (split_file en primera posición): debe tener posición 01
+        final p1File = fileNames.firstWhere(
+          (n) => n.contains('configReverseReverse$fechaDdmmyyyy-'),
+        );
+        expect(
+          p1File,
+          '01-eoliva-configReverseReverse$fechaDdmmyyyy-$fechaYmd-V1.sql',
+        );
+
+        // 2. Archivo para las tablas agrupadas contiguas (A y B): debe tener posición 02 y sufijo P2
+        final p2File = fileNames.firstWhere(
+          (n) => n.contains('configReverseReverse${fechaDdmmyyyy}P2-'),
+        );
+        expect(
+          p2File,
+          '02-eoliva-configReverseReverse${fechaDdmmyyyy}P2-$fechaYmd-V1.sql',
+        );
+
+        // Validar que PROCEDIMIENTODINAMICO esté en el primer archivo y NO las tablas agrupadas
+        final p1Obj = files.firstWhere((f) => f.nombreArchivo == p1File);
+        final p1Content = await File(p1Obj.rutaCompleta).readAsString();
+        expect(p1Content.contains('PROCEDIMIENTODINAMICO'), isTrue);
+        expect(p1Content.contains('TABLA_AGRUPADA_A'), isFalse);
+        expect(p1Content.contains('TABLA_AGRUPADA_B'), isFalse);
+
+        // Validar que el archivo P2 contenga AMBAS tablas agrupadas juntas
+        final p2Obj = files.firstWhere((f) => f.nombreArchivo == p2File);
+        final p2Content = await File(p2Obj.rutaCompleta).readAsString();
+        expect(p2Content.contains('TABLA_AGRUPADA_A'), isTrue);
+        expect(p2Content.contains('TABLA_AGRUPADA_B'), isTrue);
+        expect(p2Content.contains('PROCEDIMIENTODINAMICO'), isFalse);
       },
     );
 

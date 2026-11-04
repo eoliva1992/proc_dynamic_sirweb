@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_monaco/flutter_monaco.dart' as fm;
 import 'package:http/http.dart' as http;
 
 import '../models/oracle_credential.dart';
 import '../providers/procedimientos_provider.dart';
+import '../services/editor_cursor_store.dart';
 import '../services/oracle_credenciales_service.dart';
 import '../services/server_config_service.dart';
 import 'ambiente_selector.dart';
@@ -107,7 +109,7 @@ class _ServerConfigDialogState extends State<ServerConfigDialog>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(_onTabChanged);
 
     _urlController = TextEditingController();
@@ -802,8 +804,18 @@ class _ServerConfigDialogState extends State<ServerConfigDialog>
                                         text: 'Ambientes Oracle & Credenciales',
                                       ),
                                       Tab(
-                                        icon: Icon(Icons.history_rounded, size: 18),
+                                        icon: Icon(
+                                          Icons.history_rounded,
+                                          size: 18,
+                                        ),
                                         text: 'Historial de Auditoría',
+                                      ),
+                                      Tab(
+                                        icon: Icon(
+                                          Icons.text_fields_rounded,
+                                          size: 18,
+                                        ),
+                                        text: 'Editor de Código',
                                       ),
                                     ],
                                   ),
@@ -817,6 +829,7 @@ class _ServerConfigDialogState extends State<ServerConfigDialog>
                                       _buildServidorTab(cs, isDark),
                                       _buildOracleCredencialesTab(cs, isDark),
                                       _buildHistorialTab(cs, isDark),
+                                      _buildEditorTab(cs, isDark),
                                     ],
                                   ),
                                 ),
@@ -2980,6 +2993,242 @@ class _ServerConfigDialogState extends State<ServerConfigDialog>
           ),
         ],
       ),
+    );
+  }
+
+  // ── Tab 4 Widget: Editor de Código ────────────────────────────────────────
+
+  Widget _buildEditorTab(ColorScheme cs, bool isDark) {
+    final borderColor = isDark ? const Color(0xFF33353F) : Colors.grey.shade300;
+
+    return ListenableBuilder(
+      listenable: editorCursorStore,
+      builder: (context, _) {
+        final currentStyle = editorCursorStore.cursorStyle;
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: cs.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      Icons.text_fields_rounded,
+                      color: cs.primary,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Estilo del Cursor de los Editores Monaco',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: cs.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          'Personaliza la forma visual y grosor del cursor para todos los editores de código (PL/SQL, SQL Executor, Snippets y Diff).',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: isDark ? Colors.white70 : Colors.black87,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Container(
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E1F25) : Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: borderColor),
+                ),
+                child: RadioGroup<fm.CursorStyle>(
+                  groupValue: currentStyle,
+                  onChanged: (val) async {
+                    if (val != null) {
+                      await editorCursorStore.setCursorStyle(val);
+                      final meta = kEditorCursorStyles
+                          .where((m) => m.style == val)
+                          .firstOrNull;
+                      AppToast.success(
+                        'Estilo de cursor cambiado a "${meta?.name ?? ''}"',
+                      );
+                    }
+                  },
+                  child: Column(
+                    children: [
+                      for (int i = 0; i < kEditorCursorStyles.length; i++) ...[
+                        if (i > 0)
+                          Divider(
+                            height: 1,
+                            thickness: 1,
+                            color: borderColor.withValues(alpha: 0.6),
+                          ),
+                        () {
+                          final meta = kEditorCursorStyles[i];
+                          final isSelected = meta.style == currentStyle;
+
+                          return InkWell(
+                            onTap: () async {
+                              await editorCursorStore.setCursorStyle(
+                                meta.style,
+                              );
+                              AppToast.success(
+                                'Estilo de cursor cambiado a "${meta.name}"',
+                              );
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 14,
+                              ),
+                              child: Row(
+                                children: [
+                                  Radio<fm.CursorStyle>(
+                                    value: meta.style,
+                                    activeColor: cs.primary,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Container(
+                                    width: 44,
+                                    height: 38,
+                                    decoration: BoxDecoration(
+                                      color: isDark
+                                          ? const Color(0xFF282A36)
+                                          : const Color(0xFFF1F3F9),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: isSelected
+                                            ? cs.primary
+                                            : borderColor,
+                                        width: isSelected ? 1.5 : 1,
+                                      ),
+                                    ),
+                                    child: Icon(
+                                      meta.icon,
+                                      size: 20,
+                                      color: isSelected
+                                          ? cs.primary
+                                          : (isDark
+                                                ? Colors.white70
+                                                : Colors.black54),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Text(
+                                              meta.name,
+                                              style: TextStyle(
+                                                fontSize: 13.5,
+                                                fontWeight: isSelected
+                                                    ? FontWeight.w700
+                                                    : FontWeight.w600,
+                                                color: isSelected
+                                                    ? cs.primary
+                                                    : (isDark
+                                                          ? Colors.white
+                                                          : Colors.black87),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 6,
+                                                    vertical: 2,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: isDark
+                                                    ? Colors.white10
+                                                    : Colors.black.withValues(
+                                                        alpha: 0.05,
+                                                      ),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              child: Text(
+                                                meta.id,
+                                                style: TextStyle(
+                                                  fontFamily: 'monospace',
+                                                  fontSize: 10.5,
+                                                  color: isDark
+                                                      ? Colors.white60
+                                                      : Colors.black54,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          meta.description,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: isDark
+                                                ? Colors.white60
+                                                : Colors.black54,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (isSelected)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: cs.primary.withValues(
+                                          alpha: 0.15,
+                                        ),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        'Activo',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                          color: cs.primary,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }(),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

@@ -89,6 +89,29 @@ abstract final class BackupService {
     String? part,
   }) => source;
 
+  /// Extrae el esquema/dueño (OWNER) de un objeto Oracle a partir de su DDL
+  /// (por ejemplo: `CREATE OR REPLACE PROCEDURE PRODUCTO.MI_PROC ...`
+  /// o `CREATE OR REPLACE PROCEDURE "PRODUCTO"."MI_PROC"`).
+  /// Retorna una cadena vacía si no se especifica esquema en el DDL.
+  static String extractOwnerFromDdl(String ddl) {
+    if (ddl.trim().isEmpty) return '';
+    final re = RegExp(
+      r'CREATE\s+(?:OR\s+REPLACE\s+)?(?:EDITIONABLE\s+|NONEDITIONABLE\s+)?'
+      r'(?:PACKAGE\s+BODY|PACKAGE|PROCEDURE|FUNCTION|TRIGGER|TYPE\s+BODY|TYPE|VIEW)\s+'
+      r'(?:"?([A-Za-z0-9_#$]+)"?\s*\.\s*)'
+      r'"?[A-Za-z0-9_#$]+"?',
+      caseSensitive: false,
+    );
+    final match = re.firstMatch(ddl);
+    if (match != null) {
+      final owner = match.group(1);
+      if (owner != null && owner.trim().isNotEmpty) {
+        return owner.replaceAll('"', '').trim().toUpperCase();
+      }
+    }
+    return '';
+  }
+
   /// Genera un script SQL restaurable para un objeto de esquema Oracle,
   /// contemplando SPEC y BODY para objetos compuestos (PACKAGE/TYPE).
   static String buildFullSchemaScript({

@@ -76,6 +76,7 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
   void initState() {
     super.initState();
     snippetsRevision.addListener(_onSnippetsRevisionChanged);
+    editorCursorStore.addListener(_onEditorCursorChanged);
   }
 
   @override
@@ -85,6 +86,7 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     _selectionSub?.cancel();
     _contextMenuEventSub?.cancel();
     snippetsRevision.removeListener(_onSnippetsRevisionChanged);
+    editorCursorStore.removeListener(_onEditorCursorChanged);
     // El editor pudo destruirse antes que este State: liberar sus registros
     // lanza MonacoDisposedError, que aquí es inocuo.
     _disposeMonacoQuietly(() => _kwReg?.dispose());
@@ -121,6 +123,19 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
   void _onEditorThemeChanged() {
     // Listener de un store global: puede dispararse tras el dispose del editor.
     unawaited(_withCtrl((ctrl) => ctrl.setTheme(editorThemeStore.monacoTheme)));
+  }
+
+  void _onEditorCursorChanged() {
+    unawaited(
+      _withCtrl((ctrl) async {
+        await ctrl.updateOptions(
+          fm.EditorOptions(cursorStyle: editorCursorStore.cursorStyle),
+        );
+        await ctrl.evaluateJavaScript<dynamic>(
+          'if (window.editor) { window.editor.updateOptions({ cursorStyle: "${editorCursorStore.cursorStyleId}" }); }',
+        );
+      }),
+    );
   }
 
   void _onSnippetsRevisionChanged() {
@@ -1190,6 +1205,7 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
               language: fm.MonacoLanguage.sql,
               theme: editorThemeStore.monacoTheme,
               fontSize: widget.fontSize,
+              cursorStyle: editorCursorStore.cursorStyle,
               minimap: fm.MonacoMinimapOptions(enabled: widget.minimap),
               lineNumbers: fm.MonacoLineNumbers.on,
               wordWrap: widget.wordWrap

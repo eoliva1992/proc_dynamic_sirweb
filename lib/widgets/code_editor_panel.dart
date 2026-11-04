@@ -29,6 +29,7 @@ import 'snippets/snippets_browser_dialog.dart';
 import '../providers/procedimientos_provider.dart';
 import '../services/backup_service.dart';
 import '../services/app_log.dart';
+import '../services/editor_cursor_store.dart';
 import '../services/schema_service.dart';
 import '../services/server_config_service.dart';
 import '../services/sirweb_service.dart';
@@ -474,6 +475,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _loadPrefs();
     _tabsScrollCtrl.addListener(_onTabsScroll);
     editorThemeStore.addListener(_onEditorThemeChanged);
+    editorCursorStore.addListener(_onEditorCursorChanged);
     // Two frames ensure DWM/DirectComposition is ready before WebView2 init.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -535,6 +537,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _backendDebounce?.cancel();
     _declareDebounce?.cancel();
     editorThemeStore.removeListener(_onEditorThemeChanged);
+    editorCursorStore.removeListener(_onEditorCursorChanged);
     // MonacoEditor puede haber destruido el controller antes que este State,
     // en cuyo caso liberar los registros lanza MonacoDisposedError. Como ya
     // se están destruyendo del lado del webview, se ignora ese fallo.
@@ -2191,6 +2194,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     }
   }
 
+  void _onEditorCursorChanged() {
+    _applyEditorOptions();
+  }
+
   Future<void> _registerVariableCompletions() async {
     await _disposeRegQuietly(_variablesReg);
     _variablesReg = null;
@@ -2803,6 +2810,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                               language: _langFor(widget.procedimiento),
                               theme: editorThemeStore.monacoTheme,
                               fontSize: _fontSize,
+                              cursorStyle: editorCursorStore.cursorStyle,
                               minimap: MonacoMinimapOptions(enabled: _minimap),
                               wordWrap: _wordWrap
                                   ? MonacoWordWrap.on
@@ -2861,6 +2869,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                               language: _langFor(widget.procedimiento),
                               theme: editorThemeStore.monacoTheme,
                               fontSize: _fontSize,
+                              cursorStyle: editorCursorStore.cursorStyle,
                               minimap: MonacoMinimapOptions(enabled: _minimap),
                               wordWrap: _wordWrap
                                   ? MonacoWordWrap.on

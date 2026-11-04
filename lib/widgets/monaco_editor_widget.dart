@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_monaco/flutter_monaco.dart' as fm;
 
 import '../providers/procedimientos_provider.dart';
+import '../services/editor_cursor_store.dart';
 import '../services/schema_service.dart';
 import '../services/sql_statement_analyzer.dart' show splitStatements;
 import '_editor_themes.dart';
@@ -465,6 +466,14 @@ class MonacoEditorController {
     _enqueue((ctrl) => ctrl.setTheme(theme));
   }
 
+  void updateOptions(fm.EditorOptions options) {
+    _enqueue((ctrl) => ctrl.updateOptions(options));
+  }
+
+  Future<void> evaluateJavaScript(String script) async {
+    _enqueue((ctrl) => ctrl.evaluateJavaScript<dynamic>(script));
+  }
+
   /// Envía el schema Oracle al WebView para que Monaco lo use en el
   /// autocompletado. Usa [SchemaService.instance.getMetadata] (sin refrescar)
   /// y pasa tablas, vistas y objetos como JSON via postMessage.
@@ -715,10 +724,24 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
     super.initState();
     _currentText = widget.initialCode;
     editorThemeStore.addListener(_onEditorThemeChanged);
+    editorCursorStore.addListener(_onEditorCursorChanged);
   }
 
   void _onEditorThemeChanged() {
     widget.controller.setTheme(editorThemeStore.monacoTheme);
+  }
+
+  void _onEditorCursorChanged() {
+    widget.controller.updateOptions(
+      fm.EditorOptions(cursorStyle: editorCursorStore.cursorStyle),
+    );
+    unawaited(
+      widget.controller.evaluateJavaScript(
+        'try { window.editor.updateOptions({'
+        '  cursorStyle: "${editorCursorStore.cursorStyleId}"'
+        '}); } catch(e) {}',
+      ),
+    );
   }
 
   fm.EditorOptions get _editorOptions {
@@ -745,6 +768,7 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
       language: ml,
       theme: editorThemeStore.monacoTheme,
       fontSize: 14,
+      cursorStyle: editorCursorStore.cursorStyle,
       minimap: const fm.MonacoMinimapOptions(enabled: true),
       wordWrap: fm.MonacoWordWrap.off,
       lineNumbers: fm.MonacoLineNumbers.on,
@@ -1414,6 +1438,7 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
     unawaited(
       ctrl.runJavaScript(
         'try { window.editor.updateOptions({'
+        '  cursorStyle: "${editorCursorStore.cursorStyleId}",'
         '  acceptSuggestionOnEnter: "off",'
         '  tabCompletion: "on",'
         '  wordBasedSuggestions: "currentDocument",'
@@ -1870,6 +1895,7 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
     _contextMenuEventSub?.cancel();
     _selectionSub?.cancel();
     editorThemeStore.removeListener(_onEditorThemeChanged);
+    editorCursorStore.removeListener(_onEditorCursorChanged);
     for (final action in _registeredActions) {
       try {
         action.dispose();

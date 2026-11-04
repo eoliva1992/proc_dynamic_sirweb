@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_monaco/flutter_monaco.dart' as fm;
 
+import '../services/editor_cursor_store.dart';
 import '../widgets/constellation_background.dart';
 import '../widgets/floating_window.dart';
 import '../widgets/native_diff_viewer.dart';
@@ -870,6 +871,7 @@ class _PasteDiffPageState extends State<PasteDiffPage> {
                 language: fm.MonacoLanguage.sql,
                 theme: isDark ? fm.MonacoTheme.vsDark : fm.MonacoTheme.vs,
                 fontSize: 13,
+                cursorStyle: editorCursorStore.cursorStyle,
                 minimap: const fm.MonacoMinimapOptions(enabled: false),
                 lineNumbers: fm.MonacoLineNumbers.on,
                 wordWrap: fm.MonacoWordWrap.on,

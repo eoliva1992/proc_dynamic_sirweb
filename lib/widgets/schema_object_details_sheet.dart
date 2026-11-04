@@ -686,17 +686,14 @@ class _ObjectDetailsModalState extends State<_ObjectDetailsModal> {
 
   Widget _buildTabBar(bool isDark, Color color) {
     final bgColor = isDark ? const Color(0xFF1E1E22) : const Color(0xFFF3F5F9);
-    final borderColor = isDark ? const Color(0xFF333338) : const Color(0xFFE2E6EE);
+    final borderColor = isDark
+        ? const Color(0xFF333338)
+        : const Color(0xFFE2E6EE);
 
     return Container(
       decoration: BoxDecoration(
         color: bgColor,
-        border: Border(
-          bottom: BorderSide(
-            color: borderColor,
-            width: 1.0,
-          ),
-        ),
+        border: Border(bottom: BorderSide(color: borderColor, width: 1.0)),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       child: Container(
@@ -1037,11 +1034,17 @@ class _ObjectBackupDialogState extends State<_ObjectBackupDialog> {
   String _objectOwner() {
     if (_tableDdlOwner.isNotEmpty) return _tableDdlOwner;
     final cached = SchemaService.instance.getCached(ambiente: widget.ambiente);
-    return cached?.objects
-            .where((o) => o.name == widget.name.toUpperCase())
-            .firstOrNull
-            ?.owner ??
-        '';
+    final ownerFromCached = cached?.objects
+        .where((o) => o.name == widget.name.toUpperCase())
+        .firstOrNull
+        ?.owner;
+    if (ownerFromCached != null && ownerFromCached.isNotEmpty) {
+      return ownerFromCached;
+    }
+    final ownerFromDdl = BackupService.extractOwnerFromDdl(_specText);
+    if (ownerFromDdl.isNotEmpty) return ownerFromDdl;
+    if (cached != null && cached.owner.isNotEmpty) return cached.owner;
+    return '';
   }
 
   Future<void> _save() async {

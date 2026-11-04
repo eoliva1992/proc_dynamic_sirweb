@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show VoidCallback;
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 
 import '../models/note.dart';
@@ -33,7 +34,12 @@ class NoteService {
 
   static final instance = NoteService._();
 
-  static final http.Client _client = http.Client();
+  static http.Client _client = http.Client();
+
+  @visibleForTesting
+  static void setHttpClientForTesting(http.Client? client) {
+    _client = client ?? http.Client();
+  }
 
   /// Default owner/requesting user (Windows user).
   static String currentUser = (Platform.environment['USERNAME'] ?? '')

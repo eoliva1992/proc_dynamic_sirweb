@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_monaco/flutter_monaco.dart';
 
 import '../services/backup_service.dart';
+import '../services/editor_cursor_store.dart';
 import '../services/local_file_service.dart';
 import '_editor_themes.dart';
 import 'app_toast.dart';
@@ -85,6 +86,7 @@ class _SimpleTextEditorPageState extends State<SimpleTextEditorPage> {
     super.initState();
     _currentFilePath = widget.filePath;
     editorThemeStore.addListener(_onThemeChanged);
+    editorCursorStore.addListener(_onCursorChanged);
     snippetsRevision.addListener(_onSnippetsUpdated);
   }
 
@@ -99,6 +101,7 @@ class _SimpleTextEditorPageState extends State<SimpleTextEditorPage> {
   @override
   void dispose() {
     editorThemeStore.removeListener(_onThemeChanged);
+    editorCursorStore.removeListener(_onCursorChanged);
     snippetsRevision.removeListener(_onSnippetsUpdated);
     try {
       _newAction?.dispose();
@@ -117,6 +120,15 @@ class _SimpleTextEditorPageState extends State<SimpleTextEditorPage> {
   void _onThemeChanged() {
     _ctrl?.setTheme(editorThemeStore.monacoTheme);
     if (mounted) setState(() {});
+  }
+
+  void _onCursorChanged() {
+    _ctrl?.updateOptions(
+      EditorOptions(cursorStyle: editorCursorStore.cursorStyle),
+    );
+    _ctrl?.evaluateJavaScript<dynamic>(
+      'if (window.editor) { window.editor.updateOptions({ cursorStyle: "${editorCursorStore.cursorStyleId}" }); }',
+    );
   }
 
   Future<void> _onSnippetsUpdated() async {
@@ -445,6 +457,7 @@ class _SimpleTextEditorPageState extends State<SimpleTextEditorPage> {
             options: EditorOptions(
               language: _language,
               theme: editorThemeStore.monacoTheme,
+              cursorStyle: editorCursorStore.cursorStyle,
               minimap: MonacoMinimapOptions(enabled: _minimap),
               lineNumbers: MonacoLineNumbers.on,
               wordWrap: _wordWrap ? MonacoWordWrap.on : MonacoWordWrap.off,

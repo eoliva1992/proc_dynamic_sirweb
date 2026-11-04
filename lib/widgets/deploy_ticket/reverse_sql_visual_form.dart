@@ -115,7 +115,57 @@ class _ReverseSqlVisualFormState extends State<ReverseSqlVisualForm> {
   }
 
   void _updateTable(int index, ReverseSqlTableConfig updatedItem) {
+    final oldTable = widget.config.tables[index];
     final updated = List<ReverseSqlTableConfig>.from(widget.config.tables);
+
+    // Si se desactivó split_file (pasó de true a false), mover automáticamente
+    // la tabla junto al bloque de tablas sin split_file existente (o al final si no hay)
+    final uncheckSplit =
+        (oldTable.splitFile == true) && (updatedItem.splitFile != true);
+    if (uncheckSplit && widget.config.tables.length > 1) {
+      // Buscar la última posición de tabla con splitFile != true diferente a la actual
+      var lastNonSplitIndex = -1;
+      for (var i = 0; i < widget.config.tables.length; i++) {
+        if (i != index && widget.config.tables[i].splitFile != true) {
+          lastNonSplitIndex = i;
+        }
+      }
+
+      int targetIndex;
+      if (lastNonSplitIndex != -1) {
+        if (lastNonSplitIndex < index) {
+          targetIndex = lastNonSplitIndex + 1;
+        } else {
+          targetIndex = lastNonSplitIndex;
+        }
+      } else {
+        targetIndex = widget.config.tables.length - 1;
+      }
+
+      if (targetIndex != index) {
+        final prevExpanded = Map<int, bool>.from(_expandedMap);
+        final indices = List.generate(widget.config.tables.length, (i) => i);
+        final movedItem = indices.removeAt(index);
+        indices.insert(targetIndex, movedItem);
+
+        final newExpanded = <int, bool>{};
+        for (var i = 0; i < indices.length; i++) {
+          final oldIdx = indices[i];
+          if (prevExpanded.containsKey(oldIdx)) {
+            newExpanded[i] = prevExpanded[oldIdx]!;
+          }
+        }
+        _expandedMap
+          ..clear()
+          ..addAll(newExpanded);
+
+        updated.removeAt(index);
+        updated.insert(targetIndex, updatedItem);
+        widget.onChanged(widget.config.copyWith(tables: updated));
+        return;
+      }
+    }
+
     updated[index] = updatedItem;
     widget.onChanged(widget.config.copyWith(tables: updated));
   }
@@ -1152,7 +1202,81 @@ class _TableCardState extends State<_TableCard> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
+
+                  // Badge distintivo: Archivo Individual (split_file) vs Agrupada / En lote
+                  if (widget.table.splitFile == true)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 2.5,
+                      ),
+                      margin: const EdgeInsets.only(right: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: Colors.amber.shade700.withValues(alpha: 0.5),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.call_split_rounded,
+                            size: 11,
+                            color: Colors.amber.shade800,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Individual (split_file)',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.amber.shade800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 2.5,
+                      ),
+                      margin: const EdgeInsets.only(right: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: Colors.blue.shade600.withValues(alpha: 0.45),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.layers_rounded,
+                            size: 11,
+                            color: Colors.blue.shade600,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Agrupada / Lote',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.blue.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  const SizedBox(width: 2),
                   Expanded(
                     child: Text(
                       widget.table.name.isNotEmpty
@@ -1594,8 +1718,9 @@ class _TableCardState extends State<_TableCard> {
                       // Checkbox split_file compacto al lado (para separar tabla en script P2, P3...)
                       const SizedBox(width: 8),
                       Tooltip(
-                        message:
-                            'Generar esta tabla en un script nuevo independiente (P2, P3...)',
+                        message: (widget.table.splitFile ?? false)
+                            ? 'Genera esta tabla en un archivo SQL individual respetando estrictamente esta posición'
+                            : 'Esta tabla se agrupará en un archivo conjunto con las tablas contiguas sin split',
                         child: InkWell(
                           borderRadius: BorderRadius.circular(6),
                           onTap: () => widget.onChanged(
@@ -1605,16 +1730,18 @@ class _TableCardState extends State<_TableCard> {
                           ),
                           child: Container(
                             height: 34,
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
                             decoration: BoxDecoration(
                               color: (widget.table.splitFile ?? false)
                                   ? Colors.amber.withValues(alpha: 0.15)
-                                  : inputFill,
+                                  : Colors.blue.withValues(alpha: 0.08),
                               borderRadius: BorderRadius.circular(6),
                               border: Border.all(
                                 color: (widget.table.splitFile ?? false)
                                     ? Colors.amber.shade700
-                                    : borderColor,
+                                    : Colors.blue.shade400.withValues(
+                                        alpha: 0.5,
+                                      ),
                                 width: 0.8,
                               ),
                             ),
@@ -1637,14 +1764,16 @@ class _TableCardState extends State<_TableCard> {
                                 ),
                                 const SizedBox(width: 6),
                                 Text(
-                                  'split_file',
+                                  (widget.table.splitFile ?? false)
+                                      ? 'split_file (Archivo individual)'
+                                      : 'Agrupada (Archivo conjunto)',
                                   style: TextStyle(
                                     fontSize: 11.5,
                                     fontWeight: FontWeight.w600,
                                     fontFamily: 'Consolas, monospace',
                                     color: (widget.table.splitFile ?? false)
                                         ? Colors.amber.shade800
-                                        : null,
+                                        : Colors.blue.shade700,
                                   ),
                                 ),
                               ],

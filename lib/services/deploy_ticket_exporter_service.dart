@@ -213,7 +213,8 @@ class DeployTicketExporterService {
     }) async {
       final filePath = '${targetDir.path}${Platform.pathSeparator}$fileName';
       final file = File(filePath);
-      await file.writeAsString(content, encoding: utf8);
+      final finalContent = _sanitizarDdl(content);
+      await file.writeAsString(finalContent, encoding: utf8);
       final bytes = await file.length();
 
       exportedFiles.add(
@@ -310,8 +311,11 @@ class DeployTicketExporterService {
     // ─────────────────────────────────────────────────────────────────────────
     // 3. Reverse SQL (RSQL) -> Extracción desde BD Origen según YAML
     // Nomenclatura:
-    // Base:      {posicion:00}-{usuario}-{nombre}Reverse{ddmmyyyy}-{yyyymmdd}-V{version}.sql
-    // Separados: {posicion:00}-{usuario}-{nombre}Reverse{ddmmyyyy}P{N}-{yyyymmdd}-V{version}.sql
+    // Primer archivo / único: {posicion:00}-{usuario}-{nombre}Reverse{ddmmyyyy}-{yyyymmdd}-V{version}.sql
+    // Siguientes particiones: {posicion:00}-{usuario}-{nombre}Reverse{ddmmyyyy}P{N}-{yyyymmdd}-V{version}.sql
+    // El orden de las tablas en el YAML es respetado estrictamente:
+    // Tablas con split_file: true generan su archivo individual en su orden exacto.
+    // Tablas contiguas sin split_file se agrupan en un archivo conjunto.
     // ─────────────────────────────────────────────────────────────────────────
     for (final r in ticket.reverseSql) {
       if (r.nombre.trim().isEmpty) continue;
@@ -330,16 +334,24 @@ class DeployTicketExporterService {
         rsqlConfig = const ReverseSqlConfig();
       }
 
-      final nonSplitTables = rsqlConfig.tables
-          .where((t) => t.splitFile != true)
-          .toList();
-      final splitTables = rsqlConfig.tables
-          .where((t) => t.splitFile == true)
-          .toList();
+      // Agrupar tablas de manera estrictamente secuencial:
+      // - Si splitFile == true: grupo individual de 1 tabla.
+      // - Si splitFile != true: se agrupan tablas contiguas en el mismo grupo.
+      final tableGroups = <List<ReverseSqlTableConfig>>[];
+      for (final table in rsqlConfig.tables) {
+        if (table.splitFile == true) {
+          tableGroups.add([table]);
+        } else {
+          if (tableGroups.isNotEmpty &&
+              tableGroups.last.first.splitFile != true) {
+            tableGroups.last.add(table);
+          } else {
+            tableGroups.add([table]);
+          }
+        }
+      }
 
-      // Si no hay tablas marcadas como split_file (o la lista quedó vacía),
-      // se procesa el script completo como antes.
-      if (splitTables.isEmpty) {
+      if (tableGroups.isEmpty) {
         final posStr = posicion.toString().padLeft(2, '0');
         final fileName =
             '$posStr-$usuario-${cleanBaseName}Reverse$fechaDdmmyyyy-$fechaYmd-V${ticket.version}.sql';
@@ -367,13 +379,14 @@ class DeployTicketExporterService {
           categoria: 'RSQL',
         );
       } else {
-        // Hay tablas que se separan en scripts individuales.
-        // 1. Script base con las tablas que no tienen split_file (si las hay)
-        if (nonSplitTables.isNotEmpty) {
+        var groupIndex = 1;
+        for (final group in tableGroups) {
           final posStr = posicion.toString().padLeft(2, '0');
+          final suffix = groupIndex == 1 ? '' : 'P$groupIndex';
           final fileName =
-              '$posStr-$usuario-${cleanBaseName}Reverse$fechaDdmmyyyy-$fechaYmd-V${ticket.version}.sql';
+              '$posStr-$usuario-${cleanBaseName}Reverse$fechaDdmmyyyy$suffix-$fechaYmd-V${ticket.version}.sql';
           posicion++;
+          groupIndex++;
 
           String rsqlContent;
           try {
@@ -382,42 +395,13 @@ class DeployTicketExporterService {
               ambiente: dbOrigen,
               owner: 'SIR',
               usuario: usuarioMayus,
-              tables: nonSplitTables,
+              tables: group,
             );
           } catch (e) {
-            debugPrint('Error extrayendo RSQL desde BD: $e');
-            rsqlContent = '-- Error al extraer datos desde $dbOrigen: $e\n';
-          }
-
-          await registrarScript(
-            fileName: fileName,
-            content: rsqlContent,
-            categoria: 'RSQL',
-          );
-        }
-
-        // 2. Por cada tabla con split_file: se genera un script nuevo con sufijo P2, P3, ...
-        var splitIndex = 2;
-        for (final splitTable in splitTables) {
-          final posStr = posicion.toString().padLeft(2, '0');
-          final fileName =
-              '$posStr-$usuario-${cleanBaseName}Reverse${fechaDdmmyyyy}P$splitIndex-$fechaYmd-V${ticket.version}.sql';
-          posicion++;
-          splitIndex++;
-
-          String rsqlContent;
-          try {
-            rsqlContent = await _generarRsqlDesdeYaml(
-              yamlContent: r.contenido,
-              ambiente: dbOrigen,
-              owner: 'SIR',
-              usuario: usuarioMayus,
-              tables: [splitTable],
-            );
-          } catch (e) {
-            debugPrint('Error extrayendo RSQL para tabla ${splitTable.name}: $e');
+            final groupDesc = group.map((t) => t.name).join(', ');
+            debugPrint('Error extrayendo RSQL para ($groupDesc): $e');
             rsqlContent =
-                '-- Error al extraer datos de ${splitTable.name} desde $dbOrigen: $e\n';
+                '-- Error al extraer datos de ($groupDesc) desde $dbOrigen: $e\n';
           }
 
           await registrarScript(
@@ -437,8 +421,13 @@ class DeployTicketExporterService {
       if (obj.trim().isEmpty) continue;
       final objName = obj.trim().toUpperCase();
       report('Extrayendo Type / Objeto $objName...');
-      final owner = await _resolverDueno(objName, 'TYPE', dbOrigen);
       final source = await _extraerFuenteObjeto(objName, 'TYPE', dbOrigen);
+      final owner = await _resolverDueno(
+        objName,
+        'TYPE',
+        dbOrigen,
+        ddl: source,
+      );
       final fileName = '$owner.$objName.sql';
 
       await registrarScript(
@@ -456,8 +445,13 @@ class DeployTicketExporterService {
       if (trg.trim().isEmpty) continue;
       final trgName = trg.trim().toUpperCase();
       report('Extrayendo Trigger $trgName...');
-      final owner = await _resolverDueno(trgName, 'TRIGGER', dbOrigen);
       final source = await _extraerFuenteObjeto(trgName, 'TRIGGER', dbOrigen);
+      final owner = await _resolverDueno(
+        trgName,
+        'TRIGGER',
+        dbOrigen,
+        ddl: source,
+      );
       final fileName = '$owner.$trgName.sql';
 
       await registrarScript(
@@ -475,8 +469,13 @@ class DeployTicketExporterService {
       if (fun.trim().isEmpty) continue;
       final funName = fun.trim().toUpperCase();
       report('Extrayendo Función $funName...');
-      final owner = await _resolverDueno(funName, 'FUNCTION', dbOrigen);
       final source = await _extraerFuenteObjeto(funName, 'FUNCTION', dbOrigen);
+      final owner = await _resolverDueno(
+        funName,
+        'FUNCTION',
+        dbOrigen,
+        ddl: source,
+      );
       final fileName = '$owner.$funName.sql';
 
       await registrarScript(
@@ -494,11 +493,16 @@ class DeployTicketExporterService {
       if (proc.trim().isEmpty) continue;
       final procName = proc.trim().toUpperCase();
       report('Extrayendo Procedimiento $procName...');
-      final owner = await _resolverDueno(procName, 'PROCEDURE', dbOrigen);
       final source = await _extraerFuenteObjeto(
         procName,
         'PROCEDURE',
         dbOrigen,
+      );
+      final owner = await _resolverDueno(
+        procName,
+        'PROCEDURE',
+        dbOrigen,
+        ddl: source,
       );
       final grantSynonym = await _generarGrantYSinonimoSiNoExiste(
         objectName: procName,
@@ -697,7 +701,8 @@ class DeployTicketExporterService {
     }) async {
       final filePath = '${targetDir.path}${Platform.pathSeparator}$fileName';
       final file = File(filePath);
-      await file.writeAsString(content, encoding: utf8);
+      final finalContent = _sanitizarDdl(content);
+      await file.writeAsString(finalContent, encoding: utf8);
       final bytes = await file.length();
 
       exportedFiles.add(
@@ -831,14 +836,24 @@ class DeployTicketExporterService {
         rsqlConfig = const ReverseSqlConfig();
       }
 
-      final nonSplitTables = rsqlConfig.tables
-          .where((t) => t.splitFile != true)
-          .toList();
-      final splitTables = rsqlConfig.tables
-          .where((t) => t.splitFile == true)
-          .toList();
+      // Agrupar tablas de manera estrictamente secuencial:
+      // - Si splitFile == true: grupo individual de 1 tabla.
+      // - Si splitFile != true: se agrupan tablas contiguas en el mismo grupo.
+      final tableGroups = <List<ReverseSqlTableConfig>>[];
+      for (final table in rsqlConfig.tables) {
+        if (table.splitFile == true) {
+          tableGroups.add([table]);
+        } else {
+          if (tableGroups.isNotEmpty &&
+              tableGroups.last.first.splitFile != true) {
+            tableGroups.last.add(table);
+          } else {
+            tableGroups.add([table]);
+          }
+        }
+      }
 
-      if (splitTables.isEmpty) {
+      if (tableGroups.isEmpty) {
         String dmlGenerado;
         try {
           dmlGenerado = await _generarRsqlDesdeYaml(
@@ -861,7 +876,8 @@ class DeployTicketExporterService {
         );
         posicion++;
       } else {
-        if (nonSplitTables.isNotEmpty) {
+        var groupIndex = 1;
+        for (final group in tableGroups) {
           String dmlGenerado;
           try {
             dmlGenerado = await _generarRsqlDesdeYaml(
@@ -869,49 +885,25 @@ class DeployTicketExporterService {
               ambiente: dbOrigen,
               owner: 'SIR',
               usuario: usuario,
-              tables: nonSplitTables,
+              tables: group,
             );
           } catch (e) {
-            dmlGenerado = '-- Error al generar DML de RSQL $rName: $e\n';
-          }
-
-          final posStr = posicion.toString().padLeft(2, '0');
-          final fileName =
-              '$posStr-$usuario-${rName}Reverse$fechaDdmmyyyy-$fechaYmd-V${ticket.version}.sql';
-          await registrarScript(
-            fileName: fileName,
-            content: dmlGenerado,
-            categoria: 'RSQL',
-          );
-          posicion++;
-        }
-
-        var splitIndex = 2;
-        for (final splitTable in splitTables) {
-          String dmlGenerado;
-          try {
-            dmlGenerado = await _generarRsqlDesdeYaml(
-              yamlContent: r.contenido,
-              ambiente: dbOrigen,
-              owner: 'SIR',
-              usuario: usuario,
-              tables: [splitTable],
-            );
-          } catch (e) {
+            final groupDesc = group.map((t) => t.name).join(', ');
             dmlGenerado =
-                '-- Error al generar DML de RSQL $rName (${splitTable.name}): $e\n';
+                '-- Error al generar DML de RSQL $rName ($groupDesc): $e\n';
           }
 
           final posStr = posicion.toString().padLeft(2, '0');
+          final suffix = groupIndex == 1 ? '' : 'P$groupIndex';
           final fileName =
-              '$posStr-$usuario-${rName}Reverse${fechaDdmmyyyy}P$splitIndex-$fechaYmd-V${ticket.version}.sql';
+              '$posStr-$usuario-${rName}Reverse$fechaDdmmyyyy$suffix-$fechaYmd-V${ticket.version}.sql';
           await registrarScript(
             fileName: fileName,
             content: dmlGenerado,
             categoria: 'RSQL',
           );
           posicion++;
-          splitIndex++;
+          groupIndex++;
         }
       }
     }
@@ -968,7 +960,10 @@ class DeployTicketExporterService {
   /// Crea la estructura de directorio local y genera los archivos base del ticket:
   /// - `index.txt` con la configuración completa generada por [DeployTicket.toIndexTxt]
   /// - Archivos SQL con el contenido guardado en los scripts del ticket (`sql`, `reverseSql`, `bloqueLogico`)
-  /// - Archivos placeholder para los artefactos de texto (`reglasNegocio`, `paquetes`, `funciones`, `triggers`, `objetos`)
+  /// - Para artefactos de base de datos (`procedimientos`, `funciones`, `paquetes`, `triggers`, `objetos`),
+  ///   se intenta extraer su DDL completo desde la BD de origen (`ticket.database`), generando
+  ///   los bloques de GRANT y SYNONYM correspondientes y nombrándolos `{DUENO}.{NOMBRE}.sql`.
+  ///   Si la BD no responde o no se encuentra el DDL, se crea un comentario plantilla como fallback.
   ///
   /// La carpeta resultante se crea en `${rootDirectoryPath}${Platform.pathSeparator}${folderName}`.
   /// Si la carpeta ya existe, no se borra completamente para preservar posibles archivos existentes,
@@ -977,6 +972,7 @@ class DeployTicketExporterService {
     required DeployTicket ticket,
     required String rootDirectoryPath,
     required String folderName,
+    void Function(String message)? onProgress,
   }) async {
     final cleanFolder = folderName.trim().replaceAll(
       RegExp(r'[\\/:*?"<>|]+'),
@@ -1007,7 +1003,8 @@ class DeployTicketExporterService {
       if (safeName.isEmpty) return;
       final filePath = '${targetDir.path}${Platform.pathSeparator}$safeName';
       final file = File(filePath);
-      await file.writeAsString(contenido, encoding: utf8);
+      final finalContenido = _sanitizarDdl(contenido);
+      await file.writeAsString(finalContenido, encoding: utf8);
       final byteSize = await file.length();
       exportedFiles.add(
         ExportedDeployFile(
@@ -1076,6 +1073,16 @@ class DeployTicketExporterService {
       );
     }
 
+    final dbOrigen =
+        (ticket.database != null && ticket.database!.trim().isNotEmpty)
+        ? ticket.database!.trim()
+        : 'DESA';
+    final dbDestino =
+        (ticket.databaseDestino != null &&
+            ticket.databaseDestino!.trim().isNotEmpty)
+        ? ticket.databaseDestino!.trim()
+        : 'PROD';
+
     // 5. Artefactos de lista (Reglas, Paquetes, Funciones, Triggers, Objetos)
     for (final rn in ticket.reglasNegocio) {
       if (rn.trim().isEmpty) continue;
@@ -1094,13 +1101,25 @@ class DeployTicketExporterService {
 
     for (final pck in ticket.paquetes) {
       if (pck.trim().isEmpty) continue;
-      final fileName = resolverNombre(pck, defaultExtension: '.sql');
+      final pckName = pck.trim().toUpperCase();
+      onProgress?.call('Consultando paquete $pckName...');
+      String packageSource;
+      try {
+        packageSource = await _extraerFuentePaquete(pckName, dbOrigen);
+        if (packageSource.startsWith('-- Error') ||
+            packageSource.trim().isEmpty) {
+          packageSource = '-- Paquete: $pckName\n';
+        }
+      } catch (_) {
+        packageSource = '-- Paquete: $pckName\n';
+      }
+      final fileName = resolverNombre(pckName, defaultExtension: '.sql');
       if (!exportedFiles.any(
         (f) => f.nombreArchivo.toLowerCase() == fileName.toLowerCase(),
       )) {
         await escribirArchivo(
           nombreArchivo: fileName,
-          contenido: '-- Paquete: ${pck.trim()}\n',
+          contenido: packageSource,
           categoria: 'PAQUETE',
         );
       }
@@ -1108,13 +1127,46 @@ class DeployTicketExporterService {
 
     for (final fun in ticket.funciones) {
       if (fun.trim().isEmpty) continue;
-      final fileName = resolverNombre(fun, defaultExtension: '.sql');
+      final funName = fun.trim().toUpperCase();
+      onProgress?.call('Consultando función $funName...');
+      String finalContent;
+      String fileName;
+      try {
+        final source = await _extraerFuenteObjeto(
+          funName,
+          'FUNCTION',
+          dbOrigen,
+        );
+        final owner = await _resolverDueno(
+          funName,
+          'FUNCTION',
+          dbOrigen,
+          ddl: source,
+        );
+        if (source.startsWith('-- Error') || source.trim().isEmpty) {
+          finalContent = '-- Función: $funName\n';
+          fileName = resolverNombre(fun, defaultExtension: '.sql');
+        } else {
+          final grantSynonym = await _generarGrantYSinonimoSiNoExiste(
+            objectName: funName,
+            objectType: 'FUNCTION',
+            owner: owner,
+            dbDestino: dbDestino,
+          );
+          finalContent = '$source$grantSynonym';
+          fileName = '$owner.$funName.sql';
+        }
+      } catch (_) {
+        finalContent = '-- Función: $funName\n';
+        fileName = resolverNombre(fun, defaultExtension: '.sql');
+      }
+
       if (!exportedFiles.any(
         (f) => f.nombreArchivo.toLowerCase() == fileName.toLowerCase(),
       )) {
         await escribirArchivo(
           nombreArchivo: fileName,
-          contenido: '-- Función: ${fun.trim()}\n',
+          contenido: finalContent,
           categoria: 'FUNCION',
         );
       }
@@ -1122,13 +1174,46 @@ class DeployTicketExporterService {
 
     for (final proc in ticket.procedimientos) {
       if (proc.trim().isEmpty) continue;
-      final fileName = resolverNombre(proc, defaultExtension: '.sql');
+      final procName = proc.trim().toUpperCase();
+      onProgress?.call('Consultando procedimiento $procName...');
+      String finalContent;
+      String fileName;
+      try {
+        final source = await _extraerFuenteObjeto(
+          procName,
+          'PROCEDURE',
+          dbOrigen,
+        );
+        final owner = await _resolverDueno(
+          procName,
+          'PROCEDURE',
+          dbOrigen,
+          ddl: source,
+        );
+        if (source.startsWith('-- Error') || source.trim().isEmpty) {
+          finalContent = '-- Procedimiento: $procName\n';
+          fileName = resolverNombre(proc, defaultExtension: '.sql');
+        } else {
+          final grantSynonym = await _generarGrantYSinonimoSiNoExiste(
+            objectName: procName,
+            objectType: 'PROCEDURE',
+            owner: owner,
+            dbDestino: dbDestino,
+          );
+          finalContent = '$source$grantSynonym';
+          fileName = '$owner.$procName.sql';
+        }
+      } catch (_) {
+        finalContent = '-- Procedimiento: $procName\n';
+        fileName = resolverNombre(proc, defaultExtension: '.sql');
+      }
+
       if (!exportedFiles.any(
         (f) => f.nombreArchivo.toLowerCase() == fileName.toLowerCase(),
       )) {
         await escribirArchivo(
           nombreArchivo: fileName,
-          contenido: '-- Procedimiento: ${proc.trim()}\n',
+          contenido: finalContent,
           categoria: 'PROC',
         );
       }
@@ -1136,13 +1221,36 @@ class DeployTicketExporterService {
 
     for (final trg in ticket.triggers) {
       if (trg.trim().isEmpty) continue;
-      final fileName = resolverNombre(trg, defaultExtension: '.sql');
+      final trgName = trg.trim().toUpperCase();
+      onProgress?.call('Consultando trigger $trgName...');
+      String finalContent;
+      String fileName;
+      try {
+        final source = await _extraerFuenteObjeto(trgName, 'TRIGGER', dbOrigen);
+        final owner = await _resolverDueno(
+          trgName,
+          'TRIGGER',
+          dbOrigen,
+          ddl: source,
+        );
+        if (source.startsWith('-- Error') || source.trim().isEmpty) {
+          finalContent = '-- Trigger: $trgName\n';
+          fileName = resolverNombre(trg, defaultExtension: '.sql');
+        } else {
+          finalContent = source;
+          fileName = '$owner.$trgName.sql';
+        }
+      } catch (_) {
+        finalContent = '-- Trigger: $trgName\n';
+        fileName = resolverNombre(trg, defaultExtension: '.sql');
+      }
+
       if (!exportedFiles.any(
         (f) => f.nombreArchivo.toLowerCase() == fileName.toLowerCase(),
       )) {
         await escribirArchivo(
           nombreArchivo: fileName,
-          contenido: '-- Trigger: ${trg.trim()}\n',
+          contenido: finalContent,
           categoria: 'TRIGGER',
         );
       }
@@ -1150,13 +1258,42 @@ class DeployTicketExporterService {
 
     for (final obj in ticket.objetos) {
       if (obj.trim().isEmpty) continue;
-      final fileName = resolverNombre(obj, defaultExtension: '.sql');
+      final objName = obj.trim().toUpperCase();
+      onProgress?.call('Consultando objeto $objName...');
+      String finalContent;
+      String fileName;
+      try {
+        final source = await _extraerFuenteObjeto(objName, 'TYPE', dbOrigen);
+        final owner = await _resolverDueno(
+          objName,
+          'TYPE',
+          dbOrigen,
+          ddl: source,
+        );
+        if (source.startsWith('-- Error') || source.trim().isEmpty) {
+          finalContent = '-- Objeto: $objName\n';
+          fileName = resolverNombre(obj, defaultExtension: '.sql');
+        } else {
+          final grantSynonym = await _generarGrantYSinonimoSiNoExiste(
+            objectName: objName,
+            objectType: 'TYPE',
+            owner: owner,
+            dbDestino: dbDestino,
+          );
+          finalContent = '$source$grantSynonym';
+          fileName = '$owner.$objName.sql';
+        }
+      } catch (_) {
+        finalContent = '-- Objeto: $objName\n';
+        fileName = resolverNombre(obj, defaultExtension: '.sql');
+      }
+
       if (!exportedFiles.any(
         (f) => f.nombreArchivo.toLowerCase() == fileName.toLowerCase(),
       )) {
         await escribirArchivo(
           nombreArchivo: fileName,
-          contenido: '-- Objeto: ${obj.trim()}\n',
+          contenido: finalContent,
           categoria: 'OBJETO',
         );
       }
@@ -1169,12 +1306,23 @@ class DeployTicketExporterService {
   // Métodos auxiliares de extracción y generación
   // ─────────────────────────────────────────────────────────────────────────
 
-  /// Resuelve el dueño del objeto en Oracle consultando SchemaService.getObjectInfo.
+  /// Resuelve el dueño del objeto en Oracle consultando SchemaService.getObjectInfo,
+  /// extrayéndolo directamente del DDL del objeto o desde el caché de metadatos.
   Future<String> _resolverDueno(
     String objectName,
     String objectType,
-    String ambiente,
-  ) async {
+    String ambiente, {
+    String? ddl,
+  }) async {
+    // 1. Si se proporciona o extrae el DDL, inspeccionar la cláusula CREATE ... OWNER.OBJECT
+    if (ddl != null && ddl.trim().isNotEmpty) {
+      final ownerFromDdl = BackupService.extractOwnerFromDdl(ddl);
+      if (ownerFromDdl.isNotEmpty) {
+        return ownerFromDdl.toUpperCase();
+      }
+    }
+
+    // 2. Consultar getObjectInfo en el backend
     try {
       final info = await schemaService.getObjectInfo(
         objectName,
@@ -1188,7 +1336,20 @@ class DeployTicketExporterService {
       }
     } catch (_) {}
 
-    // Intentar desde caché de SchemaMetadata
+    // 3. Intentar extraer el DDL directamente para leer el dueño si no vino en el parámetro
+    if (ddl == null) {
+      try {
+        final source = await schemaService.getObjectSource(
+          objectName,
+          objectType,
+          ambiente: ambiente,
+        );
+        final ddlOwner = BackupService.extractOwnerFromDdl(source.spec);
+        if (ddlOwner.isNotEmpty) return ddlOwner.toUpperCase();
+      } catch (_) {}
+    }
+
+    // 4. Intentar desde caché de SchemaMetadata
     final cached = schemaService.getCached(ambiente: ambiente);
     if (cached != null) {
       final found = cached.objects.firstWhere(
@@ -1198,10 +1359,19 @@ class DeployTicketExporterService {
         orElse: () => (name: '', type: '', owner: ''),
       );
       if (found.owner.isNotEmpty) return found.owner.toUpperCase();
-      if (cached.owner.isNotEmpty) return cached.owner.toUpperCase();
     }
 
     return 'SIR'; // Fallback por defecto en Sirweb
+  }
+
+  /// Sanitiza el DDL removiendo barras inclinadas ('/') iniciales y espacios sueltos.
+  /// En Oracle, una barra '/' sola al inicio es un terminador de bloque y causa error de sintaxis.
+  String _sanitizarDdl(String ddl) {
+    var cleaned = ddl.trim();
+    while (cleaned.startsWith('/')) {
+      cleaned = cleaned.replaceFirst(RegExp(r'^\s*\/+\s*'), '').trim();
+    }
+    return cleaned;
   }
 
   /// Extrae el DDL / código fuente de un objeto Oracle (PROCEDURE, FUNCTION, TRIGGER, TYPE).
@@ -1216,8 +1386,11 @@ class DeployTicketExporterService {
         objectType,
         ambiente: ambiente,
       );
-      final spec = result.spec.trim();
-      final body = result.body?.trim();
+      final spec = _sanitizarDdl(result.spec);
+      final rawBody = result.body?.trim();
+      final body = rawBody != null && rawBody.isNotEmpty
+          ? _sanitizarDdl(rawBody)
+          : null;
 
       if (body != null && body.isNotEmpty) {
         return '$spec\n/\n\n$body\n/\n';
@@ -1316,8 +1489,11 @@ class DeployTicketExporterService {
         'PACKAGE',
         ambiente: ambiente,
       );
-      final spec = result.spec.trim();
-      final body = (result.body ?? '').trim();
+      final spec = _sanitizarDdl(result.spec);
+      final rawBody = result.body?.trim();
+      final body = rawBody != null && rawBody.isNotEmpty
+          ? _sanitizarDdl(rawBody)
+          : '';
 
       final buffer = StringBuffer();
       if (spec.isNotEmpty) {

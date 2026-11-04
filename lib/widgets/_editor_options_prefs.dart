@@ -130,6 +130,7 @@ extension _EditorOptionsMethods on _CodeEditorPanelState {
             folding: _folding,
             readOnly: _readOnly,
             fontSize: _fontSize,
+            cursorStyle: editorCursorStore.cursorStyle,
             wordWrap: _wordWrap ? MonacoWordWrap.on : MonacoWordWrap.off,
             renderWhitespace: _renderWhitespace
                 ? RenderWhitespace.all

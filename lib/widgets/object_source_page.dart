@@ -15,6 +15,7 @@ import '../services/backup_service.dart';
 import '../services/batch_transfer_service.dart'
     show deployOpenSchemaObjectSource;
 import '../services/bulk_backup_service.dart';
+import '../services/editor_cursor_store.dart';
 import '../services/schema_service.dart';
 import '../screens/schema_object_diff_page.dart';
 import '_editor_plsql_checker.dart';
