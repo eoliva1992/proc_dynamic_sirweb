@@ -29,8 +29,8 @@ class PlantillaService {
   }
 
   /// Usuario Windows / sesión por defecto
-  static String currentUser =
-      (Platform.environment['USERNAME'] ?? '').toUpperCase();
+  static String currentUser = (Platform.environment['USERNAME'] ?? '')
+      .toUpperCase();
 
   /// Resuelve la URL base dinámica hacia el endpoint de plantillas
   static Future<String> getBaseUrl() async {
@@ -147,7 +147,9 @@ class PlantillaService {
   /// Crea una nueva plantilla en el servidor (POST /tools/plantillas)
   Future<Plantilla> create(Plantilla plantilla) async {
     final payload = plantilla.copyWith(
-      ownerUser: plantilla.ownerUser.isEmpty ? currentUser : plantilla.ownerUser,
+      ownerUser: plantilla.ownerUser.isEmpty
+          ? currentUser
+          : plantilla.ownerUser,
     );
     final baseUrl = await getBaseUrl();
     final res = await _client.post(
@@ -169,7 +171,9 @@ class PlantillaService {
       AppLog.instance.info('Plantilla creada exitosamente: ${saved.nombre}');
       return saved;
     } else {
-      throw HttpException('Error creando plantilla: ${res.statusCode} - ${res.body}');
+      throw HttpException(
+        'Error creando plantilla: ${res.statusCode} - ${res.body}',
+      );
     }
   }
 
@@ -199,7 +203,9 @@ class PlantillaService {
       AppLog.instance.info('Plantilla actualizada: ${updated.nombre}');
       return updated;
     } else {
-      throw HttpException('Error actualizando plantilla: ${res.statusCode} - ${res.body}');
+      throw HttpException(
+        'Error actualizando plantilla: ${res.statusCode} - ${res.body}',
+      );
     }
   }
 
@@ -297,8 +303,10 @@ class PlantillaService {
         id: 'seed-proc-dinamico-std',
         nombre: 'Procedimiento Dinámico Estándar',
         categoria: Plantilla.catProcDinamico,
-        descripcion: 'Estructura PL/SQL con control de excepciones y variable de estado W_STAT',
-        contenido: 'BEGIN\n'
+        descripcion:
+            'Estructura PL/SQL con control de excepciones y variable de estado W_STAT',
+        contenido:
+            'BEGIN\n'
             '  DECLARE\n'
             "    W_STAT VARCHAR2(5) := '0';\n"
             '  BEGIN\n'
@@ -316,8 +324,10 @@ class PlantillaService {
         id: 'seed-proc-dinamico-js',
         nombre: 'Procedimiento Dinámico JavaScript',
         categoria: Plantilla.catProcDinamico,
-        descripcion: 'Estructura con jQuery ready y función con bloque try-catch',
-        contenido: 'jQuery(document).ready(function () {\n'
+        descripcion:
+            'Estructura con jQuery ready y función con bloque try-catch',
+        contenido:
+            'jQuery(document).ready(function () {\n'
             '  // Inicialización de componentes en la vista\n'
             '});\n\n'
             'function {NOMBRE_PROC}() {\n'
@@ -334,8 +344,10 @@ class PlantillaService {
         id: 'seed-oracle-procedure',
         nombre: 'Stored Procedure Oracle (DDL)',
         categoria: Plantilla.catProcedure,
-        descripcion: 'Procedimiento almacenado con parámetros de entrada/salida y manejo de errores',
-        contenido: 'CREATE OR REPLACE PROCEDURE {NOMBRE} (\n'
+        descripcion:
+            'Procedimiento almacenado con parámetros de entrada/salida y manejo de errores',
+        contenido:
+            'CREATE OR REPLACE PROCEDURE {NOMBRE} (\n'
             '    p_id          IN  NUMBER,\n'
             '    p_resultado   OUT VARCHAR2,\n'
             '    p_error       OUT VARCHAR2\n'
@@ -357,7 +369,8 @@ class PlantillaService {
         nombre: 'Function Oracle (DDL)',
         categoria: Plantilla.catFunction,
         descripcion: 'Función determinista o escalar con retorno de valor',
-        contenido: 'CREATE OR REPLACE FUNCTION {NOMBRE} (\n'
+        contenido:
+            'CREATE OR REPLACE FUNCTION {NOMBRE} (\n'
             '    p_parametro IN VARCHAR2\n'
             ') RETURN VARCHAR2 IS\n'
             '    v_retorno VARCHAR2(4000);\n'
@@ -375,8 +388,10 @@ class PlantillaService {
         id: 'seed-oracle-package-spec',
         nombre: 'Package Specification (DDL)',
         categoria: Plantilla.catPackage,
-        descripcion: 'Especificación de paquete con declaración de tipos y firmas públicas',
-        contenido: 'CREATE OR REPLACE PACKAGE {NOMBRE} AS\n'
+        descripcion:
+            'Especificación de paquete con declaración de tipos y firmas públicas',
+        contenido:
+            'CREATE OR REPLACE PACKAGE {NOMBRE} AS\n'
             '    -- Tipos y constantes\n'
             '    TYPE t_cursor IS REF CURSOR;\n\n'
             '    -- Firmas de procedimientos y funciones públicas\n'
@@ -391,8 +406,10 @@ class PlantillaService {
         id: 'seed-oracle-package-body',
         nombre: 'Package Body (DDL)',
         categoria: Plantilla.catPackageBody,
-        descripcion: 'Cuerpo de paquete con implementación de lógica y métodos privados',
-        contenido: 'CREATE OR REPLACE PACKAGE BODY {NOMBRE} AS\n\n'
+        descripcion:
+            'Cuerpo de paquete con implementación de lógica y métodos privados',
+        contenido:
+            'CREATE OR REPLACE PACKAGE BODY {NOMBRE} AS\n\n'
             '    PROCEDURE inicializar IS\n'
             '    BEGIN\n'
             '        NULL;\n'

@@ -77,7 +77,8 @@ class _PlantillaEditorWindowState extends State<_PlantillaEditorWindow> {
     final p = widget.initialPlantilla;
     _nombreCtrl = TextEditingController(text: p?.nombre ?? '');
     _descripcionCtrl = TextEditingController(text: p?.descripcion ?? '');
-    _categoria = p?.categoria ?? widget.defaultCategoria ?? Plantilla.catProcDinamico;
+    _categoria =
+        p?.categoria ?? widget.defaultCategoria ?? Plantilla.catProcDinamico;
     _isActive = p?.isActive ?? true;
     _currentCode = p?.contenido ?? _codigoInicialPorCategoria(_categoria);
 
@@ -124,7 +125,8 @@ class _PlantillaEditorWindowState extends State<_PlantillaEditorWindow> {
     setState(() {
       _categoria = newCat;
     });
-    final nuevoLang = _categoria == Plantilla.catProcDinamico &&
+    final nuevoLang =
+        _categoria == Plantilla.catProcDinamico &&
             _currentCode.contains('function')
         ? MonacoLanguage.javascript
         : MonacoLanguage.sql;
@@ -140,20 +142,23 @@ class _PlantillaEditorWindowState extends State<_PlantillaEditorWindow> {
       final code = _editorCtrl != null
           ? await _editorCtrl!.document.getText()
           : _currentCode;
-      final p = (widget.initialPlantilla ??
-              Plantilla(
-                id: '',
-                nombre: '',
+      final p =
+          (widget.initialPlantilla ??
+                  Plantilla(
+                    id: '',
+                    nombre: '',
+                    categoria: _categoria,
+                    contenido: '',
+                  ))
+              .copyWith(
+                nombre: _nombreCtrl.text.trim(),
                 categoria: _categoria,
-                contenido: '',
-              ))
-          .copyWith(
-        nombre: _nombreCtrl.text.trim(),
-        categoria: _categoria,
-        descripcion: _descripcionCtrl.text.trim().isEmpty ? null : _descripcionCtrl.text.trim(),
-        contenido: code,
-        isActive: _isActive,
-      );
+                descripcion: _descripcionCtrl.text.trim().isEmpty
+                    ? null
+                    : _descripcionCtrl.text.trim(),
+                contenido: code,
+                isActive: _isActive,
+              );
 
       final saved = await PlantillaService.instance.save(p);
       AppToast.info('Plantilla guardada correctamente');
@@ -177,7 +182,10 @@ class _PlantillaEditorWindowState extends State<_PlantillaEditorWindow> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1E222A),
-        title: const Text('Eliminar Plantilla', style: TextStyle(color: Colors.white)),
+        title: const Text(
+          'Eliminar Plantilla',
+          style: TextStyle(color: Colors.white),
+        ),
         content: Text(
           '¿Estás seguro de eliminar la plantilla "${p.nombre}"?',
           style: const TextStyle(color: Colors.white70),
@@ -236,8 +244,12 @@ class _PlantillaEditorWindowState extends State<_PlantillaEditorWindow> {
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
-    final w = _maximized ? screenSize.width : (_winW ?? 900).clamp(600.0, screenSize.width);
-    final h = _maximized ? screenSize.height : (_winH ?? 650).clamp(450.0, screenSize.height);
+    final w = _maximized
+        ? screenSize.width
+        : (_winW ?? 900).clamp(600.0, screenSize.width);
+    final h = _maximized
+        ? screenSize.height
+        : (_winH ?? 650).clamp(450.0, screenSize.height);
 
     return Positioned(
       left: _maximized ? 0 : (screenSize.width - w) / 2 + _position.dx,
@@ -264,7 +276,8 @@ class _PlantillaEditorWindowState extends State<_PlantillaEditorWindow> {
           borderRadius: BorderRadius.circular(_maximized ? 0 : 11),
           child: CallbackShortcuts(
             bindings: {
-              const SingleActivator(LogicalKeyboardKey.keyS, control: true): _guardar,
+              const SingleActivator(LogicalKeyboardKey.keyS, control: true):
+                  _guardar,
               const SingleActivator(LogicalKeyboardKey.f11): _toggleMaximized,
               const SingleActivator(LogicalKeyboardKey.escape): widget.onClose,
             },
@@ -308,9 +321,9 @@ class _PlantillaEditorWindowState extends State<_PlantillaEditorWindow> {
       onPanUpdate: _maximized
           ? null
           : (d) => setState(() {
-                _anim = Duration.zero;
-                _position += d.delta;
-              }),
+              _anim = Duration.zero;
+              _position += d.delta;
+            }),
       child: Container(
         height: 52,
         padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -326,11 +339,17 @@ class _PlantillaEditorWindowState extends State<_PlantillaEditorWindow> {
                 color: const Color(0xFF0078D4).withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(6),
               ),
-              child: const Icon(Icons.bookmark_add_rounded, color: Color(0xFF4FC3F7), size: 18),
+              child: const Icon(
+                Icons.bookmark_add_rounded,
+                color: Color(0xFF4FC3F7),
+                size: 18,
+              ),
             ),
             const SizedBox(width: 10),
             Text(
-              esEdicion ? 'Editar Plantilla de Código' : 'Nueva Plantilla de Código',
+              esEdicion
+                  ? 'Editar Plantilla de Código'
+                  : 'Nueva Plantilla de Código',
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w600,
@@ -339,7 +358,11 @@ class _PlantillaEditorWindowState extends State<_PlantillaEditorWindow> {
             ),
             const Spacer(),
             IconButton(
-              icon: Icon(_maximized ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded),
+              icon: Icon(
+                _maximized
+                    ? Icons.fullscreen_exit_rounded
+                    : Icons.fullscreen_rounded,
+              ),
               color: Colors.white70,
               iconSize: 18,
               tooltip: 'Maximizar (F11)',
@@ -441,7 +464,9 @@ class _PlantillaEditorWindowState extends State<_PlantillaEditorWindow> {
       decoration: BoxDecoration(
         color: const Color(0xFF0078D4).withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: const Color(0xFF0078D4).withValues(alpha: 0.3)),
+        border: Border.all(
+          color: const Color(0xFF0078D4).withValues(alpha: 0.3),
+        ),
       ),
       child: const Row(
         children: [
@@ -460,7 +485,8 @@ class _PlantillaEditorWindowState extends State<_PlantillaEditorWindow> {
   }
 
   Widget _buildEditor() {
-    final lang = _categoria == Plantilla.catProcDinamico &&
+    final lang =
+        _categoria == Plantilla.catProcDinamico &&
             _currentCode.contains('function')
         ? MonacoLanguage.javascript
         : MonacoLanguage.sql;
@@ -473,7 +499,10 @@ class _PlantillaEditorWindowState extends State<_PlantillaEditorWindow> {
           border: Border.all(color: const Color(0xFF2C3240)),
         ),
         child: const Center(
-          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0078D4)),
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: Color(0xFF0078D4),
+          ),
         ),
       );
     }
@@ -508,7 +537,8 @@ class _PlantillaEditorWindowState extends State<_PlantillaEditorWindow> {
   }
 
   Widget _buildFooter() {
-    final esEdicion = widget.initialPlantilla != null && widget.initialPlantilla!.isPersisted;
+    final esEdicion =
+        widget.initialPlantilla != null && widget.initialPlantilla!.isPersisted;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -520,8 +550,15 @@ class _PlantillaEditorWindowState extends State<_PlantillaEditorWindow> {
         children: [
           if (esEdicion)
             TextButton.icon(
-              icon: const Icon(Icons.delete_outline_rounded, size: 16, color: Colors.redAccent),
-              label: const Text('Eliminar', style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+              icon: const Icon(
+                Icons.delete_outline_rounded,
+                size: 16,
+                color: Colors.redAccent,
+              ),
+              label: const Text(
+                'Eliminar',
+                style: TextStyle(color: Colors.redAccent, fontSize: 12),
+              ),
               onPressed: _isSaving ? null : _eliminar,
             ),
           const Spacer(),
@@ -544,7 +581,10 @@ class _PlantillaEditorWindowState extends State<_PlantillaEditorWindow> {
                 ? const SizedBox(
                     width: 14,
                     height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
                   )
                 : const Icon(Icons.save_rounded, size: 16),
             label: Text(

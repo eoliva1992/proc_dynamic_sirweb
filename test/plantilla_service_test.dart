@@ -71,7 +71,10 @@ void main() {
     test('Retorna plantillas por defecto cuando no hay conexión', () {
       final seeds = PlantillaService.plantillasPorDefecto();
       expect(seeds.isNotEmpty, isTrue);
-      expect(seeds.any((s) => s.categoria == Plantilla.catProcDinamico), isTrue);
+      expect(
+        seeds.any((s) => s.categoria == Plantilla.catProcDinamico),
+        isTrue,
+      );
       expect(seeds.any((s) => s.categoria == Plantilla.catProcedure), isTrue);
       expect(seeds.any((s) => s.categoria == Plantilla.catFunction), isTrue);
       expect(seeds.any((s) => s.categoria == Plantilla.catPackage), isTrue);

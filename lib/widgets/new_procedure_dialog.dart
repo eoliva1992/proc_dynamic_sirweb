@@ -994,7 +994,9 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
 
   Widget _buildPlantillaSelectorBtn(ColorScheme cs, bool isDark) {
     return FutureBuilder<List<Plantilla>>(
-      future: PlantillaService.instance.loadAll(categoria: Plantilla.catProcDinamico),
+      future: PlantillaService.instance.loadAll(
+        categoria: Plantilla.catProcDinamico,
+      ),
       builder: (context, snapshot) {
         final plantillas = snapshot.data ?? [];
         if (plantillas.isEmpty) return const SizedBox.shrink();
@@ -1066,7 +1068,10 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
                 }
               },
               icon: const Icon(Icons.auto_awesome_motion_rounded, size: 13),
-              label: const Text('Cargar Plantilla', style: TextStyle(fontSize: 11)),
+              label: const Text(
+                'Cargar Plantilla',
+                style: TextStyle(fontSize: 11),
+              ),
               style: OutlinedButton.styleFrom(
                 foregroundColor: cs.primary,
                 side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),

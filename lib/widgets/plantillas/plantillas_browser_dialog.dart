@@ -22,7 +22,8 @@ class PlantillasBrowserDialog extends StatefulWidget {
   const PlantillasBrowserDialog({super.key, required this.close});
 
   @override
-  State<PlantillasBrowserDialog> createState() => _PlantillasBrowserDialogState();
+  State<PlantillasBrowserDialog> createState() =>
+      _PlantillasBrowserDialogState();
 }
 
 class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
@@ -70,9 +71,10 @@ class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
           _items = items;
           _loading = false;
           if (_selectedPlantilla != null) {
-            _selectedPlantilla = items
-                .where((p) => p.id == _selectedPlantilla!.id)
-                .firstOrNull ??
+            _selectedPlantilla =
+                items
+                    .where((p) => p.id == _selectedPlantilla!.id)
+                    .firstOrNull ??
                 (items.isNotEmpty ? items.first : null);
           } else if (items.isNotEmpty) {
             _selectedPlantilla = items.first;
@@ -121,10 +123,7 @@ class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
   }
 
   void _duplicarPlantilla(Plantilla p) {
-    final copia = p.copyWith(
-      id: '',
-      nombre: '${p.nombre} (Copia)',
-    );
+    final copia = p.copyWith(id: '', nombre: '${p.nombre} (Copia)');
     showPlantillaEditorWindow(
       context,
       initialPlantilla: copia,
@@ -135,8 +134,12 @@ class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
-    final w = _maximized ? screenSize.width : 1080.0.clamp(700.0, screenSize.width);
-    final h = _maximized ? screenSize.height : 680.0.clamp(480.0, screenSize.height);
+    final w = _maximized
+        ? screenSize.width
+        : 1080.0.clamp(700.0, screenSize.width);
+    final h = _maximized
+        ? screenSize.height
+        : 680.0.clamp(480.0, screenSize.height);
 
     return Center(
       child: Material(
@@ -168,17 +171,11 @@ class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
                   child: Row(
                     children: [
                       // Panel izquierdo: Lista de plantillas
-                      Expanded(
-                        flex: 5,
-                        child: _buildListPanel(),
-                      ),
+                      Expanded(flex: 5, child: _buildListPanel()),
                       // Separador vertical
                       Container(width: 1, color: const Color(0xFF2C3240)),
                       // Panel derecho: Inspector / Preview
-                      Expanded(
-                        flex: 6,
-                        child: _buildInspectorPanel(),
-                      ),
+                      Expanded(flex: 6, child: _buildInspectorPanel()),
                     ],
                   ),
                 ),
@@ -207,7 +204,11 @@ class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
               color: const Color(0xFF0078D4).withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(6),
             ),
-            child: const Icon(Icons.auto_awesome_motion_rounded, color: Color(0xFF4FC3F7), size: 18),
+            child: const Icon(
+              Icons.auto_awesome_motion_rounded,
+              color: Color(0xFF4FC3F7),
+              size: 18,
+            ),
           ),
           const SizedBox(width: 10),
           const Column(
@@ -231,7 +232,10 @@ class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
           const Spacer(),
           ElevatedButton.icon(
             icon: const Icon(Icons.add_rounded, size: 16),
-            label: const Text('Nueva Plantilla', style: TextStyle(fontSize: 12)),
+            label: const Text(
+              'Nueva Plantilla',
+              style: TextStyle(fontSize: 12),
+            ),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF0078D4),
               foregroundColor: Colors.white,
@@ -241,7 +245,11 @@ class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
           ),
           const SizedBox(width: 8),
           IconButton(
-            icon: Icon(_maximized ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded),
+            icon: Icon(
+              _maximized
+                  ? Icons.fullscreen_exit_rounded
+                  : Icons.fullscreen_rounded,
+            ),
             color: Colors.white70,
             iconSize: 18,
             tooltip: 'Maximizar (F11)',
@@ -279,12 +287,24 @@ class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
                 controller: _searchCtrl,
                 style: const TextStyle(color: Colors.white, fontSize: 12),
                 decoration: InputDecoration(
-                  hintText: 'Buscar plantilla por nombre, descripción o código...',
-                  hintStyle: const TextStyle(color: Colors.white38, fontSize: 12),
-                  prefixIcon: const Icon(Icons.search_rounded, size: 16, color: Colors.white54),
+                  hintText:
+                      'Buscar plantilla por nombre, descripción o código...',
+                  hintStyle: const TextStyle(
+                    color: Colors.white38,
+                    fontSize: 12,
+                  ),
+                  prefixIcon: const Icon(
+                    Icons.search_rounded,
+                    size: 16,
+                    color: Colors.white54,
+                  ),
                   suffixIcon: _searchCtrl.text.isNotEmpty
                       ? IconButton(
-                          icon: const Icon(Icons.clear_rounded, size: 14, color: Colors.white54),
+                          icon: const Icon(
+                            Icons.clear_rounded,
+                            size: 14,
+                            color: Colors.white54,
+                          ),
                           onPressed: () {
                             _searchCtrl.clear();
                             _loadPlantillas();
@@ -293,7 +313,10 @@ class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
                       : null,
                   filled: true,
                   fillColor: const Color(0xFF1F2430),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 8),
+                  contentPadding: const EdgeInsets.symmetric(
+                    vertical: 0,
+                    horizontal: 8,
+                  ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(6),
                     borderSide: BorderSide.none,
@@ -322,10 +345,14 @@ class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
                       backgroundColor: const Color(0xFF1E232F),
                       labelStyle: TextStyle(
                         color: isSelected ? Colors.white : Colors.white70,
-                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                        fontWeight: isSelected
+                            ? FontWeight.w600
+                            : FontWeight.normal,
                       ),
                       side: BorderSide(
-                        color: isSelected ? const Color(0xFF0078D4) : const Color(0xFF323B4C),
+                        color: isSelected
+                            ? const Color(0xFF0078D4)
+                            : const Color(0xFF323B4C),
                       ),
                       onSelected: (val) {
                         if (val) {
@@ -340,7 +367,11 @@ class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.refresh_rounded, size: 16, color: Colors.white70),
+            icon: const Icon(
+              Icons.refresh_rounded,
+              size: 16,
+              color: Colors.white70,
+            ),
             tooltip: 'Refrescar',
             onPressed: _loadPlantillas,
           ),
@@ -352,7 +383,10 @@ class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
   Widget _buildListPanel() {
     if (_loading) {
       return const Center(
-        child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0078D4)),
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          color: Color(0xFF0078D4),
+        ),
       );
     }
 
@@ -363,7 +397,11 @@ class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline_rounded, color: Colors.orangeAccent, size: 32),
+              const Icon(
+                Icons.error_outline_rounded,
+                color: Colors.orangeAccent,
+                size: 32,
+              ),
               const SizedBox(height: 8),
               Text(
                 'Error al consultar plantillas: $_error',
@@ -411,10 +449,14 @@ class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
             decoration: BoxDecoration(
               color: isSelected
                   ? const Color(0xFF0078D4).withValues(alpha: 0.15)
-                  : (idx % 2 == 0 ? const Color(0xFF141820) : const Color(0xFF171B24)),
+                  : (idx % 2 == 0
+                        ? const Color(0xFF141820)
+                        : const Color(0xFF171B24)),
               border: Border(
                 left: BorderSide(
-                  color: isSelected ? const Color(0xFF0078D4) : Colors.transparent,
+                  color: isSelected
+                      ? const Color(0xFF0078D4)
+                      : Colors.transparent,
                   width: 3.5,
                 ),
                 bottom: const BorderSide(color: Color(0xFF222733), width: 0.8),
@@ -435,7 +477,9 @@ class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
                             child: Text(
                               item.nombre,
                               style: TextStyle(
-                                color: isSelected ? const Color(0xFF64B5F6) : Colors.white,
+                                color: isSelected
+                                    ? const Color(0xFF64B5F6)
+                                    : Colors.white,
                                 fontWeight: FontWeight.w600,
                                 fontSize: 13,
                               ),
@@ -443,24 +487,36 @@ class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
                             ),
                           ),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
                             decoration: BoxDecoration(
                               color: const Color(0xFF232A39),
                               borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: const Color(0xFF343E54)),
+                              border: Border.all(
+                                color: const Color(0xFF343E54),
+                              ),
                             ),
                             child: Text(
                               item.categoria,
-                              style: const TextStyle(color: Colors.white70, fontSize: 10),
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 10,
+                              ),
                             ),
                           ),
                         ],
                       ),
-                      if (item.descripcion != null && item.descripcion!.isNotEmpty) ...[
+                      if (item.descripcion != null &&
+                          item.descripcion!.isNotEmpty) ...[
                         const SizedBox(height: 4),
                         Text(
                           item.descripcion!,
-                          style: const TextStyle(color: Colors.white54, fontSize: 11),
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 11,
+                          ),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -553,7 +609,10 @@ class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
                       if (p.descripcion != null && p.descripcion!.isNotEmpty)
                         Text(
                           p.descripcion!,
-                          style: const TextStyle(color: Colors.white54, fontSize: 11),
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 11,
+                          ),
                         ),
                     ],
                   ),
@@ -606,7 +665,10 @@ class _PlantillasBrowserDialogState extends State<PlantillasBrowserDialog> {
                 const Spacer(),
                 OutlinedButton.icon(
                   icon: const Icon(Icons.content_copy_rounded, size: 14),
-                  label: const Text('Copiar Código', style: TextStyle(fontSize: 12)),
+                  label: const Text(
+                    'Copiar Código',
+                    style: TextStyle(fontSize: 12),
+                  ),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.white70,
                     side: const BorderSide(color: Color(0xFF3B4457)),

@@ -79,10 +79,7 @@ class Plantilla {
   }
 
   /// Aplica sustituciones de variables estándar en el contenido de la plantilla.
-  String aplicarParametros({
-    String? nombreObjeto,
-    String? usuario,
-  }) {
+  String aplicarParametros({String? nombreObjeto, String? usuario}) {
     var res = contenido;
     final obj = (nombreObjeto ?? 'NOMBRE_OBJETO').trim().toUpperCase();
     final usr = (usuario ?? ownerUser).trim().toUpperCase();
@@ -192,12 +189,28 @@ class Plantilla {
       id: str(['id', 'ID', '_id']),
       nombre: str(['nombre', 'NOMBRE', 'name', 'NAME'], 'Sin Nombre'),
       categoria: str(['categoria', 'CATEGORIA', 'category', 'tipo'], catOtro),
-      contenido: str(['contenido', 'CONTENIDO', 'body', 'content', 'codigo'], ''),
+      contenido: str([
+        'contenido',
+        'CONTENIDO',
+        'body',
+        'content',
+        'codigo',
+      ], ''),
       descripcion: strOrNull(['descripcion', 'DESCRIPCION', 'description']),
-      ownerUser: str(['ownerUser', 'OWNERUSER', 'usuario', 'usuarioCreacion'], ''),
+      ownerUser: str([
+        'ownerUser',
+        'OWNERUSER',
+        'usuario',
+        'usuarioCreacion',
+      ], ''),
       isActive: parseBool(['isActive', 'ISACTIVE', 'activo', 'stActivo'], true),
       version: parseInt(['version', 'VERSION'], 0),
-      updatedAt: parseDate(['updatedAt', 'UPDATEDAT', 'fechaModificacion', 'fecha']),
+      updatedAt: parseDate([
+        'updatedAt',
+        'UPDATEDAT',
+        'fechaModificacion',
+        'fecha',
+      ]),
     );
   }
 
@@ -208,7 +221,9 @@ class Plantilla {
       'nombre': nombre.trim(),
       'categoria': categoria.trim(),
       'contenido': contenido,
-      'descripcion': descripcion?.trim().isEmpty ?? true ? null : descripcion!.trim(),
+      'descripcion': descripcion?.trim().isEmpty ?? true
+          ? null
+          : descripcion!.trim(),
       'ownerUser': ownerUser.trim(),
       'isActive': isActive,
     };
@@ -221,7 +236,9 @@ class Plantilla {
       'nombre': nombre.trim(),
       'categoria': categoria.trim(),
       'contenido': contenido,
-      'descripcion': descripcion?.trim().isEmpty ?? true ? null : descripcion!.trim(),
+      'descripcion': descripcion?.trim().isEmpty ?? true
+          ? null
+          : descripcion!.trim(),
       'ownerUser': ownerUser.trim(),
       'isActive': isActive,
       'version': version,
@@ -231,5 +248,6 @@ class Plantilla {
   Map<String, dynamic> toJson() => toUpdateJson();
 
   @override
-  String toString() => 'Plantilla(id: $id, nombre: $nombre, categoria: $categoria)';
+  String toString() =>
+      'Plantilla(id: $id, nombre: $nombre, categoria: $categoria)';
 }
