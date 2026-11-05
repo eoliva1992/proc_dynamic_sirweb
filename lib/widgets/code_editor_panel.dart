@@ -25,6 +25,7 @@ import '../models/sql_http_trace.dart';
 import '../models/uso_procedimiento.dart';
 import '../models/variable_dinamica.dart';
 import '../models/editor_selection.dart';
+import 'plantillas/plantillas_browser_dialog.dart';
 import 'snippets/snippets_browser_dialog.dart';
 import '../providers/procedimientos_provider.dart';
 import '../services/backup_service.dart';
@@ -889,11 +890,17 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       '      e.preventDefault();'
       '      try { window.__fmCutNow(); } catch(_) {}'
       '    } else if (key === "z" && !e.shiftKey) {'
-      '      e.preventDefault();'
-      '      window.__fmUndo();'
+      '      var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+      '      if (aux) {'
+      '        e.preventDefault();'
+      '        window.__fmUndo();'
+      '      }'
       '    } else if ((key === "y" && !e.shiftKey) || (key === "z" && e.shiftKey)) {'
-      '      e.preventDefault();'
-      '      window.__fmRedo();'
+      '      var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
+      '      if (aux) {'
+      '        e.preventDefault();'
+      '        window.__fmRedo();'
+      '      }'
       '    }'
       '  },true);'
       '})()',
@@ -2310,6 +2317,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     showSnippetsBrowser(context).then((_) {
       if (mounted) _registerSnippetCompletions();
     });
+  }
+
+  void _openPlantillasManager() {
+    showPlantillasBrowser(context);
   }
 
   Future<void> _openLocalFile() async {

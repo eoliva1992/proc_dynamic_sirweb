@@ -43,6 +43,7 @@ import '../widgets/server_config_dialog.dart';
 import '../widgets/git_repository_config_dialog.dart';
 import '../widgets/usuario_dialog.dart';
 import '../widgets/deploy_ticket/deploy_tickets_browser_dialog.dart';
+import '../widgets/plantillas/plantillas_browser_dialog.dart';
 import 'bulk_backup_page.dart';
 import 'batch_transfer_page.dart';
 import 'env_diff_page.dart';
@@ -2533,6 +2534,13 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           fgColor: barFg,
           fgSoftColor: barFgSoft,
           onPressed: () => showDeployTicketsBrowser(context),
+        ),
+        _AppBarActionBtn(
+          tooltip: 'Catálogo de plantillas de código predefinidas',
+          icon: Icons.auto_awesome_motion_rounded,
+          fgColor: barFg,
+          fgSoftColor: barFgSoft,
+          onPressed: () => showPlantillasBrowser(context),
         ),
 
         _AppBarDivider(color: barFg),

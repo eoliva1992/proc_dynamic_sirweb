@@ -33,6 +33,7 @@ import 'code_editor_panel.dart'
 import 'constellation_background.dart';
 import 'definition_navigation.dart';
 import 'monaco_snippets.dart';
+import 'plantillas/plantillas_browser_dialog.dart';
 import 'object_source_results_panel.dart';
 import 'plsql_tables.dart' show extractSqlTables;
 import 'schema_object_details_sheet.dart';
@@ -1025,6 +1026,10 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
 
   void _openSnippetsManager() {
     openSnippetsManager(context);
+  }
+
+  void _openPlantillasManager() {
+    showPlantillasBrowser(context);
   }
 
   void _navigateToInitialLineIfNeeded(fm.MonacoController ctrl) {
@@ -2139,6 +2144,16 @@ class _ObjectSourcePageState extends State<ObjectSourcePage>
                   tooltip: 'Snippets de usuario',
                   icon: const Icon(Icons.code_rounded, size: 16),
                   onPressed: _openSnippetsManager,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Plantillas de código predefinidas',
+                  icon: const Icon(Icons.auto_awesome_motion_rounded, size: 16),
+                  onPressed: _openPlantillasManager,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(
                     minWidth: 32,

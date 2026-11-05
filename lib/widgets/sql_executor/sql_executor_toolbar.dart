@@ -7,6 +7,7 @@ import '../../models/sql_execution.dart';
 import '../ambiente_selector.dart';
 import '../editor_split_container.dart';
 import '../monaco_snippets.dart' show openSnippetsManager;
+import '../plantillas/plantillas_browser_dialog.dart';
 
 // Mismo estilo de tooltip oscuro que usa el editor de procedimientos
 // (`_editor_toolbar_widgets.dart`), para que ambos editores se vean iguales.
@@ -175,6 +176,11 @@ class SqlExecutorToolbar extends StatelessWidget {
               icon: Icons.code_rounded,
               tooltip: 'Snippets de usuario',
               onPressed: () => openSnippetsManager(context),
+            ),
+            SqlToolBtn(
+              icon: Icons.auto_awesome_motion_rounded,
+              tooltip: 'Plantillas de código predefinidas',
+              onPressed: () => showPlantillasBrowser(context),
             ),
             SqlToolBtn(
               icon: Icons.keyboard_outlined,

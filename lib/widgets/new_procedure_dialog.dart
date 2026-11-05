@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_monaco/flutter_monaco.dart';
+import '../models/plantilla.dart';
 import '../providers/procedimientos_provider.dart';
 import '../services/editor_cursor_store.dart';
+import '../services/plantilla_service.dart';
 import 'ambiente_selector.dart';
 import 'config_badge.dart';
 import 'constellation_background.dart';
@@ -922,6 +924,8 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
                 ),
               ),
               const Spacer(),
+              _buildPlantillaSelectorBtn(cs, isDark),
+              const SizedBox(width: 8),
               TextButton.icon(
                 onPressed: () {
                   final template = _templateFor(_selectedConfig);
@@ -985,6 +989,94 @@ class _NewProcedureDialogState extends State<NewProcedureDialog> {
                 ),
         ),
       ],
+    );
+  }
+
+  Widget _buildPlantillaSelectorBtn(ColorScheme cs, bool isDark) {
+    return FutureBuilder<List<Plantilla>>(
+      future: PlantillaService.instance.loadAll(categoria: Plantilla.catProcDinamico),
+      builder: (context, snapshot) {
+        final plantillas = snapshot.data ?? [];
+        if (plantillas.isEmpty) return const SizedBox.shrink();
+
+        return MenuAnchor(
+          alignmentOffset: const Offset(0, 4),
+          style: MenuStyle(
+            backgroundColor: WidgetStatePropertyAll(
+              isDark ? cs.surfaceContainerHigh : cs.surface,
+            ),
+            elevation: const WidgetStatePropertyAll(12),
+            shape: WidgetStatePropertyAll(
+              RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+                side: BorderSide(color: cs.outlineVariant),
+              ),
+            ),
+          ),
+          menuChildren: plantillas.map((p) {
+            return MenuItemButton(
+              onPressed: () {
+                final procName = _codigoCtrl.text.trim().isEmpty
+                    ? 'P_NOMBRE_PROC'
+                    : _codigoCtrl.text.trim();
+                final user = _usuarioCtrl.text.trim().isEmpty
+                    ? 'USUARIO'
+                    : _usuarioCtrl.text.trim();
+                final parsedCode = p.aplicarParametros(
+                  nombreObjeto: procName,
+                  usuario: user,
+                );
+                _editorCtrl?.document.setText(parsedCode);
+                if (_editorCtrl == null) setState(() => _code = parsedCode);
+              },
+              leadingIcon: const Icon(Icons.bookmark_border_rounded, size: 16),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 200),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      p.nombre,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: cs.onSurface,
+                      ),
+                    ),
+                    if (p.descripcion != null && p.descripcion!.isNotEmpty)
+                      Text(
+                        p.descripcion!,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
+          builder: (context, controller, child) {
+            return OutlinedButton.icon(
+              onPressed: () {
+                if (controller.isOpen) {
+                  controller.close();
+                } else {
+                  controller.open();
+                }
+              },
+              icon: const Icon(Icons.auto_awesome_motion_rounded, size: 13),
+              label: const Text('Cargar Plantilla', style: TextStyle(fontSize: 11)),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: cs.primary,
+                side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),
+                minimumSize: const Size(0, 28),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
