@@ -1280,32 +1280,24 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
             () async => _pasteFromClipboard(),
           )
           .then((a) => _pasteAction = a),
-      ctrl
-          .addAction(
-            const MonacoActionDescriptor(
-              id: MonacoAction('custom.snippet.nav_next'),
-              label: 'Siguiente parámetro / Retomar navegación',
-              keybindings: [
-                MonacoKeybinding(ctrlCmd: true, key: MonacoKey.keyJ),
-              ],
-            ),
-            () async => jumpSnippetPlaceholder(ctrl, forward: true),
-          ),
-      ctrl
-          .addAction(
-            const MonacoActionDescriptor(
-              id: MonacoAction('custom.snippet.nav_prev'),
-              label: 'Parámetro anterior',
-              keybindings: [
-                MonacoKeybinding(
-                  ctrlCmd: true,
-                  shift: true,
-                  key: MonacoKey.keyJ,
-                ),
-              ],
-            ),
-            () async => jumpSnippetPlaceholder(ctrl, forward: false),
-          ),
+      ctrl.addAction(
+        const MonacoActionDescriptor(
+          id: MonacoAction('custom.snippet.nav_next'),
+          label: 'Siguiente parámetro / Retomar navegación',
+          keybindings: [MonacoKeybinding(ctrlCmd: true, key: MonacoKey.keyJ)],
+        ),
+        () async => jumpSnippetPlaceholder(ctrl, forward: true),
+      ),
+      ctrl.addAction(
+        const MonacoActionDescriptor(
+          id: MonacoAction('custom.snippet.nav_prev'),
+          label: 'Parámetro anterior',
+          keybindings: [
+            MonacoKeybinding(ctrlCmd: true, shift: true, key: MonacoKey.keyJ),
+          ],
+        ),
+        () async => jumpSnippetPlaceholder(ctrl, forward: false),
+      ),
     ]);
 
     if (_disposed || !mounted) return;

@@ -706,7 +706,9 @@ Future<bool> insertMonacoSnippet(
 /// y registra sus placeholders en el navegador interactivo para habilitar la navegación con Tab.
 String buildMonacoPasteJs(String text) {
   final literal = jsonEncode(text);
-  final isSnippetLiteral = Plantilla.contieneSintaxisSnippet(text) ? 'true' : 'false';
+  final isSnippetLiteral = Plantilla.contieneSintaxisSnippet(text)
+      ? 'true'
+      : 'false';
 
   return '(()=>{'
       '  try {'
