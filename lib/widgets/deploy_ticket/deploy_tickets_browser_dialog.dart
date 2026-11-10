@@ -98,13 +98,34 @@ class _DeployTicketsBrowserDialogState
     return DeployTicketService.currentUser;
   }
 
-  bool get _hasActiveFilters =>
-      _searchCtrl.text.trim().isNotEmpty ||
-      _autorizaCtrl.text.trim().isNotEmpty ||
-      _tipoSolicitudCtrl.text.trim().isNotEmpty ||
-      _usuarioCreaCtrl.text.trim().isNotEmpty ||
-      _selectedDb != null ||
-      _selectedDbd != null;
+  int get _activeFiltersCount {
+    var count = 0;
+    if (_searchCtrl.text.trim().isNotEmpty) count++;
+    if (_autorizaCtrl.text.trim().isNotEmpty) count++;
+    if (_tipoSolicitudCtrl.text.trim().isNotEmpty) count++;
+    if (_usuarioCreaCtrl.text.trim().isNotEmpty) count++;
+    if (_selectedDb != null) count++;
+    if (_selectedDbd != null) count++;
+    return count;
+  }
+
+  bool get _hasActiveFilters => _activeFiltersCount > 0;
+
+  bool get _isFilteringMyTickets {
+    final defUser = _resolveDefaultUser().toUpperCase();
+    return _usuarioCreaCtrl.text.trim().toUpperCase() == defUser &&
+        defUser.isNotEmpty;
+  }
+
+  void _toggleMyTicketsFilter() {
+    final defUser = _resolveDefaultUser();
+    if (_isFilteringMyTickets) {
+      _usuarioCreaCtrl.clear();
+    } else {
+      _usuarioCreaCtrl.text = defUser;
+    }
+    _fetchTickets(resetPage: true);
+  }
 
   @override
   void initState() {
@@ -278,7 +299,46 @@ class _DeployTicketsBrowserDialogState
     );
   }
 
+  bool _canDeleteTicket(DeployTicket ticket) {
+    final activeUser = _resolveDefaultUser().trim().toUpperCase();
+    final creatorUser = ticket.usuarioCrea.trim().toUpperCase();
+    if (activeUser.isEmpty || creatorUser.isEmpty) {
+      return false;
+    }
+    return activeUser == creatorUser;
+  }
+
   Future<void> _confirmDelete(DeployTicket ticket) async {
+    final activeUser = _resolveDefaultUser().trim().toUpperCase();
+
+    if (!_canDeleteTicket(ticket)) {
+      await showFloatingDialog<void>(
+        context,
+        (ctx, close) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.shield_outlined, color: Colors.orangeAccent),
+              SizedBox(width: 8),
+              Text('Permiso Denegado'),
+            ],
+          ),
+          content: Text(
+            'Solo el usuario que creó este ticket puede eliminarlo.\n\n'
+            '• Creado por: ${ticket.usuarioCrea.isNotEmpty ? ticket.usuarioCrea : "Desconocido"}\n'
+            '• Usuario actual: ${activeUser.isNotEmpty ? activeUser : "Sin usuario"}\n\n'
+            'Si requieres eliminar este pase, solicita al autor original que lo realice.',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => close(),
+              child: const Text('Entendido'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     if (ticket.noteIds.isNotEmpty) {
       await showFloatingDialog<void>(
         context,
@@ -600,7 +660,7 @@ class _DeployTicketsBrowserDialogState
               child: Material(
                 color: bg,
                 borderRadius: BorderRadius.circular(
-                  _maximized ? 0 : (_minimized ? 8 : 14),
+                  _maximized ? 0 : (_minimized ? 8 : 16),
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: AnimatedContainer(
@@ -608,16 +668,16 @@ class _DeployTicketsBrowserDialogState
                   curve: Curves.easeOutCubic,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(
-                      _maximized ? 0 : (_minimized ? 8 : 14),
+                      _maximized ? 0 : (_minimized ? 8 : 16),
                     ),
                     border: Border.all(color: divColor, width: 0.8),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withValues(
-                          alpha: isDark ? 0.65 : 0.22,
+                          alpha: isDark ? 0.55 : 0.18,
                         ),
-                        blurRadius: _minimized ? 16 : 36,
-                        offset: Offset(0, _minimized ? 4 : 14),
+                        blurRadius: _minimized ? 16 : 28,
+                        offset: Offset(0, _minimized ? 4 : 10),
                       ),
                     ],
                   ),
@@ -1253,10 +1313,70 @@ class _DeployTicketsBrowserDialogState
             ),
           ),
 
+          const SizedBox(width: 8),
+
+          // Botón / Atajo rápido "Mis Tickets"
+          Tooltip(
+            message: _isFilteringMyTickets
+                ? 'Viendo solo mis tickets (${_resolveDefaultUser()}). Clic para ver todos'
+                : 'Filtrar rápidamente por mis tickets (${_resolveDefaultUser()})',
+            child: InkWell(
+              borderRadius: BorderRadius.circular(6),
+              onTap: _toggleMyTicketsFilter,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                height: 32,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                decoration: BoxDecoration(
+                  color: _isFilteringMyTickets
+                      ? cs.primary.withValues(alpha: isDark ? 0.22 : 0.12)
+                      : (isDark
+                            ? Colors.white.withValues(alpha: 0.05)
+                            : Colors.grey.shade200),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: _isFilteringMyTickets
+                        ? cs.primary.withValues(alpha: 0.6)
+                        : inputBorderColor,
+                    width: 0.8,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _isFilteringMyTickets
+                          ? Icons.person_rounded
+                          : Icons.person_outline_rounded,
+                      size: 15,
+                      color: _isFilteringMyTickets
+                          ? cs.primary
+                          : (isDark ? Colors.white70 : Colors.black87),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Mis Tickets',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: _isFilteringMyTickets
+                            ? FontWeight.bold
+                            : FontWeight.w500,
+                        color: _isFilteringMyTickets
+                            ? cs.primary
+                            : (isDark ? Colors.white70 : Colors.black87),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
           if (_hasActiveFilters) ...[
             const SizedBox(width: 6),
             Tooltip(
-              message: 'Restablecer todos los filtros',
+              message:
+                  'Restablecer todos los filtros ($_activeFiltersCount activos)',
               child: InkWell(
                 borderRadius: BorderRadius.circular(6),
                 onTap: _clearFilters,
@@ -1276,14 +1396,14 @@ class _DeployTicketsBrowserDialogState
                     children: [
                       Icon(
                         Icons.filter_alt_off_rounded,
-                        size: 15,
+                        size: 14,
                         color: isDark
                             ? Colors.amber.shade300
                             : Colors.amber.shade800,
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        'Limpiar',
+                        'Limpiar ($_activeFiltersCount)',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
@@ -1824,14 +1944,23 @@ class _DeployTicketsBrowserDialogState
                 icon: const Icon(Icons.edit_outlined, size: 16),
                 onPressed: () => _openEditDialog(ticket),
               ),
-              IconButton(
-                tooltip: 'Eliminar ticket',
-                icon: const Icon(
-                  Icons.delete_outline_rounded,
-                  size: 16,
-                  color: Colors.redAccent,
-                ),
-                onPressed: () => _confirmDelete(ticket),
+              Builder(
+                builder: (context) {
+                  final canDelete = _canDeleteTicket(ticket);
+                  return IconButton(
+                    tooltip: canDelete
+                        ? 'Eliminar ticket'
+                        : 'Solo el creador (${ticket.usuarioCrea}) puede eliminarlo',
+                    icon: Icon(
+                      Icons.delete_outline_rounded,
+                      size: 16,
+                      color: canDelete
+                          ? Colors.redAccent
+                          : Colors.grey.shade500,
+                    ),
+                    onPressed: () => _confirmDelete(ticket),
+                  );
+                },
               ),
             ],
           ),
@@ -2008,15 +2137,24 @@ class _DeployTicketsBrowserDialogState
                         icon: const Icon(Icons.edit_outlined, size: 15),
                         onPressed: () => _openEditDialog(ticket),
                       ),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        tooltip: 'Eliminar ticket',
-                        icon: const Icon(
-                          Icons.delete_outline_rounded,
-                          size: 15,
-                          color: Colors.redAccent,
-                        ),
-                        onPressed: () => _confirmDelete(ticket),
+                      Builder(
+                        builder: (context) {
+                          final canDelete = _canDeleteTicket(ticket);
+                          return IconButton(
+                            visualDensity: VisualDensity.compact,
+                            tooltip: canDelete
+                                ? 'Eliminar ticket'
+                                : 'Solo el creador (${ticket.usuarioCrea}) puede eliminarlo',
+                            icon: Icon(
+                              Icons.delete_outline_rounded,
+                              size: 15,
+                              color: canDelete
+                                  ? Colors.redAccent
+                                  : Colors.grey.shade500,
+                            ),
+                            onPressed: () => _confirmDelete(ticket),
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -2580,11 +2718,7 @@ class _DeployTicketsBrowserDialogState
     );
   }
 
-  Widget _buildInspectorNotesTab(
-    DeployTicket t,
-    ColorScheme cs,
-    bool isDark,
-  ) {
+  Widget _buildInspectorNotesTab(DeployTicket t, ColorScheme cs, bool isDark) {
     return FutureBuilder<NotePage>(
       future: NoteService.instance.search(
         ticketDespliegueId: t.id,
@@ -2740,7 +2874,9 @@ class _DeployTicketsBrowserDialogState
                                     Padding(
                                       padding: const EdgeInsets.only(top: 2),
                                       child: Text(
-                                        item.note.tags.map((tg) => '#$tg').join(' '),
+                                        item.note.tags
+                                            .map((tg) => '#$tg')
+                                            .join(' '),
                                         style: TextStyle(
                                           fontSize: 10,
                                           color: Colors.blueGrey.shade400,

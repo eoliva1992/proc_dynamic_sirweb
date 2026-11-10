@@ -103,6 +103,7 @@ class _DeployTicketCardMenuState extends State<DeployTicketCardMenu> {
                             icon: Icons.bolt_rounded,
                             iconColor: Colors.amber.shade700,
                             label: 'Crear / Enlazar Hotfix',
+                            shortcut: 'Alt+H',
                             onTap: () {
                               _controller.hide();
                               widget.onCreateHotfix();
@@ -113,6 +114,7 @@ class _DeployTicketCardMenuState extends State<DeployTicketCardMenu> {
                               icon: Icons.rocket_launch_rounded,
                               iconColor: Colors.greenAccent.shade700,
                               label: 'Push Hotfix',
+                              shortcut: 'Alt+P',
                               onTap: () {
                                 _controller.hide();
                                 widget.onPushHotfix();
@@ -137,6 +139,7 @@ class _DeployTicketCardMenuState extends State<DeployTicketCardMenu> {
                             icon: Icons.file_download_outlined,
                             iconColor: Colors.blueAccent,
                             label: 'Exportar Pase',
+                            shortcut: 'Alt+E',
                             onTap: () {
                               _controller.hide();
                               widget.onExport();
@@ -146,6 +149,7 @@ class _DeployTicketCardMenuState extends State<DeployTicketCardMenu> {
                             icon: Icons.create_new_folder_outlined,
                             iconColor: Colors.tealAccent.shade400,
                             label: 'Crear directorio y archivos',
+                            shortcut: 'Alt+D',
                             onTap: () {
                               _controller.hide();
                               widget.onCreateFolder();
@@ -157,6 +161,7 @@ class _DeployTicketCardMenuState extends State<DeployTicketCardMenu> {
                               alpha: 0.7,
                             ),
                             label: 'Copiar index.txt',
+                            shortcut: 'Alt+C',
                             onTap: () {
                               _controller.hide();
                               widget.onCopyIndex();
@@ -189,6 +194,7 @@ class _MenuItem extends StatefulWidget {
   final String label;
   final VoidCallback onTap;
   final bool enabled;
+  final String? shortcut;
 
   const _MenuItem({
     required this.icon,
@@ -196,6 +202,7 @@ class _MenuItem extends StatefulWidget {
     required this.label,
     required this.onTap,
     this.enabled = true,
+    this.shortcut,
   });
 
   @override
@@ -247,6 +254,19 @@ class _MenuItemState extends State<_MenuItem> {
                   ),
                 ),
               ),
+              if (widget.shortcut != null) ...[
+                const SizedBox(width: 8),
+                Text(
+                  widget.shortcut!,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: isEnabled
+                        ? (isDark ? Colors.white38 : Colors.black38)
+                        : (isDark ? Colors.white24 : Colors.black12),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

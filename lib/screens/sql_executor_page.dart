@@ -19,6 +19,7 @@ import '../services/sql_executor_state_controller.dart';
 import '../widgets/constellation_background.dart' show ConstellationDialogTitle;
 import '../widgets/editor_split_container.dart';
 import '../widgets/monaco_editor_widget.dart';
+import '../widgets/monaco_snippets.dart' show jumpSnippetPlaceholder;
 import '../widgets/plsql_tables.dart' show extractSqlTables;
 import '../widgets/slide_up_panel.dart';
 import '../widgets/sql_executor/sql_bind_variables_modal.dart';
@@ -36,6 +37,7 @@ class SqlExecutorPage extends StatefulWidget {
     required this.ambiente,
     required this.onAmbienteChanged,
     this.initialSql = '',
+    this.initialSnippet,
     this.initialFilePath,
     this.onCodeChanged,
     this.onFilePathChanged,
@@ -47,6 +49,9 @@ class SqlExecutorPage extends StatefulWidget {
 
   /// Siembra el editor con código SQL o contenido inicial.
   final String initialSql;
+
+  /// Snippet interactivo a insertar en Monaco para navegación con Tab/Shift+Tab.
+  final String? initialSnippet;
 
   /// Ruta del archivo local en disco si la pestaña proviene de un archivo .sql abierto.
   final String? initialFilePath;
@@ -78,6 +83,7 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
   @override
   void initState() {
     super.initState();
+    HardwareKeyboard.instance.addHandler(_handleGlobalKey);
     _savedBaselineText = widget.initialSql;
     _stateCtrl = SqlExecutorStateController(
       initialAmbiente: widget.ambiente,
@@ -104,6 +110,14 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
         _resultTabCtrl.index = idx;
       }
     };
+
+    // Liberar cualquier foco retenido por el árbol de Flutter para que
+    // el HWND nativo de WebView2 reciba directamente los eventos de teclado de Windows.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      FocusManager.instance.primaryFocus?.unfocus();
+      _monacoCtrl.focus();
+    });
   }
 
   void _handleDdlCompilationErrors(
@@ -187,9 +201,29 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
     _resultTabCtrl.dispose();
     _stateCtrl.dispose();
     super.dispose();
+  }
+
+  bool _handleGlobalKey(KeyEvent event) {
+    if (event is! KeyDownEvent || !mounted) return false;
+    final kb = HardwareKeyboard.instance;
+    final ctrl = kb.isControlPressed;
+    final shift = kb.isShiftPressed;
+
+    // Ctrl+J / Ctrl+Shift+J: Retomar / navegar parámetros de snippet
+    if (ctrl && event.logicalKey == LogicalKeyboardKey.keyJ) {
+      FocusManager.instance.primaryFocus?.unfocus();
+      final rawCtrl = _monacoCtrl.rawController;
+      _monacoCtrl.focus();
+      if (rawCtrl != null) {
+        unawaited(jumpSnippetPlaceholder(rawCtrl, forward: !shift));
+      }
+      return true;
+    }
+    return false;
   }
 
   void _onGenerateDml(List<int> rowIndexes) {
@@ -370,6 +404,7 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
       stateCtrl: _stateCtrl,
       resultTabCtrl: _resultTabCtrl,
       isDark: isDark,
+      initialSnippet: widget.initialSnippet,
       onGenerateDml: _onGenerateDml,
       onSave: () => unawaited(_saveLocalSqlFile()),
       onSaveAs: () => unawaited(_saveLocalSqlFile(saveAs: true)),
@@ -405,6 +440,26 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
               shift: true,
             ): () =>
                 unawaited(_saveLocalSqlFile(saveAs: true)),
+            const SingleActivator(LogicalKeyboardKey.keyJ, control: true): () {
+              FocusManager.instance.primaryFocus?.unfocus();
+              final rawCtrl = _monacoCtrl.rawController;
+              _monacoCtrl.focus();
+              if (rawCtrl != null) {
+                unawaited(jumpSnippetPlaceholder(rawCtrl, forward: true));
+              }
+            },
+            const SingleActivator(
+              LogicalKeyboardKey.keyJ,
+              control: true,
+              shift: true,
+            ): () {
+              FocusManager.instance.primaryFocus?.unfocus();
+              final rawCtrl = _monacoCtrl.rawController;
+              _monacoCtrl.focus();
+              if (rawCtrl != null) {
+                unawaited(jumpSnippetPlaceholder(rawCtrl, forward: false));
+              }
+            },
             const SingleActivator(
               LogicalKeyboardKey.backslash,
               control: true,
@@ -417,46 +472,63 @@ class _SqlExecutorPageState extends State<SqlExecutorPage>
             },
           },
           child: Focus(
-            autofocus: true,
+            // No robar el foco con autofocus al árbol de Flutter.
+            // Si la página se monta con un snippet o código, el foco debe recaer en Monaco.
+            autofocus: false,
             child: Column(
               children: [
-                SqlExecutorToolbar(
-                  ambiente: _stateCtrl.ambiente,
-                  onAmbienteChanged: (v) {
-                    _stateCtrl.setAmbiente(v);
-                    widget.onAmbienteChanged(v);
-                  },
-                  statement: stmt,
-                  running: _stateCtrl.running,
-                  onExecuteCurrent: _stateCtrl.runCurrentOrSelection,
-                  onExecuteAll: _stateCtrl.runAll,
-                  onExplainPlan: _stateCtrl.runExplainPlan,
-                  onCancel: _stateCtrl.cancel,
-                  onClearOutput: () => unawaited(_confirmClearOutput()),
-                  onNewFile: () => unawaited(_newSqlScript()),
-                  onOpenFile: () => unawaited(_openLocalSqlFile()),
-                  onSaveFile: () => unawaited(_saveLocalSqlFile()),
-                  onSaveFileAs: () =>
-                      unawaited(_saveLocalSqlFile(saveAs: true)),
-                  onRevealInExplorer: _stateCtrl.currentFilePath != null
-                      ? () => unawaited(
-                          BackupService.revealInExplorer(
-                            _stateCtrl.currentFilePath!,
-                          ),
-                        )
-                      : null,
-                  currentFilePath: _stateCtrl.currentFilePath,
-                  hasPendingChanges: _stateCtrl.hasPendingChanges,
-                  onCommit: _stateCtrl.commit,
-                  onRollback: _stateCtrl.rollback,
-                  runStartedAt: _stateCtrl.runStartedAt,
-                  hasUnexecutedChanges: _stateCtrl.hasUnexecutedChanges,
-                  timeoutSeconds: _stateCtrl.timeoutSeconds,
-                  onTimeoutChanged: _stateCtrl.setTimeoutSeconds,
-                  maxRows: _stateCtrl.maxRows,
-                  onMaxRowsChanged: _stateCtrl.setMaxRows,
-                  splitMode: _stateCtrl.splitMode,
-                  onSplitModeChanged: _stateCtrl.setSplitMode,
+                // Evita que presionar Tab en el editor o en la ventana escape
+                // a recorrer los botones de la toolbar en lugar de quedarse en el editor.
+                FocusTraversalGroup(
+                  descendantsAreFocusable: false,
+                  child: SqlExecutorToolbar(
+                    ambiente: _stateCtrl.ambiente,
+                    onAmbienteChanged: (v) {
+                      _stateCtrl.setAmbiente(v);
+                      widget.onAmbienteChanged(v);
+                    },
+                    statement: stmt,
+                    running: _stateCtrl.running,
+                    onExecuteCurrent: _stateCtrl.runCurrentOrSelection,
+                    onExecuteAll: _stateCtrl.runAll,
+                    onExplainPlan: _stateCtrl.runExplainPlan,
+                    onCancel: _stateCtrl.cancel,
+                    onClearOutput: () => unawaited(_confirmClearOutput()),
+                    onNewFile: () => unawaited(_newSqlScript()),
+                    onOpenFile: () => unawaited(_openLocalSqlFile()),
+                    onSaveFile: () => unawaited(_saveLocalSqlFile()),
+                    onSaveFileAs: () =>
+                        unawaited(_saveLocalSqlFile(saveAs: true)),
+                    onRevealInExplorer: _stateCtrl.currentFilePath != null
+                        ? () => unawaited(
+                            BackupService.revealInExplorer(
+                              _stateCtrl.currentFilePath!,
+                            ),
+                          )
+                        : null,
+                    currentFilePath: _stateCtrl.currentFilePath,
+                    hasPendingChanges: _stateCtrl.hasPendingChanges,
+                    onCommit: _stateCtrl.commit,
+                    onRollback: _stateCtrl.rollback,
+                    onResumeSnippet: () {
+                      FocusManager.instance.primaryFocus?.unfocus();
+                      final rawCtrl = _monacoCtrl.rawController;
+                      _monacoCtrl.focus();
+                      if (rawCtrl != null) {
+                        unawaited(
+                          jumpSnippetPlaceholder(rawCtrl, forward: true),
+                        );
+                      }
+                    },
+                    runStartedAt: _stateCtrl.runStartedAt,
+                    hasUnexecutedChanges: _stateCtrl.hasUnexecutedChanges,
+                    timeoutSeconds: _stateCtrl.timeoutSeconds,
+                    onTimeoutChanged: _stateCtrl.setTimeoutSeconds,
+                    maxRows: _stateCtrl.maxRows,
+                    onMaxRowsChanged: _stateCtrl.setMaxRows,
+                    splitMode: _stateCtrl.splitMode,
+                    onSplitModeChanged: _stateCtrl.setSplitMode,
+                  ),
                 ),
                 _SqlProgressBar(
                   running: _stateCtrl.running,
@@ -516,6 +588,7 @@ class _SqlEditorWorkspace extends StatefulWidget {
     required this.resultTabCtrl,
     required this.isDark,
     required this.onGenerateDml,
+    this.initialSnippet,
     this.onSave,
     this.onSaveAs,
     this.onCodeChanged,
@@ -525,6 +598,7 @@ class _SqlEditorWorkspace extends StatefulWidget {
   final SqlExecutorStateController stateCtrl;
   final TabController resultTabCtrl;
   final bool isDark;
+  final String? initialSnippet;
   final ValueChanged<List<int>> onGenerateDml;
   final VoidCallback? onSave;
   final VoidCallback? onSaveAs;
@@ -623,6 +697,7 @@ class _SqlEditorWorkspaceState extends State<_SqlEditorWorkspace> {
               primaryChild: MonacoEditorWidget(
                 controller: monacoCtrl,
                 initialCode: stateCtrl.text,
+                initialSnippet: widget.initialSnippet,
                 language: 'plsql',
                 darkTheme: isDark,
                 ambiente: stateCtrl.ambiente,

@@ -9,6 +9,7 @@ import '../../models/deploy_ticket.dart';
 import '../../services/app_log.dart';
 import '../../services/deploy_ticket_exporter_service.dart';
 import '../app_toast.dart';
+import '../constellation_background.dart';
 import '../floating_window.dart' show showFloatingDialog;
 
 /// Clave de SharedPreferences para recordar el último directorio raíz seleccionado.
@@ -167,6 +168,32 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
     final rootDir = _rootDirCtrl.text.trim();
     final folderName = _folderNameCtrl.text.trim();
 
+    // Validación preventiva de existencia y permisos del directorio raíz
+    final rootDirObj = Directory(rootDir);
+    if (!rootDirObj.existsSync()) {
+      setState(() {
+        _errorMessage =
+            'El directorio raíz especificado no existe:\n$rootDir\n\nPor favor crea o selecciona una carpeta válida.';
+      });
+      AppToast.error('El directorio raíz no existe');
+      return;
+    }
+
+    try {
+      final testFile = File(
+        '$rootDir${Platform.pathSeparator}.test_write_perm_${DateTime.now().millisecondsSinceEpoch}',
+      );
+      testFile.writeAsStringSync('test');
+      testFile.deleteSync();
+    } catch (e) {
+      setState(() {
+        _errorMessage =
+            'Sin permisos de escritura en el directorio raíz:\n$rootDir\n\nDetalle: $e';
+      });
+      AppToast.error('Sin permisos de escritura en la carpeta seleccionada');
+      return;
+    }
+
     setState(() {
       _creating = true;
       _progressMessage = 'Iniciando creación...';
@@ -254,326 +281,445 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
           constraints: const BoxConstraints(maxHeight: 680),
           decoration: BoxDecoration(
             color: surfaceColor,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: borderColor, width: 1.2),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: borderColor, width: 1.0),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? 0.6 : 0.25),
-                blurRadius: 24,
-                offset: const Offset(0, 8),
+                color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.12),
+                blurRadius: 28,
+                offset: const Offset(0, 10),
               ),
             ],
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: _loading
-                ? const SizedBox(
-                    height: 240,
-                    child: Center(
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  )
-                : Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Cabecera
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 14,
+          clipBehavior: Clip.antiAlias,
+          child: _loading
+              ? const SizedBox(
+                  height: 240,
+                  child: Center(
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Cabecera ConstellationHeader temático Teal / Esmeralda
+                    ConstellationHeader(
+                      height: 64,
+                      onDark: true,
+                      lineColor: Colors.white.withValues(alpha: 0.25),
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(16),
+                        topRight: Radius.circular(16),
+                      ),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            const Color(0xFF0D9488), // Teal-600
+                            Color.lerp(
+                                  const Color(0xFF0F766E), // Teal-700
+                                  isDark
+                                      ? Colors.black
+                                      : const Color(0xFF115E59),
+                                  0.35,
+                                ) ??
+                                const Color(0xFF0F766E),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? const Color(0xFF252B37)
-                              : const Color(0xFFF1F4F9),
-                          border: Border(
-                            bottom: BorderSide(color: borderColor, width: 0.8),
-                          ),
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(16),
+                          topRight: Radius.circular(16),
                         ),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(7),
-                              decoration: BoxDecoration(
-                                color: Colors.teal.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Icon(
-                                Icons.create_new_folder_rounded,
-                                color: Colors.tealAccent,
-                                size: 20,
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.18),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.35),
+                                width: 1.6,
                               ),
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                            child: const Icon(
+                              Icons.create_new_folder_rounded,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Text(
+                                  'Crear Directorio y Archivos del Ticket',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14.5,
+                                    color: Colors.white,
+                                    letterSpacing: 0.3,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  widget.ticket.numeroSolicitud.isNotEmpty
+                                      ? 'Pase #${widget.ticket.numeroSolicitud} — ${widget.ticket.tipoSolicitud}'
+                                      : 'Ticket sin número asignado',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    color: Colors.white.withValues(alpha: 0.85),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded, size: 18),
+                            color: Colors.white70,
+                            tooltip: 'Cerrar',
+                            splashRadius: 18,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                              minWidth: 28,
+                              minHeight: 28,
+                            ),
+                            onPressed: () => _closeDialog(_createdFolderPath),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Contenido del formulario
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(20),
+                        child: Form(
+                          key: _formKey,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Nombre de la carpeta
+                              const Text(
+                                'Nombre de la Carpeta',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Nomenclatura sugerida: {ticket azure o tipo solicitud}_{número solicitud}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isDark
+                                      ? Colors.white54
+                                      : Colors.black45,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              TextFormField(
+                                controller: _folderNameCtrl,
+                                enabled:
+                                    !_creating && _createdFolderPath == null,
+                                onChanged: (_) => setState(() {}),
+                                decoration: InputDecoration(
+                                  prefixIcon: const Icon(
+                                    Icons.folder_outlined,
+                                    size: 18,
+                                  ),
+                                  suffixIcon: IconButton(
+                                    tooltip: 'Restablecer nombre recomendado',
+                                    icon: const Icon(
+                                      Icons.restore_rounded,
+                                      size: 18,
+                                    ),
+                                    onPressed: () {
+                                      setState(() {
+                                        _folderNameCtrl.text =
+                                            widget.ticket.suggestedFolderName;
+                                      });
+                                    },
+                                  ),
+                                  filled: true,
+                                  fillColor: inputBg,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 11,
+                                  ),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(color: borderColor),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(color: borderColor),
+                                  ),
+                                ),
+                                validator: (v) {
+                                  if (v == null || v.trim().isEmpty) {
+                                    return 'Ingresa un nombre para la carpeta';
+                                  }
+                                  if (v.contains(RegExp(r'[\\/:*?"<>|]'))) {
+                                    return 'El nombre no puede contener caracteres como \\ / : * ? " < > |';
+                                  }
+                                  return null;
+                                },
+                              ),
+
+                              const SizedBox(height: 18),
+
+                              // Directorio raíz donde se guardará
+                              Row(
                                 children: [
-                                  const Text(
-                                    'Crear Directorio y Archivos del Ticket',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 15,
+                                  const Expanded(
+                                    child: Text(
+                                      'Directorio Raíz de Destino',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                      ),
                                     ),
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    widget.ticket.numeroSolicitud.isNotEmpty
-                                        ? 'Pase #${widget.ticket.numeroSolicitud} — ${widget.ticket.tipoSolicitud}'
-                                        : 'Ticket sin número asignado',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: isDark
-                                          ? Colors.white60
-                                          : Colors.black54,
+                                  InkWell(
+                                    onTap: _pasteDirectoryFromClipboard,
+                                    borderRadius: BorderRadius.circular(4),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.content_paste_rounded,
+                                            size: 13,
+                                            color: primaryColor,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'Pegar ruta',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: primaryColor,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ],
                               ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.close_rounded, size: 18),
-                              tooltip: 'Cerrar',
-                              onPressed: () => _closeDialog(_createdFolderPath),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      // Contenido del formulario
-                      Flexible(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.all(20),
-                          child: Form(
-                            key: _formKey,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // Nombre de la carpeta
-                                const Text(
-                                  'Nombre de la Carpeta',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 13,
-                                  ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Se recordará automáticamente esta carpeta para próximas operaciones.',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isDark
+                                      ? Colors.white54
+                                      : Colors.black45,
                                 ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Nomenclatura sugerida: {ticket azure o tipo solicitud}_{número solicitud}',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: isDark
-                                        ? Colors.white54
-                                        : Colors.black45,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                TextFormField(
-                                  controller: _folderNameCtrl,
-                                  enabled:
-                                      !_creating && _createdFolderPath == null,
-                                  onChanged: (_) => setState(() {}),
-                                  decoration: InputDecoration(
-                                    prefixIcon: const Icon(
-                                      Icons.folder_outlined,
-                                      size: 18,
-                                    ),
-                                    suffixIcon: IconButton(
-                                      tooltip: 'Restablecer nombre recomendado',
-                                      icon: const Icon(
-                                        Icons.restore_rounded,
-                                        size: 18,
-                                      ),
-                                      onPressed: () {
-                                        setState(() {
-                                          _folderNameCtrl.text =
-                                              widget.ticket.suggestedFolderName;
-                                        });
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextFormField(
+                                      controller: _rootDirCtrl,
+                                      enabled:
+                                          !_creating &&
+                                          _createdFolderPath == null,
+                                      onChanged: (val) {
+                                        setState(() {});
+                                        _saveLastRootDir(val);
                                       },
-                                    ),
-                                    filled: true,
-                                    fillColor: inputBg,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 11,
-                                    ),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                      borderSide: BorderSide(
-                                        color: borderColor,
-                                      ),
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                      borderSide: BorderSide(
-                                        color: borderColor,
-                                      ),
-                                    ),
-                                  ),
-                                  validator: (v) {
-                                    if (v == null || v.trim().isEmpty) {
-                                      return 'Ingresa un nombre para la carpeta';
-                                    }
-                                    if (v.contains(RegExp(r'[\\/:*?"<>|]'))) {
-                                      return 'El nombre no puede contener caracteres como \\ / : * ? " < > |';
-                                    }
-                                    return null;
-                                  },
-                                ),
-
-                                const SizedBox(height: 18),
-
-                                // Directorio raíz donde se guardará
-                                Row(
-                                  children: [
-                                    const Expanded(
-                                      child: Text(
-                                        'Directorio Raíz de Destino',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 13,
+                                      decoration: InputDecoration(
+                                        hintText: 'C:\\Pases o /home/...',
+                                        prefixIcon: const Icon(
+                                          Icons.drive_file_move_outlined,
+                                          size: 18,
                                         ),
-                                      ),
-                                    ),
-                                    InkWell(
-                                      onTap: _pasteDirectoryFromClipboard,
-                                      borderRadius: BorderRadius.circular(4),
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 6,
-                                          vertical: 2,
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.content_paste_rounded,
-                                              size: 13,
-                                              color: primaryColor,
+                                        filled: true,
+                                        fillColor: inputBg,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 11,
                                             ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              'Pegar ruta',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: primaryColor,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Se recordará automáticamente esta carpeta para próximas operaciones.',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: isDark
-                                        ? Colors.white54
-                                        : Colors.black45,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: TextFormField(
-                                        controller: _rootDirCtrl,
-                                        enabled:
-                                            !_creating &&
-                                            _createdFolderPath == null,
-                                        onChanged: (val) {
-                                          setState(() {});
-                                          _saveLastRootDir(val);
-                                        },
-                                        decoration: InputDecoration(
-                                          hintText: 'C:\\Pases o /home/...',
-                                          prefixIcon: const Icon(
-                                            Icons.drive_file_move_outlined,
-                                            size: 18,
-                                          ),
-                                          filled: true,
-                                          fillColor: inputBg,
-                                          contentPadding:
-                                              const EdgeInsets.symmetric(
-                                                horizontal: 12,
-                                                vertical: 11,
-                                              ),
-                                          border: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              8,
-                                            ),
-                                            borderSide: BorderSide(
-                                              color: borderColor,
-                                            ),
-                                          ),
-                                          enabledBorder: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              8,
-                                            ),
-                                            borderSide: BorderSide(
-                                              color: borderColor,
-                                            ),
-                                          ),
-                                        ),
-                                        validator: (v) {
-                                          if (v == null || v.trim().isEmpty) {
-                                            return 'Selecciona o pega el directorio raíz de destino';
-                                          }
-                                          return null;
-                                        },
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    ElevatedButton.icon(
-                                      icon: const Icon(
-                                        Icons.folder_open_rounded,
-                                        size: 16,
-                                      ),
-                                      label: const Text(
-                                        'Examinar',
-                                        style: TextStyle(fontSize: 12),
-                                      ),
-                                      style: ElevatedButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 14,
-                                          vertical: 14,
-                                        ),
-                                        shape: RoundedRectangleBorder(
+                                        border: OutlineInputBorder(
                                           borderRadius: BorderRadius.circular(
                                             8,
                                           ),
+                                          borderSide: BorderSide(
+                                            color: borderColor,
+                                          ),
+                                        ),
+                                        enabledBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          borderSide: BorderSide(
+                                            color: borderColor,
+                                          ),
                                         ),
                                       ),
-                                      onPressed:
-                                          (!_creating &&
-                                              _createdFolderPath == null)
-                                          ? _pickDirectory
-                                          : null,
+                                      validator: (v) {
+                                        if (v == null || v.trim().isEmpty) {
+                                          return 'Selecciona o pega el directorio raíz de destino';
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  ElevatedButton.icon(
+                                    icon: const Icon(
+                                      Icons.folder_open_rounded,
+                                      size: 16,
+                                    ),
+                                    label: const Text(
+                                      'Examinar',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                    style: ElevatedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                        vertical: 14,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                    ),
+                                    onPressed:
+                                        (!_creating &&
+                                            _createdFolderPath == null)
+                                        ? _pickDirectory
+                                        : null,
+                                  ),
+                                ],
+                              ),
+
+                              const SizedBox(height: 16),
+
+                              // Previsualización de la ruta completa
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isDark
+                                      ? const Color(0xFF14171E)
+                                      : const Color(0xFFF3F5F9),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: borderColor.withValues(alpha: 0.6),
+                                    width: 0.8,
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons.route_rounded,
+                                          size: 14,
+                                          color: isDark
+                                              ? Colors.cyanAccent
+                                              : Colors.teal,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        const Text(
+                                          'Ruta resultante:',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    SelectableText(
+                                      _computedTargetPath.isNotEmpty
+                                          ? _computedTargetPath
+                                          : '(Especifica el directorio raíz y el nombre de la carpeta)',
+                                      style: TextStyle(
+                                        fontFamily: 'Consolas',
+                                        fontSize: 11.5,
+                                        color: _computedTargetPath.isNotEmpty
+                                            ? (isDark
+                                                  ? Colors.cyanAccent
+                                                  : Colors.teal.shade800)
+                                            : (isDark
+                                                  ? Colors.white38
+                                                  : Colors.black38),
+                                      ),
                                     ),
                                   ],
                                 ),
+                              ),
 
-                                const SizedBox(height: 16),
+                              const SizedBox(height: 16),
 
-                                // Previsualización de la ruta completa
+                              // Archivos a generar
+                              _buildSummarySection(isDark, borderColor),
+
+                              if (_errorMessage != null) ...[
+                                const SizedBox(height: 12),
                                 Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 10,
-                                  ),
+                                  padding: const EdgeInsets.all(10),
                                   decoration: BoxDecoration(
-                                    color: isDark
-                                        ? const Color(0xFF14171E)
-                                        : const Color(0xFFF3F5F9),
+                                    color: Colors.red.withValues(alpha: 0.12),
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(
-                                      color: borderColor.withValues(alpha: 0.6),
-                                      width: 0.8,
+                                      color: Colors.redAccent.withValues(
+                                        alpha: 0.4,
+                                      ),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.error_outline_rounded,
+                                        color: Colors.redAccent,
+                                        size: 16,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          _errorMessage!,
+                                          style: const TextStyle(
+                                            fontSize: 11.5,
+                                            color: Colors.redAccent,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+
+                              if (_createdFolderPath != null) ...[
+                                const SizedBox(height: 12),
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: Colors.green.withValues(
+                                        alpha: 0.4,
+                                      ),
                                     ),
                                   ),
                                   child: Column(
@@ -582,247 +728,173 @@ class _CreateTicketFolderDialogState extends State<CreateTicketFolderDialog> {
                                     children: [
                                       Row(
                                         children: [
-                                          Icon(
-                                            Icons.route_rounded,
-                                            size: 14,
-                                            color: isDark
-                                                ? Colors.cyanAccent
-                                                : Colors.teal,
+                                          const Icon(
+                                            Icons.check_circle_rounded,
+                                            color: Colors.greenAccent,
+                                            size: 18,
                                           ),
-                                          const SizedBox(width: 6),
-                                          const Text(
-                                            'Ruta resultante:',
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w600,
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              '¡Directorio y ${_createdFiles?.length ?? 0} archivos generados con éxito!',
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 12.5,
+                                                color: Colors.greenAccent,
+                                              ),
                                             ),
                                           ),
                                         ],
                                       ),
-                                      const SizedBox(height: 4),
-                                      SelectableText(
-                                        _computedTargetPath.isNotEmpty
-                                            ? _computedTargetPath
-                                            : '(Especifica el directorio raíz y el nombre de la carpeta)',
-                                        style: TextStyle(
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        _createdFolderPath!,
+                                        style: const TextStyle(
                                           fontFamily: 'Consolas',
-                                          fontSize: 11.5,
-                                          color: _computedTargetPath.isNotEmpty
-                                              ? (isDark
-                                                    ? Colors.cyanAccent
-                                                    : Colors.teal.shade800)
-                                              : (isDark
-                                                    ? Colors.white38
-                                                    : Colors.black38),
+                                          fontSize: 11,
+                                          color: Colors.white70,
                                         ),
                                       ),
                                     ],
                                   ),
                                 ),
-
-                                const SizedBox(height: 16),
-
-                                // Archivos a generar
-                                _buildSummarySection(isDark, borderColor),
-
-                                if (_errorMessage != null) ...[
-                                  const SizedBox(height: 12),
-                                  Container(
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(
-                                      color: Colors.red.withValues(alpha: 0.12),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(
-                                        color: Colors.redAccent.withValues(
-                                          alpha: 0.4,
-                                        ),
-                                      ),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.error_outline_rounded,
-                                          color: Colors.redAccent,
-                                          size: 16,
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            _errorMessage!,
-                                            style: const TextStyle(
-                                              fontSize: 11.5,
-                                              color: Colors.redAccent,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-
-                                if (_createdFolderPath != null) ...[
-                                  const SizedBox(height: 12),
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.green.withValues(
-                                        alpha: 0.12,
-                                      ),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(
-                                        color: Colors.green.withValues(
-                                          alpha: 0.4,
-                                        ),
-                                      ),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            const Icon(
-                                              Icons.check_circle_rounded,
-                                              color: Colors.greenAccent,
-                                              size: 18,
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                              child: Text(
-                                                '¡Directorio y ${_createdFiles?.length ?? 0} archivos generados con éxito!',
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 12.5,
-                                                  color: Colors.greenAccent,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          _createdFolderPath!,
-                                          style: const TextStyle(
-                                            fontFamily: 'Consolas',
-                                            fontSize: 11,
-                                            color: Colors.white70,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
                               ],
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      // Barra inferior de botones
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 12,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? const Color(0xFF222732)
-                              : const Color(0xFFF7F8FA),
-                          border: Border(
-                            top: BorderSide(color: borderColor, width: 0.8),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            if (_createdFolderPath != null) ...[
-                              OutlinedButton.icon(
-                                icon: const Icon(
-                                  Icons.folder_open_rounded,
-                                  size: 16,
-                                ),
-                                label: const Text(
-                                  'Abrir Carpeta',
-                                  style: TextStyle(fontSize: 12),
-                                ),
-                                onPressed: _openCreatedFolder,
-                              ),
-                              const SizedBox(width: 10),
-                              ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.teal.shade700,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 18,
-                                    vertical: 12,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                ),
-                                onPressed: () =>
-                                    _closeDialog(_createdFolderPath),
-                                child: const Text(
-                                  'Listo',
-                                  style: TextStyle(
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ] else ...[
-                              TextButton(
-                                onPressed: _creating
-                                    ? null
-                                    : () => _closeDialog(),
-                                child: const Text(
-                                  'Cancelar',
-                                  style: TextStyle(fontSize: 12),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              ElevatedButton.icon(
-                                icon: _creating
-                                    ? const SizedBox(
-                                        width: 14,
-                                        height: 14,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Icon(Icons.check_rounded, size: 16),
-                                label: Text(
-                                  _creating
-                                      ? (_progressMessage ?? 'Creando...')
-                                      : 'Crear Directorio y Archivos',
-                                  style: const TextStyle(
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.teal.shade700,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 12,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                ),
-                                onPressed: _creating
-                                    ? null
-                                    : _createFolderAndFiles,
-                              ),
                             ],
-                          ],
+                          ),
                         ),
                       ),
-                    ],
-                  ),
-          ),
+                    ),
+
+                    // Barra inferior de botones
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? const Color(0xFF222732)
+                            : const Color(0xFFF7F8FA),
+                        border: Border(
+                          top: BorderSide(color: borderColor, width: 0.8),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          if (_createdFolderPath != null) ...[
+                            OutlinedButton.icon(
+                              icon: const Icon(
+                                Icons.folder_open_rounded,
+                                size: 16,
+                              ),
+                              label: const Text(
+                                'Abrir Carpeta',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              onPressed: _openCreatedFolder,
+                            ),
+                            const SizedBox(width: 10),
+                            FilledButton.icon(
+                              icon: const Icon(Icons.check_rounded, size: 16),
+                              label: const Text(
+                                'Finalizar',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF0D9488),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 18,
+                                  vertical: 12,
+                                ),
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              onPressed: () => _closeDialog(_createdFolderPath),
+                            ),
+                          ] else ...[
+                            OutlinedButton(
+                              onPressed: _creating
+                                  ? null
+                                  : () => _closeDialog(),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              child: const Text(
+                                'Cancelar',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            FilledButton.icon(
+                              icon: _creating
+                                  ? const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.create_new_folder_rounded,
+                                      size: 16,
+                                    ),
+                              label: Text(
+                                _creating
+                                    ? (_progressMessage ?? 'Creando...')
+                                    : 'Crear Directorio y Archivos',
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF0D9488),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 18,
+                                  vertical: 12,
+                                ),
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              onPressed: _creating
+                                  ? null
+                                  : _createFolderAndFiles,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
         ),
       ),
     );

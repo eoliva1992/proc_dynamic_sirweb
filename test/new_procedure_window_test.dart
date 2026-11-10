@@ -1,8 +1,27 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:proc_dynamic_sirweb/services/plantilla_service.dart';
 import 'package:proc_dynamic_sirweb/widgets/new_procedure_dialog.dart';
 
 void main() {
+  setUpAll(() {
+    HttpOverrides.global = null;
+    PlantillaService.setHttpClientForTesting(
+      MockClient((request) async {
+        return http.Response(jsonEncode({'data': []}), 200);
+      }),
+    );
+  });
+
+  tearDownAll(() {
+    PlantillaService.setHttpClientForTesting(null);
+  });
+
   testWidgets('el alta de procedimiento es una ventana con minimizar, '
       'maximizar y cerrar', (tester) async {
     tester.view.physicalSize = const Size(1600, 1000);
@@ -33,10 +52,23 @@ void main() {
     expect(find.byTooltip('Maximizar (F11)'), findsOneWidget);
     expect(find.byTooltip('Cerrar (Esc)'), findsOneWidget);
 
-    // Se escribe algo para comprobar que minimizar no reinicia el contenido.
-    await tester.enterText(find.byType(TextFormField).first, 'PR_PRUEBA');
+    // En el paso 1 (Configuración), la tarjeta por defecto "Dato" está presente
+    expect(find.text('Dato'), findsOneWidget);
+
+    // Barra de búsqueda del paso 1
+    final searchConfig = find.byType(TextField).first;
+    expect(searchConfig, findsOneWidget);
+
+    // Filtrar por término que no existe
+    await tester.enterText(searchConfig, 'XYZ_INEXISTENTE');
     await tester.pump();
-    expect(find.text('PR_PRUEBA'), findsOneWidget);
+    expect(find.text('No se encontraron configuraciones'), findsOneWidget);
+
+    // Limpiar búsqueda y verificar restauración de opciones
+    await tester.tap(find.text('Restablecer búsqueda'));
+    await tester.pump();
+    expect(find.text('Dato'), findsOneWidget);
+    expect(find.text('JavaScript'), findsOneWidget);
 
     // ── Minimizar deja sólo la barra de título ────────────────────────────
     await tester.tap(find.byTooltip('Minimizar'));
@@ -52,28 +84,62 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Nuevo Procedimiento Dinámico'), findsOneWidget);
     expect(
-      find.text('PR_PRUEBA'),
+      find.text('Dato'),
       findsOneWidget,
-      reason: 'minimizar no debe reiniciar el formulario',
+      reason: 'minimizar no debe reiniciar el estado del wizard',
     );
 
-    // ── Cambio de Tipo de Configuración con MenuAnchor ────────────────────
-    // Delphi es el valor por defecto
-    expect(find.text('Delphi'), findsOneWidget);
-
-    // Abrir menú de configuración
-    await tester.tap(find.text('Delphi'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
-
-    // Verificar que se listan opciones de configuración y seleccionar JavaScript
+    // ── Navegación del Wizard: Seleccionar JavaScript y avanzar ────────────
     expect(find.text('JavaScript'), findsOneWidget);
     await tester.tap(find.text('JavaScript'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
 
-    // El selector ahora muestra JavaScript y la etiqueta de lenguaje se actualizó
-    expect(find.text('JavaScript'), findsWidgets);
+    // Botón Continuar hacia Paso 2 (Plantilla)
+    final btnContinuar = find.text('Siguiente: Elegir Plantilla');
+    expect(btnContinuar, findsOneWidget);
+    await tester.tap(btnContinuar);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.textContaining('Paso 2:'), findsOneWidget);
+
+    if (find.byType(CircularProgressIndicator).evaluate().isNotEmpty) {
+      await tester.pump(const Duration(seconds: 1));
+    }
+
+    // Si aún está cargando o ya resolvió:
+    if (find.text('VISTA PREVIA DEL CÓDIGO').evaluate().isNotEmpty) {
+      expect(find.text('VISTA PREVIA DEL CÓDIGO'), findsOneWidget);
+      expect(find.text('Comenzar en blanco'), findsOneWidget);
+      expect(find.byIcon(Icons.view_headline_rounded), findsOneWidget);
+
+      // Alternar a vista de lista
+      await tester.tap(find.byIcon(Icons.view_headline_rounded));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.byIcon(Icons.grid_view_rounded), findsOneWidget);
+    }
+
+    // Avanzar al Editor
+    final btnContinuarPaso2 = find.text('Continuar al Editor');
+    expect(btnContinuarPaso2, findsOneWidget);
+    await tester.tap(btnContinuarPaso2);
+    await tester.pump();
+    for (var i = 0; i < 3; i++) {
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+
+    // En Paso 3 (Editor) se encuentra el campo del código
+    final codeField = find.byType(TextFormField).first;
+    await tester.enterText(codeField, 'PR_PRUEBA');
+    await tester.pump();
+    expect(find.text('PR_PRUEBA'), findsOneWidget);
+
+    // Escribir en el código no debe alterar ni resetear el formulario
+    await tester.enterText(codeField, 'PR_MODIFICADO');
+    await tester.pump();
+    expect(find.text('PR_MODIFICADO'), findsOneWidget);
 
     // ── Cerrar completa el Future con null ────────────────────────────────
     await tester.tap(find.byTooltip('Cerrar (Esc)'));

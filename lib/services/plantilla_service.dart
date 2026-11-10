@@ -73,6 +73,27 @@ class PlantillaService {
     }
   }
 
+  /// Carga y filtra plantillas compatibles estrictamente con un tipo de configuración
+  /// y su lenguaje (SQL vs JavaScript).
+  Future<List<Plantilla>> loadParaConfiguracion({
+    required bool isJs,
+    String? query,
+  }) async {
+    final all = await loadAll(
+      categoria: Plantilla.catProcDinamico,
+      query: query,
+    );
+    return all.where((p) => p.esCompatibleConConfig(isJs: isJs)).toList();
+  }
+
+  /// Carga plantillas filtradas por una categoría específica de objeto Oracle/SQL.
+  Future<List<Plantilla>> loadParaCategoria(
+    String categoria, {
+    String? query,
+  }) async {
+    return loadAll(categoria: categoria, query: query);
+  }
+
   /// Consulta al backend vía GET `/tools/plantillas`
   Future<List<Plantilla>> search({
     String? categoria,
@@ -144,12 +165,30 @@ class PlantillaService {
 
   // ------------------------------------------------------------------ Escritura
 
+  String _extraerMensajeError(http.Response res) {
+    try {
+      final decoded = jsonDecode(utf8.decode(res.bodyBytes));
+      if (decoded is Map<String, dynamic>) {
+        if (decoded['error'] != null &&
+            decoded['error'].toString().trim().isNotEmpty) {
+          return decoded['error'].toString().trim();
+        }
+        if (decoded['message'] != null &&
+            decoded['message'].toString().trim().isNotEmpty) {
+          return decoded['message'].toString().trim();
+        }
+      }
+    } catch (_) {}
+    return 'HTTP ${res.statusCode}: ${res.body}';
+  }
+
   /// Crea una nueva plantilla en el servidor (POST /tools/plantillas)
   Future<Plantilla> create(Plantilla plantilla) async {
+    final effectiveUser = currentUser.trim();
     final payload = plantilla.copyWith(
-      ownerUser: plantilla.ownerUser.isEmpty
-          ? currentUser
-          : plantilla.ownerUser,
+      ownerUser: plantilla.ownerUser.trim().isEmpty
+          ? effectiveUser
+          : plantilla.ownerUser.trim(),
     );
     final baseUrl = await getBaseUrl();
     final res = await _client.post(
@@ -162,6 +201,11 @@ class PlantillaService {
       final dynamic decoded = jsonDecode(utf8.decode(res.bodyBytes));
       Plantilla saved = payload;
       if (decoded is Map<String, dynamic>) {
+        if (decoded['success'] == false) {
+          final err =
+              decoded['error'] ?? decoded['message'] ?? 'Error desconocido';
+          throw HttpException('Error creando plantilla: $err');
+        }
         final data = decoded['data'] is Map<String, dynamic>
             ? decoded['data'] as Map<String, dynamic>
             : decoded;
@@ -171,9 +215,8 @@ class PlantillaService {
       AppLog.instance.info('Plantilla creada exitosamente: ${saved.nombre}');
       return saved;
     } else {
-      throw HttpException(
-        'Error creando plantilla: ${res.statusCode} - ${res.body}',
-      );
+      final msg = _extraerMensajeError(res);
+      throw HttpException('Error creando plantilla: $msg');
     }
   }
 
@@ -182,18 +225,35 @@ class PlantillaService {
     if (plantilla.id.isEmpty) {
       return create(plantilla);
     }
+
+    // Si es una plantilla semilla predefinida, no existe en la base de datos:
+    // debe ser creada como una plantilla de usuario personalizada en el servidor.
+    if (plantilla.id.startsWith('seed-')) {
+      return create(plantilla.copyWith(id: ''));
+    }
+
+    final effectiveUser = currentUser.trim();
     final baseUrl = await getBaseUrl();
     final uri = Uri.parse('$baseUrl/${Uri.encodeComponent(plantilla.id)}');
     final res = await _client.put(
       uri,
       headers: const {'Content-Type': 'application/json', 'Accept': '*/*'},
-      body: jsonEncode(plantilla.toUpdateJson()),
+      body: jsonEncode(plantilla.toUpdateJson(modifiedByUser: effectiveUser)),
     );
 
     if (res.statusCode >= 200 && res.statusCode < 300) {
       final dynamic decoded = jsonDecode(utf8.decode(res.bodyBytes));
       Plantilla updated = plantilla;
       if (decoded is Map<String, dynamic>) {
+        if (decoded['success'] == false) {
+          final err =
+              decoded['error'] ?? decoded['message'] ?? 'Error desconocido';
+          // Si el servidor indica que no existe (ej. eliminada o local), intenta crearla
+          if (err.toString().toLowerCase().contains('no encontrada')) {
+            return create(plantilla.copyWith(id: ''));
+          }
+          throw HttpException('Error actualizando plantilla: $err');
+        }
         final data = decoded['data'] is Map<String, dynamic>
             ? decoded['data'] as Map<String, dynamic>
             : decoded;
@@ -202,19 +262,21 @@ class PlantillaService {
       unawaited(_updateCacheWith(updated));
       AppLog.instance.info('Plantilla actualizada: ${updated.nombre}');
       return updated;
+    } else if (res.statusCode == 404) {
+      // Fallback: si no se encuentra en el backend, crearla como nueva
+      return create(plantilla.copyWith(id: ''));
     } else {
-      throw HttpException(
-        'Error actualizando plantilla: ${res.statusCode} - ${res.body}',
-      );
+      final msg = _extraerMensajeError(res);
+      throw HttpException('Error actualizando plantilla: $msg');
     }
   }
 
   /// Guarda (crea si no tiene ID o actualiza si ya tiene ID)
   Future<Plantilla> save(Plantilla plantilla) {
-    if (plantilla.isPersisted) {
+    if (plantilla.isPersisted && !plantilla.id.startsWith('seed-')) {
       return update(plantilla);
     } else {
-      return create(plantilla);
+      return create(plantilla.copyWith(id: ''));
     }
   }
 
@@ -306,16 +368,17 @@ class PlantillaService {
         descripcion:
             'Estructura PL/SQL con control de excepciones y variable de estado W_STAT',
         contenido:
+            '-- Creado por \${0:usuario} el \${2:fecha}\n'
             'BEGIN\n'
             '  DECLARE\n'
             "    W_STAT VARCHAR2(5) := '0';\n"
             '  BEGIN\n'
             '    -- 1. Inicialización y lógica de negocio\n'
             '    W_STAT := \'10\';\n'
-            '    NULL;\n'
+            '    \${3:NULL;}\n'
             '  EXCEPTION\n'
             '    WHEN OTHERS THEN\n'
-            "      :P_ERROR := '{NOMBRE_PROC} EN ' || W_STAT || ' ** ' || SQLERRM;\n"
+            "      :P_ERROR := '\${1:nombre_proc} EN ' || W_STAT || ' ** ' || SQLERRM;\n"
             '  END;\n'
             'END;',
       ),
@@ -327,15 +390,18 @@ class PlantillaService {
         descripcion:
             'Estructura con jQuery ready y función con bloque try-catch',
         contenido:
+            '// Creado por \${0:usuario} el \${2:fecha}\n'
             'jQuery(document).ready(function () {\n'
             '  // Inicialización de componentes en la vista\n'
+            '  \${3:// TODO}\n'
             '});\n\n'
-            'function {NOMBRE_PROC}() {\n'
+            'function \${1:nombre_proc}() {\n'
             '  try {\n'
             '    // Lógica principal de ejecución\n'
+            '    \$0\n'
             '  } catch (e) {\n'
-            '    console.error(\'{NOMBRE_PROC}:\', e);\n'
-            '    alert(\'Error en {NOMBRE_PROC}: \' + e.message);\n'
+            '    console.error(\'\${1:nombre_proc}:\', e);\n'
+            '    alert(\'Error en \${1:nombre_proc}: \' + e.message);\n'
             '  }\n'
             '}',
       ),
@@ -347,8 +413,9 @@ class PlantillaService {
         descripcion:
             'Procedimiento almacenado con parámetros de entrada/salida y manejo de errores',
         contenido:
-            'CREATE OR REPLACE PROCEDURE {NOMBRE} (\n'
-            '    p_id          IN  NUMBER,\n'
+            '-- Autor: \${0:usuario} | Fecha: \${2:fecha}\n'
+            'CREATE OR REPLACE PROCEDURE \${1:nombre} (\n'
+            '    \${3:p_id}          IN  NUMBER,\n'
             '    p_resultado   OUT VARCHAR2,\n'
             '    p_error       OUT VARCHAR2\n'
             ') IS\n'
@@ -357,11 +424,12 @@ class PlantillaService {
             '    v_paso := \'01\';\n'
             '    p_resultado := \'OK\';\n'
             '    p_error := NULL;\n'
+            '    \$0\n'
             'EXCEPTION\n'
             '    WHEN OTHERS THEN\n'
             '        p_resultado := \'ERROR\';\n'
-            '        p_error := \'{NOMBRE} en paso \' || v_paso || \': \' || SQLERRM;\n'
-            'END {NOMBRE};\n/',
+            '        p_error := \'\${1:nombre} en paso \' || v_paso || \': \' || SQLERRM;\n'
+            'END \${1:nombre};\n/',
       ),
       // 4. Función Oracle (DDL)
       const Plantilla(
@@ -370,18 +438,20 @@ class PlantillaService {
         categoria: Plantilla.catFunction,
         descripcion: 'Función determinista o escalar con retorno de valor',
         contenido:
-            'CREATE OR REPLACE FUNCTION {NOMBRE} (\n'
-            '    p_parametro IN VARCHAR2\n'
-            ') RETURN VARCHAR2 IS\n'
-            '    v_retorno VARCHAR2(4000);\n'
+            '-- Autor: \${0:usuario} | Fecha: \${2:fecha}\n'
+            'CREATE OR REPLACE FUNCTION \${1:nombre} (\n'
+            '    \${3:p_parametro} IN VARCHAR2\n'
+            ') RETURN \${4:VARCHAR2} IS\n'
+            '    v_retorno \${4:VARCHAR2}(4000);\n'
             'BEGIN\n'
             '    -- Lógica de transformación o cálculo\n'
-            '    v_retorno := TRIM(p_parametro);\n'
+            '    v_retorno := TRIM(\${3:p_parametro});\n'
+            '    \$0\n'
             '    RETURN v_retorno;\n'
             'EXCEPTION\n'
             '    WHEN OTHERS THEN\n'
             '        RETURN NULL;\n'
-            'END {NOMBRE};\n/',
+            'END \${1:nombre};\n/',
       ),
       // 5. Package Specification (DDL)
       const Plantilla(
@@ -391,15 +461,16 @@ class PlantillaService {
         descripcion:
             'Especificación de paquete con declaración de tipos y firmas públicas',
         contenido:
-            'CREATE OR REPLACE PACKAGE {NOMBRE} AS\n'
+            '-- Autor: \${0:usuario} | Fecha: \${2:fecha}\n'
+            'CREATE OR REPLACE PACKAGE \${1:nombre} AS\n'
             '    -- Tipos y constantes\n'
             '    TYPE t_cursor IS REF CURSOR;\n\n'
             '    -- Firmas de procedimientos y funciones públicas\n'
-            '    PROCEDURE inicializar;\n\n'
-            '    FUNCTION obtener_estado (\n'
+            '    PROCEDURE \${3:inicializar};\n\n'
+            '    FUNCTION \${4:obtener_estado} (\n'
             '        p_id IN NUMBER\n'
             '    ) RETURN VARCHAR2;\n'
-            'END {NOMBRE};\n/',
+            'END \${1:nombre};\n/',
       ),
       // 6. Package Body (DDL)
       const Plantilla(
@@ -409,18 +480,67 @@ class PlantillaService {
         descripcion:
             'Cuerpo de paquete con implementación de lógica y métodos privados',
         contenido:
-            'CREATE OR REPLACE PACKAGE BODY {NOMBRE} AS\n\n'
-            '    PROCEDURE inicializar IS\n'
+            '-- Autor: \${0:usuario} | Fecha: \${2:fecha}\n'
+            'CREATE OR REPLACE PACKAGE BODY \${1:nombre} AS\n\n'
+            '    PROCEDURE \${3:inicializar} IS\n'
             '    BEGIN\n'
-            '        NULL;\n'
-            '    END inicializar;\n\n'
-            '    FUNCTION obtener_estado (\n'
+            '        \${5:NULL;}\n'
+            '    END \${3:inicializar};\n\n'
+            '    FUNCTION \${4:obtener_estado} (\n'
             '        p_id IN NUMBER\n'
             '    ) RETURN VARCHAR2 IS\n'
             '    BEGIN\n'
+            '        \$0\n'
             '        RETURN \'ACTIVO\';\n'
-            '    END obtener_estado;\n\n'
-            'END {NOMBRE};\n/',
+            '    END \${4:obtener_estado};\n\n'
+            'END \${1:nombre};\n/',
+      ),
+      // 7. Trigger Oracle (DDL)
+      const Plantilla(
+        id: 'seed-oracle-trigger',
+        nombre: 'Trigger Oracle (DML)',
+        categoria: Plantilla.catTrigger,
+        descripcion:
+            'Disparador para eventos de inserción, actualización o auditoría en tabla',
+        contenido:
+            '-- Autor: \${0:usuario} | Fecha: \${2:fecha}\n'
+            'CREATE OR REPLACE TRIGGER \${1:trg_nombre}\n'
+            'BEFORE INSERT OR UPDATE ON \${3:nombre_tabla}\n'
+            'FOR EACH ROW\n'
+            'DECLARE\n'
+            '    -- Variables locales del disparador\n'
+            '    v_fecha DATE := SYSDATE;\n'
+            'BEGIN\n'
+            '    IF INSERTING THEN\n'
+            '        -- Asignación o auditoría al insertar\n'
+            '        \${4::NEW.created_at := v_fecha;}\n'
+            '    ELSIF UPDATING THEN\n'
+            '        -- Acciones al actualizar\n'
+            '        \${5::NEW.updated_at := v_fecha;}\n'
+            '    END IF;\n'
+            '    \$0\n'
+            'EXCEPTION\n'
+            '    WHEN OTHERS THEN\n'
+            '        RAISE_APPLICATION_ERROR(-20001, \'Error en trigger \${1:trg_nombre}: \' || SQLERRM);\n'
+            'END \${1:trg_nombre};\n/',
+      ),
+      // 8. Type Spec Oracle (DDL)
+      const Plantilla(
+        id: 'seed-oracle-type',
+        nombre: 'Type Specification (DDL)',
+        categoria: Plantilla.catType,
+        descripcion:
+            'Definición de tipo objeto estructurado Oracle con atributos y métodos',
+        contenido:
+            '-- Autor: \${0:usuario} | Fecha: \${2:fecha}\n'
+            'CREATE OR REPLACE TYPE \${1:t_nombre} AS OBJECT (\n'
+            '    -- Atributos del tipo\n'
+            '    \${3:id}          NUMBER,\n'
+            '    \${4:codigo}      VARCHAR2(50),\n'
+            '    \${5:descripcion} VARCHAR2(200),\n\n'
+            '    -- Métodos o constructores miembros (opcional)\n'
+            '    MEMBER FUNCTION \${6:get_info} RETURN VARCHAR2\n'
+            ');\n/',
       ),
     ];
   }

@@ -8,6 +8,7 @@ import '../services/schema_service.dart';
 import '../services/app_log.dart';
 import '../services/note_service.dart';
 import '../services/notification_service.dart';
+import '../services/plantilla_service.dart';
 import '../services/sirweb_service.dart';
 import '../services/snippet_service.dart';
 import '../services/sql_session_manager.dart';
@@ -136,6 +137,7 @@ abstract class _ProcedimientosProvider with Store {
     if (normalized.isNotEmpty) {
       NoteService.resetForUser(normalized);
       SnippetService.currentUser = normalized;
+      PlantillaService.currentUser = normalized;
       NotificationService.instance.updateUser(normalized);
       SqlSessionManager.instance.notifyExternalChange();
     }

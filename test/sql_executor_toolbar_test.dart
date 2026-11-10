@@ -173,4 +173,45 @@ void main() {
       expect(changedMaxRows, 100);
     },
   );
+
+  testWidgets(
+    'SqlExecutorToolbar muestra botón de retomar snippet e invoca onResumeSnippet',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      var resumeInvoked = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SqlExecutorToolbar(
+              ambiente: 'Desa',
+              onAmbienteChanged: (_) {},
+              statement: null,
+              running: false,
+              onExecuteCurrent: () {},
+              onExecuteAll: () {},
+              onExplainPlan: () {},
+              onClearOutput: () {},
+              onResumeSnippet: () {
+                resumeInvoked = true;
+              },
+            ),
+          ),
+        ),
+      );
+
+      final resumeBtn = find.byTooltip(
+        'Retomar snippet interactivo / Siguiente parámetro (Ctrl + J)',
+      );
+      expect(resumeBtn, findsOneWidget);
+
+      await tester.tap(resumeBtn);
+      await tester.pump();
+
+      expect(resumeInvoked, isTrue);
+    },
+  );
 }

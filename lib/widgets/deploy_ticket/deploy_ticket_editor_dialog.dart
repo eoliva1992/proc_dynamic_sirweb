@@ -522,16 +522,16 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
                   decoration: BoxDecoration(
                     color: bg,
                     borderRadius: BorderRadius.circular(
-                      _maximized ? 0 : (_minimized ? 8 : 12),
+                      _maximized ? 0 : (_minimized ? 8 : 16),
                     ),
                     border: Border.all(color: divColor, width: 0.8),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withValues(
-                          alpha: isDark ? 0.65 : 0.22,
+                          alpha: isDark ? 0.55 : 0.18,
                         ),
-                        blurRadius: _minimized ? 16 : 36,
-                        offset: Offset(0, _minimized ? 4 : 14),
+                        blurRadius: _minimized ? 16 : 28,
+                        offset: Offset(0, _minimized ? 4 : 10),
                       ),
                     ],
                   ),
@@ -864,53 +864,65 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
   }
 
   Widget _buildTabBar(ColorScheme cs, Color divColor, bool isDark) {
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF191A1E) : Colors.grey.shade100,
-        border: Border(bottom: BorderSide(color: divColor, width: 0.8)),
-      ),
-      child: TabBar(
-        controller: _tabController,
-        isScrollable: true,
-        indicatorWeight: 3,
-        indicatorColor: cs.primary,
-        labelColor: cs.primary,
-        unselectedLabelColor: isDark
-            ? Colors.grey.shade400
-            : Colors.grey.shade600,
-        labelStyle: const TextStyle(
-          fontWeight: FontWeight.bold,
-          fontSize: 12.5,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (_saving)
+          LinearProgressIndicator(
+            minHeight: 2.5,
+            backgroundColor: cs.primary.withValues(alpha: 0.15),
+            color: cs.primary,
+          ),
+        Container(
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF191A1E) : Colors.grey.shade100,
+            border: Border(bottom: BorderSide(color: divColor, width: 0.8)),
+          ),
+          child: TabBar(
+            controller: _tabController,
+            isScrollable: true,
+            indicatorWeight: 3,
+            indicatorColor: cs.primary,
+            labelColor: cs.primary,
+            unselectedLabelColor: isDark
+                ? Colors.grey.shade400
+                : Colors.grey.shade600,
+            labelStyle: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 12.5,
+            ),
+            tabs: [
+              const Tab(
+                icon: Icon(Icons.assignment_outlined, size: 16),
+                text: 'General & Solicitud',
+              ),
+              Tab(
+                icon: const Icon(Icons.code_rounded, size: 16),
+                text:
+                    'Código / PL·SQL (${_reglasNegocio.length + _procedimientos.length + _paquetes.length + _funciones.length})',
+              ),
+              Tab(
+                icon: const Icon(Icons.storage_rounded, size: 16),
+                text:
+                    'Scripts & Datos (${_sql.length + _reverseSql.length + _bloqueLogico.length})',
+              ),
+              Tab(
+                icon: const Icon(Icons.view_in_ar_rounded, size: 16),
+                text:
+                    'Esquema & Objetos (${_objetos.length + _triggers.length})',
+              ),
+              Tab(
+                icon: const Icon(Icons.sticky_note_2_outlined, size: 16),
+                text: 'Notas (${_noteIds.length})',
+              ),
+              const Tab(
+                icon: Icon(Icons.description_outlined, size: 16),
+                text: 'Vista Previa index.txt',
+              ),
+            ],
+          ),
         ),
-        tabs: [
-          const Tab(
-            icon: Icon(Icons.assignment_outlined, size: 16),
-            text: 'General & Solicitud',
-          ),
-          Tab(
-            icon: const Icon(Icons.code_rounded, size: 16),
-            text:
-                'Código / PL·SQL (${_reglasNegocio.length + _procedimientos.length + _paquetes.length + _funciones.length})',
-          ),
-          Tab(
-            icon: const Icon(Icons.storage_rounded, size: 16),
-            text:
-                'Scripts & Datos (${_sql.length + _reverseSql.length + _bloqueLogico.length})',
-          ),
-          Tab(
-            icon: const Icon(Icons.view_in_ar_rounded, size: 16),
-            text: 'Esquema & Objetos (${_objetos.length + _triggers.length})',
-          ),
-          Tab(
-            icon: const Icon(Icons.sticky_note_2_outlined, size: 16),
-            text: 'Notas (${_noteIds.length})',
-          ),
-          const Tab(
-            icon: Icon(Icons.description_outlined, size: 16),
-            text: 'Vista Previa index.txt',
-          ),
-        ],
-      ),
+      ],
     );
   }
 
@@ -2130,8 +2142,14 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
             ),
           ),
           const Spacer(),
-          TextButton(
+          OutlinedButton(
             onPressed: _saving ? null : widget.onClose,
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
             child: const Text('Cancelar'),
           ),
           const SizedBox(width: 10),
@@ -2146,7 +2164,20 @@ class _DeployTicketEditorDialogState extends State<DeployTicketEditorDialog>
                     ),
                   )
                 : const Icon(Icons.check_rounded, size: 18),
-            label: Text(_isEditing ? 'Guardar Cambios' : 'Registrar Ficha'),
+            label: Text(
+              _saving
+                  ? 'Guardando...'
+                  : (_isEditing ? 'Guardar Cambios' : 'Registrar Ficha'),
+            ),
+            style: FilledButton.styleFrom(
+              backgroundColor: cs.primary,
+              foregroundColor: cs.onPrimary,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
             onPressed: _saving ? null : _saveTicket,
           ),
         ],

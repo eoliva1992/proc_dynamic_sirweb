@@ -48,6 +48,11 @@ import '../services/local_file_service.dart';
 import 'app_toast.dart';
 import 'definition_navigation.dart';
 import 'floating_window.dart';
+import 'monaco_snippets.dart'
+    show
+        buildMonacoPasteJs,
+        installMonacoSnippetNavigator,
+        jumpSnippetPlaceholder;
 import 'plsql_tables.dart' show extractSqlTables;
 import 'source_float_window.dart';
 import 'source_tab_controller.dart';
@@ -736,7 +741,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     await ctrl.runJavaScript(
       'try { window.editor.updateOptions({'
       '  acceptSuggestionOnEnter: "off",'
-      '  tabCompletion: "on",'
+      '  tabCompletion: "onlySnippets",'
       '  wordBasedSuggestions: "currentDocument",'
       '  quickSuggestions: { other: true, comments: false, strings: false }'
       '}); } catch(e) {}',
@@ -989,6 +994,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     // ambos son fire-and-forget, no hay que esperarlos para seguir.
     _registerSchemaCompletions(ctrl);
     unawaited(_installEditorPatches(ctrl));
+    unawaited(installMonacoSnippetNavigator(ctrl));
 
     // LSP: intentar conectar sql-language-server si está instalado
     _tryConnectLsp(ctrl);
@@ -1274,6 +1280,32 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
             () async => _pasteFromClipboard(),
           )
           .then((a) => _pasteAction = a),
+      ctrl
+          .addAction(
+            const MonacoActionDescriptor(
+              id: MonacoAction('custom.snippet.nav_next'),
+              label: 'Siguiente parámetro / Retomar navegación',
+              keybindings: [
+                MonacoKeybinding(ctrlCmd: true, key: MonacoKey.keyJ),
+              ],
+            ),
+            () async => jumpSnippetPlaceholder(ctrl, forward: true),
+          ),
+      ctrl
+          .addAction(
+            const MonacoActionDescriptor(
+              id: MonacoAction('custom.snippet.nav_prev'),
+              label: 'Parámetro anterior',
+              keybindings: [
+                MonacoKeybinding(
+                  ctrlCmd: true,
+                  shift: true,
+                  key: MonacoKey.keyJ,
+                ),
+              ],
+            ),
+            () async => jumpSnippetPlaceholder(ctrl, forward: false),
+          ),
     ]);
 
     if (_disposed || !mounted) return;
@@ -1895,49 +1927,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     final text = data?.text;
     if (text == null || text.isEmpty) return;
 
-    // El texto se inyecta como literal JSON → escapa comillas, saltos de
-    // línea y unicode sin romper el JS.
-    final literal = jsonEncode(text);
-
-    // Si el foco está en un input auxiliar (ej. barra de búsqueda), inserta
-    // en dicho input y dispara el evento 'input' para actualizar la búsqueda.
-    // De lo contrario, ejecuta executeEdits sobre el editor.
+    // Si el texto pegado contiene sintaxis de snippet (${1:nombre}, $0),
+    // se procesa a través del snippetController y del navegador interactivo
+    // con soporte de navegación con Tab / Shift+Tab.
     final result = await _withCtrl(
-      (ctrl) => ctrl.evaluateJavaScript<String>(
-        '(()=>{'
-        '  try {'
-        '    const t = $literal;'
-        '    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
-        '    if (aux) {'
-        '      var start = aux.selectionStart != null ? aux.selectionStart : aux.value.length;'
-        '      var end = aux.selectionEnd != null ? aux.selectionEnd : aux.value.length;'
-        '      var val = aux.value || "";'
-        '      aux.value = val.substring(0, start) + t + val.substring(end);'
-        '      aux.selectionStart = aux.selectionEnd = start + t.length;'
-        '      aux.focus();'
-        '      aux.dispatchEvent(new Event("input", { bubbles: true }));'
-        '      return "ok";'
-        '    }'
-        '    const ed = window.editor;'
-        '    if (!ed) return "err";'
-        '    ed.focus();'
-        '    let sels = ed.getSelections();'
-        '    if (!sels || sels.length === 0) {'
-        '      const s = ed.getSelection();'
-        '      sels = s ? [s] : [];'
-        '    }'
-        '    if (sels.length === 0) return "err";'
-        '    const lines = t.split(/\\r?\\n/);'
-        '    const matchLines = sels.length > 1 && lines.length === sels.length;'
-        '    ed.pushUndoStop();'
-        '    ed.executeEdits("flutter-paste", sels.map(function(s, idx){'
-        '      return { range: s, text: matchLines ? lines[idx] : t, forceMoveMarkers: true };'
-        '    }));'
-        '    ed.pushUndoStop();'
-        '    return "ok";'
-        '  } catch(e) { return "err"; }'
-        '})()',
-      ),
+      (ctrl) => ctrl.evaluateJavaScript<String>(buildMonacoPasteJs(text)),
     );
 
     if (result == 'ok') return;

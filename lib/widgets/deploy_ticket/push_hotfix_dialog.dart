@@ -117,6 +117,8 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
     });
   }
 
+  String? _selectedCategoryFilter;
+
   Future<void> _executeGenerateAndPush() async {
     final commitMsg = _commitMsgCtrl.text.trim();
     if (commitMsg.isEmpty) {
@@ -133,6 +135,28 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
 
     if (_remoteUrl.isEmpty) {
       AppToast.error('El enlace remoto al repositorio no está configurado');
+      return;
+    }
+
+    if (!Directory(_localPath).existsSync()) {
+      AppToast.error('La carpeta local del proyecto no existe en disco');
+      return;
+    }
+
+    try {
+      final testFile = File(
+        '$_localPath${Platform.pathSeparator}.git_push_test_${DateTime.now().millisecondsSinceEpoch}',
+      );
+      testFile.writeAsStringSync('test');
+      testFile.deleteSync();
+    } catch (e) {
+      AppToast.error(
+        'Sin permisos de escritura en la carpeta local del proyecto',
+      );
+      setState(() {
+        _errorMessage =
+            'No hay permisos de escritura en la carpeta seleccionada:\n$_localPath\n\nDetalle: $e';
+      });
       return;
     }
 
@@ -345,9 +369,9 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? 0.55 : 0.22),
-                blurRadius: 32,
-                offset: const Offset(0, 12),
+                color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.12),
+                blurRadius: 28,
+                offset: const Offset(0, 10),
               ),
             ],
           ),
@@ -640,7 +664,23 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
                             // Listado de archivos / scripts a subir con acceso a abrir en editor SQL
                             Builder(
                               builder: (context) {
-                                final artifacts = _collectArtifacts();
+                                final allArtifacts = _collectArtifacts();
+                                final categories = allArtifacts
+                                    .map((a) => a.categoria)
+                                    .toSet()
+                                    .toList();
+
+                                final filteredArtifacts =
+                                    _selectedCategoryFilter == null
+                                    ? allArtifacts
+                                    : allArtifacts
+                                          .where(
+                                            (a) =>
+                                                a.categoria ==
+                                                _selectedCategoryFilter,
+                                          )
+                                          .toList();
+
                                 return Container(
                                   padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
@@ -661,7 +701,7 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
                                           ),
                                           const SizedBox(width: 6),
                                           Text(
-                                            'Archivos / Scripts a subir (${artifacts.length}):',
+                                            'Archivos / Scripts a subir (${allArtifacts.length}):',
                                             style: TextStyle(
                                               fontWeight: FontWeight.bold,
                                               fontSize: 12,
@@ -672,7 +712,7 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
                                           ),
                                           const Spacer(),
                                           Text(
-                                            'Haz clic para inspeccionar/editar',
+                                            'Clic para inspeccionar/editar',
                                             style: TextStyle(
                                               fontSize: 10.5,
                                               color: isDark
@@ -682,8 +722,65 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
                                           ),
                                         ],
                                       ),
+                                      if (categories.length > 1) ...[
+                                        const SizedBox(height: 8),
+                                        SingleChildScrollView(
+                                          scrollDirection: Axis.horizontal,
+                                          child: Row(
+                                            children: [
+                                              ChoiceChip(
+                                                label: Text(
+                                                  'Todos (${allArtifacts.length})',
+                                                  style: const TextStyle(
+                                                    fontSize: 10.5,
+                                                  ),
+                                                ),
+                                                selected:
+                                                    _selectedCategoryFilter ==
+                                                    null,
+                                                onSelected: (_) {
+                                                  setState(() {
+                                                    _selectedCategoryFilter =
+                                                        null;
+                                                  });
+                                                },
+                                                visualDensity:
+                                                    VisualDensity.compact,
+                                                materialTapTargetSize:
+                                                    MaterialTapTargetSize
+                                                        .shrinkWrap,
+                                              ),
+                                              for (final cat in categories) ...[
+                                                const SizedBox(width: 6),
+                                                ChoiceChip(
+                                                  label: Text(
+                                                    '$cat (${allArtifacts.where((a) => a.categoria == cat).length})',
+                                                    style: const TextStyle(
+                                                      fontSize: 10.5,
+                                                    ),
+                                                  ),
+                                                  selected:
+                                                      _selectedCategoryFilter ==
+                                                      cat,
+                                                  onSelected: (_) {
+                                                    setState(() {
+                                                      _selectedCategoryFilter =
+                                                          cat;
+                                                    });
+                                                  },
+                                                  visualDensity:
+                                                      VisualDensity.compact,
+                                                  materialTapTargetSize:
+                                                      MaterialTapTargetSize
+                                                          .shrinkWrap,
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                        ),
+                                      ],
                                       const SizedBox(height: 8),
-                                      if (artifacts.isEmpty)
+                                      if (allArtifacts.isEmpty)
                                         Padding(
                                           padding: const EdgeInsets.symmetric(
                                             vertical: 8,
@@ -706,7 +803,7 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
                                           ),
                                           child: ListView.separated(
                                             shrinkWrap: true,
-                                            itemCount: artifacts.length,
+                                            itemCount: filteredArtifacts.length,
                                             separatorBuilder: (_, _) => Divider(
                                               height: 1,
                                               color: borderColor.withValues(
@@ -714,7 +811,8 @@ class _PushHotfixDialogState extends State<PushHotfixDialog> {
                                               ),
                                             ),
                                             itemBuilder: (context, idx) {
-                                              final art = artifacts[idx];
+                                              final art =
+                                                  filteredArtifacts[idx];
                                               return InkWell(
                                                 onTap: () =>
                                                     _openArtifactInEditor(art),

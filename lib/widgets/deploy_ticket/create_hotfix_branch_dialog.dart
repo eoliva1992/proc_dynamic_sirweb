@@ -130,6 +130,24 @@ class _CreateHotfixBranchDialogState extends State<CreateHotfixBranchDialog> {
       return;
     }
 
+    // Validación preventiva de permisos de escritura en la carpeta del repositorio
+    try {
+      final testFile = File(
+        '$localPath${Platform.pathSeparator}.git_write_test_${DateTime.now().millisecondsSinceEpoch}',
+      );
+      testFile.writeAsStringSync('test');
+      testFile.deleteSync();
+    } catch (e) {
+      AppToast.error(
+        'Sin permisos de escritura en la carpeta local del proyecto',
+      );
+      setState(() {
+        _errorMessage =
+            'No hay permisos de escritura en la carpeta seleccionada:\n$localPath\n\nDetalle: $e';
+      });
+      return;
+    }
+
     setState(() {
       _submitting = true;
       _errorMessage = null;
@@ -322,9 +340,9 @@ class _CreateHotfixBranchDialogState extends State<CreateHotfixBranchDialog> {
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? 0.55 : 0.22),
-                blurRadius: 32,
-                offset: const Offset(0, 12),
+                color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.12),
+                blurRadius: 28,
+                offset: const Offset(0, 10),
               ),
             ],
           ),

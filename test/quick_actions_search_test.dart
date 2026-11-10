@@ -37,7 +37,7 @@ void main() {
 
       // Verify presence of section title and action buttons
       expect(find.text('Acceso rápido'), findsOneWidget);
-      expect(find.text('Doc. en blanco'), findsOneWidget);
+      expect(find.text('Nuevo documento'), findsOneWidget);
       expect(find.text('Editor de SQL'), findsOneWidget);
       expect(find.text('Transferencia'), findsOneWidget);
       expect(find.text('Ticket despliegue'), findsOneWidget);
@@ -45,7 +45,7 @@ void main() {
       expect(find.text('Comparar'), findsOneWidget);
 
       // Tap each action button
-      await tester.tap(find.text('Doc. en blanco'));
+      await tester.tap(find.text('Nuevo documento'));
       await tester.pump();
       expect(blankClicked, isTrue);
 
@@ -70,4 +70,33 @@ void main() {
       expect(compareClicked, isTrue);
     },
   );
+
+  testWidgets('ProcedureList uses onOpenNewDocument callback when provided', (
+    tester,
+  ) async {
+    final state = SearchTabState();
+    bool newDocClicked = false;
+    bool blankClicked = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ProcedureList(
+            tabState: state,
+            onOpenNewDocument: () => newDocClicked = true,
+            onOpenBlank: () => blankClicked = true,
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    expect(find.text('Nuevo documento'), findsOneWidget);
+
+    await tester.tap(find.text('Nuevo documento'));
+    await tester.pump();
+
+    expect(newDocClicked, isTrue);
+    expect(blankClicked, isFalse);
+  });
 }

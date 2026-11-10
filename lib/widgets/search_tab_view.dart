@@ -13,6 +13,7 @@ class SearchTabView extends StatelessWidget {
   final ValueChanged<Procedimiento>? onSelect;
   final ValueChanged<Procedimiento>? onOpenInNewTab;
   final VoidCallback? onOpenBlank;
+  final VoidCallback? onOpenNewDocument;
   final VoidCallback? onOpenSqlExecutor;
   final VoidCallback? onBatchTransfer;
   final VoidCallback? onDeployTickets;
@@ -28,6 +29,7 @@ class SearchTabView extends StatelessWidget {
     this.onSelect,
     this.onOpenInNewTab,
     this.onOpenBlank,
+    this.onOpenNewDocument,
     this.onOpenSqlExecutor,
     this.onBatchTransfer,
     this.onDeployTickets,
@@ -51,6 +53,7 @@ class SearchTabView extends StatelessWidget {
             onSelect: onSelect,
             onOpenInNewTab: onOpenInNewTab,
             onOpenBlank: onOpenBlank,
+            onOpenNewDocument: onOpenNewDocument,
             onOpenSqlExecutor: onOpenSqlExecutor,
             onBatchTransfer: onBatchTransfer,
             onDeployTickets: onDeployTickets,

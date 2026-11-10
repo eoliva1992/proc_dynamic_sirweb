@@ -58,6 +58,7 @@ class SqlExecutorToolbar extends StatelessWidget {
   final bool hasPendingChanges;
   final VoidCallback? onCommit;
   final VoidCallback? onRollback;
+  final VoidCallback? onResumeSnippet;
   final DateTime? runStartedAt;
   final bool hasUnexecutedChanges;
   final int timeoutSeconds;
@@ -87,6 +88,7 @@ class SqlExecutorToolbar extends StatelessWidget {
     this.hasPendingChanges = false,
     this.onCommit,
     this.onRollback,
+    this.onResumeSnippet,
     this.runStartedAt,
     this.hasUnexecutedChanges = false,
     this.timeoutSeconds = 60,
@@ -182,6 +184,14 @@ class SqlExecutorToolbar extends StatelessWidget {
               tooltip: 'Plantillas de código predefinidas',
               onPressed: () => showPlantillasBrowser(context),
             ),
+            if (onResumeSnippet != null)
+              SqlToolBtn(
+                icon: Icons.input_rounded,
+                tooltip:
+                    'Retomar snippet interactivo / Siguiente parámetro (Ctrl + J)',
+                color: cs.primary,
+                onPressed: onResumeSnippet,
+              ),
             SqlToolBtn(
               icon: Icons.keyboard_outlined,
               tooltip: 'Atajos de teclado',
@@ -1079,6 +1089,8 @@ const List<(String, String)> _kSqlShortcuts = [
   ('Ctrl + Enter', 'Ejecutar sentencia actual / selección'),
   ('F5', 'Ejecutar todo el script'),
   ('Escape', 'Detener / cancelar ejecución activa'),
+  ('Ctrl + J', 'Retomar snippet interactivo / siguiente parámetro'),
+  ('Ctrl + Shift + J', 'Parámetro anterior del snippet interactivo'),
   ('Ctrl + S', 'Guardar archivo local'),
   ('Ctrl + Shift + S', 'Guardar archivo local como…'),
   ('Ctrl + F', 'Buscar en el documento'),

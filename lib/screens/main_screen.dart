@@ -25,6 +25,7 @@ import '../widgets/connection_alert.dart';
 import '../widgets/connection_indicator.dart';
 import '../widgets/constellation_background.dart';
 import '../widgets/_editor_themes.dart';
+import '../widgets/new_object_dialog.dart';
 import '../widgets/new_procedure_dialog.dart';
 import '../widgets/notes/note_editor_window.dart';
 import '../widgets/notes/notes_manager_overlay.dart';
@@ -1008,11 +1009,18 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     unawaited(procedimientosProvider.seleccionar(stub));
   }
 
-  /// Abre el Ejecutor SQL/PL-SQL en un tab nuevo.
-  void _addSqlExecutorTab() {
+  /// Abre el Ejecutor SQL/PL-SQL en un tab nuevo opcionalmente con código inicial, snippet interactivo y ambiente.
+  void _addSqlExecutorTab({
+    String? initialCode,
+    String? initialSnippet,
+    String? ambiente,
+  }) {
     if (!_ensureTabSlot()) return;
-    final tab = AppTab(ambiente: _tabs[_activeTab].ambiente)
-      ..isSqlExecutor = true;
+    final targetAmbiente = ambiente ?? _tabs[_activeTab].ambiente;
+    final tab = AppTab(ambiente: targetAmbiente)
+      ..isSqlExecutor = true
+      ..currentEditorCode = initialCode
+      ..initialSnippet = initialSnippet;
     setState(() {
       _tabs.add(tab);
       _activeTab = _tabs.length - 1;
@@ -1020,6 +1028,43 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     _markTabLive(_activeTab);
     _scheduleSaveSession();
     // No sync provider — independiente del editor de procedimientos.
+  }
+
+  /// Abre el asistente unificado para crear nuevos objetos Oracle/SQL.
+  Future<void> _openNewObjectWizard({NewObjectType? initialType}) async {
+    final ambiente = _tabs[_activeTab].ambiente;
+    if (initialType == NewObjectType.dynamicProcedure) {
+      procedimientosProvider.setAmbiente(ambiente);
+      unawaited(_showNewProcedureDialog(context));
+      return;
+    }
+    final result = await showNewObjectDialog(
+      context,
+      ambiente: ambiente,
+      initialType: initialType,
+    );
+    if (!mounted || result == null) return;
+
+    switch (result) {
+      case NewDynamicProcedureAction(:final ambiente):
+        procedimientosProvider.setAmbiente(ambiente);
+        unawaited(_showNewProcedureDialog(context));
+        break;
+      case OpenBlankSqlSheetAction(:final ambiente):
+        _addSqlExecutorTab(ambiente: ambiente);
+        break;
+      case OpenInSqlEditorAction(
+        :final code,
+        :final ambiente,
+        :final snippetCode,
+      ):
+        _addSqlExecutorTab(
+          initialCode: code,
+          initialSnippet: snippetCode,
+          ambiente: ambiente,
+        );
+        break;
+    }
   }
 
   void _onTabAmbienteChanged(AppTab tab, String newAmbiente) {
@@ -1551,10 +1596,14 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   Widget _buildTabContent(AppTab tab) {
     // ── Ejecutor SQL/PL-SQL ──────────────────────────────────────────────────
     if (tab.inSqlExecutorMode) {
+      final initialSnippet = tab.initialSnippet;
+      // Consumir el snippet para que no se re-dispare en remounts posteriores
+      tab.initialSnippet = null;
       return SqlExecutorPage(
         key: ValueKey('sql_${tab.tabId}'),
         ambiente: tab.ambiente,
         initialSql: tab.currentEditorCode ?? '',
+        initialSnippet: initialSnippet,
         initialFilePath: tab.localFilePath,
         onCodeChanged: (code) {
           tab.currentEditorCode = code;
@@ -1617,6 +1666,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         onAmbienteChanged: (v) => _onTabAmbienteChanged(tab, v),
         onNewProcedure: () => _showNewProcedureDialog(context),
         onOpenBlank: () => _openBlankDocumentTab(extension: 'txt'),
+        onOpenNewDocument: () => unawaited(_openNewObjectWizard()),
         onOpenSqlExecutor: _addSqlExecutorTab,
         onBatchTransfer: () =>
             showBatchTransferWindow(context, ambiente: tab.ambiente),
@@ -2481,9 +2531,18 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         _DocumentActionMenu(
           fgColor: barFg,
           fgSoftColor: barFgSoft,
+          onOpenWizard: _openNewObjectWizard,
+          onOpenDynamicProcedure: () => _showNewProcedureDialog(context),
           onOpenBlank: (ext) => _openBlankDocumentTab(extension: ext),
           onOpenSqlSheet: _addSqlExecutorTab,
           onOpenFile: () => unawaited(_pickAndOpenLocalFile()),
+        ),
+        _AppBarActionBtn(
+          tooltip: 'Nuevo objeto o plantilla Oracle / SQL',
+          icon: Icons.library_add_outlined,
+          fgColor: barFg,
+          fgSoftColor: barFgSoft,
+          onPressed: () => unawaited(_openNewObjectWizard()),
         ),
         _AppBarActionBtn(
           tooltip: 'Ejecutar objeto PL/SQL',
@@ -3006,16 +3065,22 @@ enum _EditorAction { pasteDiff, transfer, compare, backup, restore }
 
 class _MenuRow extends StatelessWidget {
   final IconData icon;
+  final Color? iconColor;
   final String label;
   final String? subtitle;
-  const _MenuRow({required this.icon, required this.label, this.subtitle});
+  const _MenuRow({
+    required this.icon,
+    this.iconColor,
+    required this.label,
+    this.subtitle,
+  });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Row(
       children: [
-        Icon(icon, size: 15, color: cs.onSurfaceVariant),
+        Icon(icon, size: 16, color: iconColor ?? cs.onSurfaceVariant),
         const SizedBox(width: 10),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -3034,11 +3099,25 @@ class _MenuRow extends StatelessWidget {
   }
 }
 
-enum _DocMenuAction { blankText, blankYaml, sqlSheet, openLocal }
+enum _DocMenuAction {
+  wizardAll,
+  newFunction,
+  newProcedure,
+  newDynamicProcedure,
+  newPackage,
+  newTrigger,
+  newType,
+  sqlSheet,
+  blankText,
+  blankYaml,
+  openLocal,
+}
 
 class _DocumentActionMenu extends StatelessWidget {
   final Color fgColor;
   final Color fgSoftColor;
+  final void Function({NewObjectType? initialType}) onOpenWizard;
+  final VoidCallback onOpenDynamicProcedure;
   final void Function(String ext) onOpenBlank;
   final VoidCallback onOpenSqlSheet;
   final VoidCallback onOpenFile;
@@ -3046,6 +3125,8 @@ class _DocumentActionMenu extends StatelessWidget {
   const _DocumentActionMenu({
     required this.fgColor,
     required this.fgSoftColor,
+    required this.onOpenWizard,
+    required this.onOpenDynamicProcedure,
     required this.onOpenBlank,
     required this.onOpenSqlSheet,
     required this.onOpenFile,
@@ -3055,7 +3136,7 @@ class _DocumentActionMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return _AppBarWrapper(
       child: PopupMenuButton<_DocMenuAction>(
-        tooltip: 'Nuevo documento / Abrir archivo local (Ctrl+O)',
+        tooltip: 'Nuevo documento / objeto (Ctrl+O para abrir)',
         offset: const Offset(0, 38),
         icon: Icon(Icons.note_add_outlined, size: 18, color: fgSoftColor),
         shape: RoundedRectangleBorder(
@@ -3066,14 +3147,35 @@ class _DocumentActionMenu extends StatelessWidget {
         ),
         onSelected: (action) {
           switch (action) {
+            case _DocMenuAction.wizardAll:
+              onOpenWizard();
+              break;
+            case _DocMenuAction.newFunction:
+              onOpenWizard(initialType: NewObjectType.function);
+              break;
+            case _DocMenuAction.newProcedure:
+              onOpenWizard(initialType: NewObjectType.procedure);
+              break;
+            case _DocMenuAction.newDynamicProcedure:
+              onOpenDynamicProcedure();
+              break;
+            case _DocMenuAction.newPackage:
+              onOpenWizard(initialType: NewObjectType.package);
+              break;
+            case _DocMenuAction.newTrigger:
+              onOpenWizard(initialType: NewObjectType.trigger);
+              break;
+            case _DocMenuAction.newType:
+              onOpenWizard(initialType: NewObjectType.type);
+              break;
+            case _DocMenuAction.sqlSheet:
+              onOpenSqlSheet();
+              break;
             case _DocMenuAction.blankText:
               onOpenBlank('txt');
               break;
             case _DocMenuAction.blankYaml:
               onOpenBlank('yaml');
-              break;
-            case _DocMenuAction.sqlSheet:
-              onOpenSqlSheet();
               break;
             case _DocMenuAction.openLocal:
               onOpenFile();
@@ -3082,27 +3184,83 @@ class _DocumentActionMenu extends StatelessWidget {
         },
         itemBuilder: (ctx) => [
           const PopupMenuItem(
-            value: _DocMenuAction.blankText,
+            value: _DocMenuAction.newFunction,
             child: _MenuRow(
-              icon: Icons.description_outlined,
-              label: 'Documento en blanco (texto plano)',
-              subtitle: 'Editor rápido para notas o borradores',
+              icon: Icons.functions_rounded,
+              iconColor: Color(0xFF5C2D91),
+              label: 'Nueva Función',
+              subtitle: 'Función PL/SQL escalar o pipelined',
             ),
           ),
           const PopupMenuItem(
-            value: _DocMenuAction.blankYaml,
+            value: _DocMenuAction.newProcedure,
             child: _MenuRow(
-              icon: Icons.integration_instructions_outlined,
-              label: 'Documento en blanco (.yaml)',
-              subtitle: 'Resaltado de sintaxis YAML / YML',
+              icon: Icons.terminal_rounded,
+              iconColor: Color(0xFF107C41),
+              label: 'Nuevo Procedimiento',
+              subtitle: 'Procedimiento almacenado estándar',
+            ),
+          ),
+          const PopupMenuItem(
+            value: _DocMenuAction.newDynamicProcedure,
+            child: _MenuRow(
+              icon: Icons.flash_on_rounded,
+              iconColor: Color(0xFF0078D4),
+              label: 'Nuevo Procedimiento Dinámico',
+              subtitle: 'Regla de negocio o cálculo SirWeb',
+            ),
+          ),
+          const PopupMenuItem(
+            value: _DocMenuAction.newPackage,
+            child: _MenuRow(
+              icon: Icons.folder_zip_rounded,
+              iconColor: Color(0xFF8E44AD),
+              label: 'Nuevo Package',
+              subtitle: 'Especificación y cuerpo de paquete',
+            ),
+          ),
+          const PopupMenuItem(
+            value: _DocMenuAction.newTrigger,
+            child: _MenuRow(
+              icon: Icons.bolt_rounded,
+              iconColor: Color(0xFFFF8C00),
+              label: 'Nuevo Trigger',
+              subtitle: 'Disparador de eventos en tabla',
+            ),
+          ),
+          const PopupMenuItem(
+            value: _DocMenuAction.newType,
+            child: _MenuRow(
+              icon: Icons.category_rounded,
+              iconColor: Color(0xFF0288D1),
+              label: 'Nuevo Type',
+              subtitle: 'Tipo objeto estructurado Oracle',
             ),
           ),
           const PopupMenuItem(
             value: _DocMenuAction.sqlSheet,
             child: _MenuRow(
               icon: Icons.dataset_outlined,
-              label: 'Hoja SQL / PL-SQL limpia',
-              subtitle: 'Ejecutor de consultas y sentencias Oracle',
+              iconColor: Color(0xFF607D8B),
+              label: 'Documento en blanco (SQL)',
+              subtitle: 'Hoja limpia para consultas y scripts',
+            ),
+          ),
+          const PopupMenuDivider(),
+          const PopupMenuItem(
+            value: _DocMenuAction.blankText,
+            child: _MenuRow(
+              icon: Icons.description_outlined,
+              label: 'Documento de texto plano (.txt)',
+              subtitle: 'Notas rápidas o borradores temporales',
+            ),
+          ),
+          const PopupMenuItem(
+            value: _DocMenuAction.blankYaml,
+            child: _MenuRow(
+              icon: Icons.integration_instructions_outlined,
+              label: 'Documento YAML (.yaml)',
+              subtitle: 'Configuraciones y especificaciones',
             ),
           ),
           const PopupMenuDivider(),

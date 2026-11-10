@@ -257,9 +257,9 @@ class _GitRepositoryConfigDialogState extends State<GitRepositoryConfigDialog> {
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? 0.55 : 0.22),
-                blurRadius: 32,
-                offset: const Offset(0, 12),
+                color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.12),
+                blurRadius: 28,
+                offset: const Offset(0, 10),
               ),
             ],
           ),

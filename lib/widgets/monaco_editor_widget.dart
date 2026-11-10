@@ -20,6 +20,12 @@ import 'code_editor_panel.dart'
         showEjecutarLlamadaWindow,
         showEjecutarProcedimientoWindow;
 import 'definition_navigation.dart';
+import 'monaco_snippets.dart'
+    show
+        buildMonacoPasteJs,
+        insertMonacoSnippet,
+        installMonacoSnippetNavigator,
+        jumpSnippetPlaceholder;
 
 // Cached per-ambiente so jsonEncode doesn't run on every editor open
 final Map<String, String> _schemaPayloadCache = {};
@@ -403,19 +409,40 @@ class MonacoEditorController {
     });
   }
 
+  /// Inserta un snippet con sintaxis interactiva de Monaco (ej. `${1:nombre}`, `$0`)
+  /// activando el controlador de snippets nativo y navegación con Tab.
+  void insertSnippet(String snippetText) {
+    _enqueue((ctrl) async {
+      await insertMonacoSnippet(ctrl, snippetText);
+    });
+  }
+
   void revealLine(int line) {
     _enqueue(
       (ctrl) async => ctrl.revealPosition(fm.Position(line: line, column: 1)),
     );
   }
 
-  /// Coloca el foco y el cursor dentro del editor Monaco en el WebView.
+  /// Coloca el foco y el cursor dentro del editor Monaco en el WebView y
+  /// transfiere el foco nativo de Windows (Win32 HWND) al control WebView2.
   void focus() {
     _enqueue((ctrl) async {
+      try {
+        await ctrl.requestFocus(intent: fm.MonacoFocusIntent.user);
+      } catch (_) {}
       await ctrl.runJavaScript(
         'try {'
+        '  window.focus();'
+        '  if (document.body) document.body.focus();'
+        '  if (window.flutterMonaco && window.flutterMonaco.forceFocus) {'
+        '    try { window.flutterMonaco.forceFocus(); } catch(_) {}'
+        '  }'
         '  if (window.editor) {'
         '    window.editor.focus();'
+        '  }'
+        '  var ta = document.querySelector("textarea.inputarea, .monaco-editor textarea, [contenteditable=true]");'
+        '  if (ta) {'
+        '    try { ta.focus(); } catch(_) {}'
         '  }'
         '} catch(_) {}',
       );
@@ -673,6 +700,7 @@ typedef MonacoController = MonacoEditorController;
 class MonacoEditorWidget extends StatefulWidget {
   final MonacoEditorController controller;
   final String initialCode;
+  final String? initialSnippet;
   final String language; // 'plsql' | 'javascript'
   final bool darkTheme;
   final String ambiente; // 'Desa' | 'Demo' | 'QA' | 'Prod'
@@ -689,6 +717,7 @@ class MonacoEditorWidget extends StatefulWidget {
     super.key,
     required this.controller,
     required this.initialCode,
+    this.initialSnippet,
     this.language = 'plsql',
     this.darkTheme = true,
     this.ambiente = 'Desa',
@@ -1092,43 +1121,7 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
     final text = data?.text;
     if (text == null || text.isEmpty) return;
 
-    final literal = jsonEncode(text);
-
-    await ctrl.evaluateJavaScript<String>(
-      '(()=>{'
-      '  try {'
-      '    const t = $literal;'
-      '    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
-      '    if (aux) {'
-      '      var start = aux.selectionStart != null ? aux.selectionStart : aux.value.length;'
-      '      var end = aux.selectionEnd != null ? aux.selectionEnd : aux.value.length;'
-      '      var val = aux.value || "";'
-      '      aux.value = val.substring(0, start) + t + val.substring(end);'
-      '      aux.selectionStart = aux.selectionEnd = start + t.length;'
-      '      aux.focus();'
-      '      aux.dispatchEvent(new Event("input", { bubbles: true }));'
-      '      return "ok";'
-      '    }'
-      '    const ed = window.editor;'
-      '    if (!ed) return "err";'
-      '    ed.focus();'
-      '    let sels = ed.getSelections();'
-      '    if (!sels || sels.length === 0) {'
-      '      const s = ed.getSelection();'
-      '      sels = s ? [s] : [];'
-      '    }'
-      '    if (sels.length === 0) return "err";'
-      '    const lines = t.split(/\\r?\\n/);'
-      '    const matchLines = sels.length > 1 && lines.length === sels.length;'
-      '    ed.pushUndoStop();'
-      '    ed.executeEdits("flutter-paste", sels.map(function(s, idx){'
-      '      return { range: s, text: matchLines ? lines[idx] : t, forceMoveMarkers: true };'
-      '    }));'
-      '    ed.pushUndoStop();'
-      '    return "ok";'
-      '  } catch(e) { return "err"; }'
-      '})()',
-    );
+    await ctrl.evaluateJavaScript<String>(buildMonacoPasteJs(text));
   }
 
   void _showFlutterContextMenu(Offset localPos, String word) {
@@ -1440,7 +1433,7 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
         'try { window.editor.updateOptions({'
         '  cursorStyle: "${editorCursorStore.cursorStyleId}",'
         '  acceptSuggestionOnEnter: "off",'
-        '  tabCompletion: "on",'
+        '  tabCompletion: "onlySnippets",'
         '  wordBasedSuggestions: "currentDocument",'
         '  quickSuggestions: { other: true, comments: false, strings: false }'
         '}); } catch(e) {}',
@@ -1856,17 +1849,94 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
           .then((action) => _registeredActions.add(action)),
     );
 
-    // Autofocus opcional al terminar de inicializar el editor
+    // Navegación de placeholders de snippets (Ctrl+J: siguiente / retomar, Ctrl+Shift+J: anterior)
+    unawaited(
+      ctrl
+          .addAction(
+            const fm.MonacoActionDescriptor(
+              id: fm.MonacoAction('custom.snippet.nav_next'),
+              label: 'Siguiente parámetro / Retomar navegación',
+              keybindings: [
+                fm.MonacoKeybinding(ctrlCmd: true, key: fm.MonacoKey.keyJ),
+              ],
+            ),
+            () async => jumpSnippetPlaceholder(ctrl, forward: true),
+          )
+          .then((action) => _registeredActions.add(action)),
+    );
+    unawaited(
+      ctrl
+          .addAction(
+            const fm.MonacoActionDescriptor(
+              id: fm.MonacoAction('custom.snippet.nav_prev'),
+              label: 'Parámetro anterior',
+              keybindings: [
+                fm.MonacoKeybinding(
+                  ctrlCmd: true,
+                  shift: true,
+                  key: fm.MonacoKey.keyJ,
+                ),
+              ],
+            ),
+            () async => jumpSnippetPlaceholder(ctrl, forward: false),
+          )
+          .then((action) => _registeredActions.add(action)),
+    );
+
+    // Instalar navegador resiliente de snippets en Monaco
+    unawaited(installMonacoSnippetNavigator(ctrl));
+
+    final initialSnippet = widget.initialSnippet;
+    final hasInitialSnippet =
+        initialSnippet != null && initialSnippet.trim().isNotEmpty;
+
+    // Autofocus al terminar de inicializar el editor
     if (widget.autofocus) {
+      unawaited(ctrl.requestFocus(intent: fm.MonacoFocusIntent.user));
       widget.controller.focus();
-      // Pequeño reintento defensivo para asegurar que WebView2 en Windows
+      // Reintento defensivo para asegurar que WebView2 en Windows
       // termine de transferir el foco al input nativo de Monaco.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         Future.delayed(const Duration(milliseconds: 60), () {
           if (!mounted) return;
+          unawaited(ctrl.requestFocus(intent: fm.MonacoFocusIntent.user));
           widget.controller.focus();
         });
+      });
+    }
+
+    // Inserción interactiva de snippet si se proveyó uno inicial
+    if (hasInitialSnippet) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(() async {
+          // Esperar un breve margen para que el WebView2 y el canvas de Monaco
+          // estabilicen el árbol DOM y el foco nativo en Windows antes de insertar.
+          await Future<void>.delayed(const Duration(milliseconds: 120));
+          if (!mounted) return;
+          try {
+            // Asegurar que el contenido inicial no interfiera y posicionar en 1,1
+            await ctrl.runJavaScript(
+              'try { window.editor.setValue(""); window.editor.setPosition({lineNumber: 1, column: 1}); window.editor.focus(); } catch(_) {}',
+            );
+            await insertMonacoSnippet(ctrl, initialSnippet);
+            // Asegurar foco posterior a la inserción en el editor nativo de Monaco
+            await ctrl.requestFocus(intent: fm.MonacoFocusIntent.user);
+            widget.controller.focus();
+            // Refuerzo en serie para garantizar foco nativo en WebView2 en Windows
+            await Future<void>.delayed(const Duration(milliseconds: 80));
+            if (mounted) {
+              await ctrl.requestFocus(intent: fm.MonacoFocusIntent.user);
+              widget.controller.focus();
+            }
+            await Future<void>.delayed(const Duration(milliseconds: 150));
+            if (mounted) {
+              await ctrl.requestFocus(intent: fm.MonacoFocusIntent.user);
+              widget.controller.focus();
+            }
+          } catch (_) {}
+        }());
       });
     }
   }
@@ -1913,6 +1983,7 @@ class _MonacoEditorWidgetState extends State<MonacoEditorWidget> {
     return KeyedSubtree(
       key: _editorAreaKey,
       child: fm.MonacoEditor(
+        autofocus: widget.autofocus,
         initialText: widget.initialCode,
         options: _editorOptions,
         page: const fm.MonacoPageConfig(customCss: _kEditorCustomCss),

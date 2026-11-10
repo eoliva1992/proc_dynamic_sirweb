@@ -399,44 +399,8 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     final text = data?.text;
     if (text == null || text.isEmpty) return;
 
-    final literal = jsonEncode(text);
-
     final result = await _withCtrl(
-      (ctrl) => ctrl.evaluateJavaScript<String>(
-        '(()=>{'
-        '  try {'
-        '    const t = $literal;'
-        '    var aux = window.__fmAuxInput ? window.__fmAuxInput() : null;'
-        '    if (aux) {'
-        '      var start = aux.selectionStart != null ? aux.selectionStart : aux.value.length;'
-        '      var end = aux.selectionEnd != null ? aux.selectionEnd : aux.value.length;'
-        '      var val = aux.value || "";'
-        '      aux.value = val.substring(0, start) + t + val.substring(end);'
-        '      aux.selectionStart = aux.selectionEnd = start + t.length;'
-        '      aux.focus();'
-        '      aux.dispatchEvent(new Event("input", { bubbles: true }));'
-        '      return "ok";'
-        '    }'
-        '    const ed = window.editor;'
-        '    if (!ed) return "err";'
-        '    ed.focus();'
-        '    let sels = ed.getSelections();'
-        '    if (!sels || sels.length === 0) {'
-        '      const s = ed.getSelection();'
-        '      sels = s ? [s] : [];'
-        '    }'
-        '    if (sels.length === 0) return "err";'
-        '    const lines = t.split(/\\r?\\n/);'
-        '    const matchLines = sels.length > 1 && lines.length === sels.length;'
-        '    ed.pushUndoStop();'
-        '    ed.executeEdits("flutter-paste", sels.map(function(s, idx){'
-        '      return { range: s, text: matchLines ? lines[idx] : t, forceMoveMarkers: true };'
-        '    }));'
-        '    ed.pushUndoStop();'
-        '    return "ok";'
-        '  } catch(e) { return "err"; }'
-        '})()',
-      ),
+      (ctrl) => ctrl.evaluateJavaScript<String>(buildMonacoPasteJs(text)),
     );
 
     if (result == 'ok') return;
@@ -716,6 +680,7 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
     _loadSchema(ctrl);
     _registerSchemaCompletions(ctrl);
     _registerSnippetsCompletions();
+    unawaited(installMonacoSnippetNavigator(ctrl));
 
     await ctrl.runJavaScript(
       'try { window.flutterMonaco.updateOptions({'
@@ -906,6 +871,36 @@ class _MonacoSourceTabState extends State<_MonacoSourceTab>
           ],
         ),
         () async => _pasteFromClipboard(),
+      ),
+    );
+
+    actionFutures.add(
+      ctrl.addAction(
+        const fm.MonacoActionDescriptor(
+          id: fm.MonacoAction('custom.snippet.nav_next'),
+          label: 'Siguiente parámetro / Retomar navegación',
+          keybindings: [
+            fm.MonacoKeybinding(ctrlCmd: true, key: fm.MonacoKey.keyJ),
+          ],
+        ),
+        () async => jumpSnippetPlaceholder(ctrl, forward: true),
+      ),
+    );
+
+    actionFutures.add(
+      ctrl.addAction(
+        const fm.MonacoActionDescriptor(
+          id: fm.MonacoAction('custom.snippet.nav_prev'),
+          label: 'Parámetro anterior',
+          keybindings: [
+            fm.MonacoKeybinding(
+              ctrlCmd: true,
+              shift: true,
+              key: fm.MonacoKey.keyJ,
+            ),
+          ],
+        ),
+        () async => jumpSnippetPlaceholder(ctrl, forward: false),
       ),
     );
 

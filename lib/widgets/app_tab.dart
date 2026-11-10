@@ -18,6 +18,9 @@ class AppTab {
   bool isDirty = false;
   String? currentEditorCode;
 
+  /// Snippet interactivo a insertar en Monaco cuando se abre una plantilla interactiva.
+  String? initialSnippet;
+
   /// Ruta del archivo en disco cuando este tab proviene de "Abrir archivo".
   /// Si no es `null`, guardar escribe al disco en vez de persistir en BD.
   String? localFilePath;

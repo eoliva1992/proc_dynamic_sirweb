@@ -12,6 +12,7 @@ class ProcedureList extends StatefulWidget {
   final ValueChanged<Procedimiento>? onOpenInNewTab;
   final VoidCallback? onClearFilters;
   final VoidCallback? onOpenBlank;
+  final VoidCallback? onOpenNewDocument;
   final VoidCallback? onOpenSqlExecutor;
   final VoidCallback? onBatchTransfer;
   final VoidCallback? onDeployTickets;
@@ -25,6 +26,7 @@ class ProcedureList extends StatefulWidget {
     this.onOpenInNewTab,
     this.onClearFilters,
     this.onOpenBlank,
+    this.onOpenNewDocument,
     this.onOpenSqlExecutor,
     this.onBatchTransfer,
     this.onDeployTickets,
@@ -521,14 +523,15 @@ class _ProcedureListState extends State<ProcedureList>
 
   Widget _buildQuickActionButtons(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final onNewDocTap = widget.onOpenNewDocument ?? widget.onOpenBlank;
     final actions = [
-      if (widget.onOpenBlank != null)
+      if (onNewDocTap != null)
         _QuickActionItem(
-          label: 'Doc. en blanco',
-          tooltip: 'Abrir nuevo documento en blanco (Ctrl+Shift+O)',
-          icon: Icons.note_add_outlined,
+          label: 'Nuevo documento',
+          tooltip: 'Crear nuevo objeto o documento (Ctrl+Shift+O)',
+          icon: Icons.library_add_outlined,
           color: const Color(0xFF0078D4),
-          onTap: widget.onOpenBlank!,
+          onTap: onNewDocTap,
         ),
       if (widget.onOpenSqlExecutor != null)
         _QuickActionItem(
